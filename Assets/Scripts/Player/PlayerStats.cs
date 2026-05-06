@@ -8,8 +8,16 @@ public class PlayerStatus : MonoBehaviour
     private float currentWater = 0f;
     private bool inWater = false;
 
+    private PlayerMovement movement;
+
+    void Start()
+    {
+        movement = GetComponent<PlayerMovement>();
+    }
+
     public void SetInWater(bool value) => inWater = value;
     public float GetWaterPercent() => currentWater / maxWater;
+    public bool IsSprinting() => movement != null && movement.IsSprinting();
 
     void Update()
     {

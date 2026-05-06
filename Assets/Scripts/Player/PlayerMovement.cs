@@ -12,6 +12,7 @@ public class PlayerMovement : MonoBehaviour
     public float staminaDrainRate = 20f;
     public float staminaRegenRate = 10f;
     public float staminaRegenDelay = 1.5f;
+    public bool IsSprinting() => playerInput.actions["Sprint"].IsPressed() && currentStamina > 0f;
 
     private Rigidbody rb;
     private PlayerInput playerInput;
