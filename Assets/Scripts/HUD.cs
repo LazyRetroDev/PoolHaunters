@@ -11,7 +11,7 @@ public class HUD : MonoBehaviour
     public PlayerInventory inventory;
 
     public Image[] itemSlots;        
-    public Image[] slotHighlights;   // optional highlight border
+    public Image[] slotHighlights;
     public Slider waterBar;
     public PlayerStatus playerStatus;
 
@@ -54,7 +54,7 @@ public class HUD : MonoBehaviour
             else
             {
                 itemSlots[i].sprite = null;
-                itemSlots[i].color = new Color(1f, 1f, 1f, 0f); // transparent,
+                itemSlots[i].color = new Color(1f, 1f, 1f, 0f);
             }
         }
     }

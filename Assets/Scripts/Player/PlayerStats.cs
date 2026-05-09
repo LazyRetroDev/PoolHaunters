@@ -24,6 +24,7 @@ public class PlayerStatus : MonoBehaviour
     public void SetInWater(bool value) => inWater = value;
     public float GetCurrentHealth() => currentHealth;
     public float GetMaxHealth() => maxHealth;
+    public float GetCurrentWater() => currentWater;
     public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
     public float GetWaterPercent() => currentWater / maxWater;
     public bool IsSprinting() => movement != null && movement.IsSprinting();
@@ -43,5 +44,14 @@ public class PlayerStatus : MonoBehaviour
 
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
+
+    public bool ConsumeWater(float amount)
+    {
+        if (amount <= 0f || currentWater <= 0f) return false;
+
+        currentWater -= amount;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+        return true;
     }
 }
