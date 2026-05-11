@@ -14,6 +14,7 @@ public class PlayerStatus : MonoBehaviour
     private bool inWater = false;
 
     private PlayerMovement movement;
+    public bool IsMoving() => movement != null && movement.IsMoving();
 
     void Start()
     {

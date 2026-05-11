@@ -7,6 +7,7 @@ public class Photographer : MonoBehaviour
     public float wanderRadius = 15f;
     public float minWaitTime = 2f;
     public float maxWaitTime = 5f;
+    public float wanderSpeed = 2f;
 
     [Header("Vision")]
     public float sightRange = 10f;
@@ -16,7 +17,6 @@ public class Photographer : MonoBehaviour
     [Header("Chase")]
     public float sprintDetectDelay = 1.5f;
     public float chaseSpeed = 6f;
-    public float wanderSpeed = 3f;
     public float petrifyRange = 1.5f;
 
     [Header("Snapshot")]
@@ -25,6 +25,10 @@ public class Photographer : MonoBehaviour
     public GameObject decalProjectorPrefab;
     public float admireTime = 3f;
     public GameObject photoItemPrefab;
+    public int maxPhotos = 5;
+
+    [Header("Petrify")]
+    public float petrifyWanderDuration = 5f;
 
     private NavMeshAgent agent;
     private PlayerStatus playerStatus;
@@ -32,10 +36,12 @@ public class Photographer : MonoBehaviour
     private float sprintTimer;
     private float snapshotTimer;
     private float admireTimer;
+    private int photosTaken = 0;
+    private float petrifyWanderCooldown = 0f;
 
     private bool playerDetected = false;
     private float loseSightTimer = 0f;
-    public float loseSightDelay = 0.8f;
+    public float loseSightDelay = 1f;
 
     enum State { Wandering, Observing, Chasing, Admiring }
     State currentState = State.Wandering;
@@ -45,6 +51,7 @@ public class Photographer : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         playerStatus = player.GetComponent<PlayerStatus>();
         agent.speed = wanderSpeed;
+        agent.angularSpeed = 120f;
         waitTimer = 0f;
         SetNewDestination();
     }
@@ -56,30 +63,44 @@ public class Photographer : MonoBehaviour
         switch (currentState)
         {
             case State.Wandering:
+                agent.isStopped = false;
                 HandleWander();
                 TrySnapshot();
                 if (playerVisible)
+                {
+                    agent.isStopped = true;
+                    agent.ResetPath();
                     currentState = State.Observing;
+                    sprintTimer = 0f;
+                }
                 break;
 
             case State.Observing:
+                agent.isStopped = true;
+                agent.velocity = Vector3.zero;
                 FaceTarget(player.position);
                 TrySnapshot();
+
                 if (!playerVisible)
                 {
-                    currentState = State.Wandering;
+                    agent.isStopped = false;
                     agent.speed = wanderSpeed;
                     SetNewDestination();
                     sprintTimer = 0f;
+                    currentState = State.Wandering;
+                    break;
                 }
-                if (playerStatus.IsSprinting())
+
+                if (playerStatus != null && playerStatus.IsSprinting() && playerStatus.IsMoving())
                 {
                     sprintTimer += Time.deltaTime;
+                    Debug.Log("Sprint timer: " + sprintTimer);
                     if (sprintTimer >= sprintDetectDelay)
                     {
-                        currentState = State.Chasing;
+                        agent.isStopped = false;
                         agent.speed = chaseSpeed;
                         sprintTimer = 0f;
+                        currentState = State.Chasing;
                     }
                 }
                 else
@@ -89,22 +110,27 @@ public class Photographer : MonoBehaviour
                 break;
 
             case State.Chasing:
+                agent.isStopped = false;
                 agent.SetDestination(player.position);
-                if (!playerVisible)
+                if (!playerDetected)
                 {
-                    currentState = State.Wandering;
                     agent.speed = wanderSpeed;
                     SetNewDestination();
+                    currentState = State.Wandering;
                 }
                 if (Vector3.Distance(transform.position, player.position) <= petrifyRange)
                     PetrifyPlayer();
                 break;
 
             case State.Admiring:
+                agent.isStopped = true;
+                agent.velocity = Vector3.zero;
                 admireTimer -= Time.deltaTime;
                 if (admireTimer <= 0f)
                 {
                     DropPhoto();
+                    agent.isStopped = false;
+                    agent.speed = wanderSpeed;
                     currentState = State.Wandering;
                     SetNewDestination();
                 }
@@ -129,6 +155,7 @@ public class Photographer : MonoBehaviour
     {
         snapshotTimer -= Time.deltaTime;
         if (snapshotTimer > 0f) return;
+        if (photosTaken >= maxPhotos) return;
 
         Ray ray = new Ray(transform.position + Vector3.up * 0.5f, transform.forward);
         if (Physics.Raycast(ray, out RaycastHit hit, snapshotDistance))
@@ -142,6 +169,7 @@ public class Photographer : MonoBehaviour
     void TakeSnapshot(Vector3 position, Vector3 normal)
     {
         if (decalProjectorPrefab == null) return;
+        photosTaken++;
         Quaternion rotation = Quaternion.LookRotation(-normal);
         Instantiate(decalProjectorPrefab, position, rotation);
         agent.ResetPath();
@@ -153,9 +181,20 @@ public class Photographer : MonoBehaviour
     {
         PlayerPetrify petrify = player.GetComponent<PlayerPetrify>();
         if (petrify != null) petrify.Petrify();
-        currentState = State.Wandering;
+
+        petrifyWanderCooldown = petrifyWanderDuration;
+        playerDetected = false;
+        loseSightTimer = loseSightDelay + 1f;
+        agent.isStopped = false;
         agent.speed = wanderSpeed;
-        SetNewDestination();
+        currentState = State.Wandering;
+
+        Vector3 awayFromPlayer = transform.position + (transform.position - player.position).normalized * wanderRadius;
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(awayFromPlayer, out hit, wanderRadius, NavMesh.AllAreas))
+            agent.SetDestination(hit.position);
+        else
+            SetNewDestination();
     }
 
     void DropPhoto()
@@ -169,7 +208,10 @@ public class Photographer : MonoBehaviour
         Vector3 direction = (target - transform.position).normalized;
         direction.y = 0f;
         if (direction != Vector3.zero)
-            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(direction), Time.deltaTime * 5f);
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(direction);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 8f);
+        }
     }
 
     void SetNewDestination()
@@ -183,6 +225,13 @@ public class Photographer : MonoBehaviour
 
     bool GetPlayerVisibility()
     {
+        if (petrifyWanderCooldown > 0f)
+        {
+            petrifyWanderCooldown -= Time.deltaTime;
+            playerDetected = false;
+            return false;
+        }
+
         if (CanSeePlayer())
         {
             loseSightTimer = 0f;
@@ -207,19 +256,14 @@ public class Photographer : MonoBehaviour
         if (distanceToPlayer > sightRange) return false;
 
         float angle = Vector3.Angle(transform.forward, directionToPlayer);
-        if (angle > fieldOfView / 2f)
-        {
-            Debug.Log("Player out of FOV angle: " + angle);
-            return false;
-        }
+        if (angle > fieldOfView / 2f) return false;
 
-        // Cast multiple rays across the FOV
         int rayCount = 7;
         float halfFOV = fieldOfView / 2f;
 
         for (int i = 0; i < rayCount; i++)
         {
-            float t = (float)i / (rayCount - 1); // 0 to 1
+            float t = (float)i / (rayCount - 1);
             float rayAngle = Mathf.Lerp(-halfFOV, halfFOV, t);
             Vector3 rayDirection = Quaternion.Euler(0, rayAngle, 0) * transform.forward;
 
@@ -227,16 +271,11 @@ public class Photographer : MonoBehaviour
 
             if (Physics.Raycast(transform.position + Vector3.up * 0.5f, rayDirection, out RaycastHit rayHit, sightRange))
             {
-                Debug.Log("Ray " + i + " hit: " + rayHit.collider.gameObject.name);
                 if (rayHit.collider.CompareTag("Player"))
-                {
-                    Debug.Log("Player detected by ray " + i);
                     return true;
-                }
             }
         }
 
-        Debug.Log("No rays hit player. Distance: " + distanceToPlayer + " Angle: " + angle);
         return false;
     }
 

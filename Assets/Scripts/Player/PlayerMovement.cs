@@ -6,6 +6,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("Movement")]
     public float walkSpeed = 5f;
     public float sprintSpeed = 9f;
+    public bool IsMoving() => moveInput != Vector2.zero;
 
     [Header("Stamina")]
     public float maxStamina = 100f;
