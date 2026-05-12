@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.AI;
+using Unity.AI.Navigation;
 using System.Collections.Generic;
 
 public class RoomGenerator : MonoBehaviour
@@ -13,20 +15,17 @@ public class RoomGenerator : MonoBehaviour
     {
         Random.InitState(seed);
         GenerateRooms();
+        BakeAndSpawnEnemies();
     }
 
     void GenerateRooms()
     {
-        Random.InitState(seed);
-
         Transform lastExitPoint = null;
         DoorTrigger lastDoorTrigger = null;
 
         for (int i = 0; i < roomCount; i++)
         {
             GameObject roomPrefab = roomPrefabs[Random.Range(0, roomPrefabs.Length)];
-
-            // Spawn at origin first, then move
             GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
             spawnedRooms.Add(room);
 
@@ -35,17 +34,13 @@ public class RoomGenerator : MonoBehaviour
 
             if (lastExitPoint != null && entryPoint != null)
             {
-                // First rotate the room so entry faces the last exit
                 Quaternion rotationDiff = lastExitPoint.rotation * Quaternion.Inverse(entryPoint.rotation);
-                rotationDiff *= Quaternion.Euler(0, 180f, 0); // flip to face inward
+                rotationDiff *= Quaternion.Euler(0, 180f, 0);
                 room.transform.rotation = rotationDiff;
-
-                // Then move the room so entry aligns with last exit
                 Vector3 offset = lastExitPoint.position - entryPoint.position;
                 room.transform.position += offset;
             }
 
-            // Wire up door trigger
             if (lastDoorTrigger != null)
                 lastDoorTrigger.nextRoom = room;
 
@@ -53,5 +48,19 @@ public class RoomGenerator : MonoBehaviour
             lastDoorTrigger = exitTrigger;
             lastExitPoint = exitPoint;
         }
+    }
+
+    void BakeAndSpawnEnemies()
+    {
+        if (EnemySpawner.Instance == null) return;
+
+        foreach (GameObject room in spawnedRooms)
+        {
+            NavMeshSurface surface = room.GetComponent<NavMeshSurface>();
+            if (surface != null)
+                EnemySpawner.Instance.RegisterSurface(surface);
+        }
+
+        EnemySpawner.Instance.BakeAllAndSpawn();
     }
 }
