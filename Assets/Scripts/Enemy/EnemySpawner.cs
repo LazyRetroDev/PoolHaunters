@@ -77,13 +77,32 @@ public class EnemySpawner : MonoBehaviour
         Vector3 spawnPos;
         if (!TryGetValidSpawnPosition(out spawnPos)) return;
 
+        CreateTimeCamper(spawnPos, isClone);
+    }
+
+    public TimeCamper SpawnTimeCamperAt(Vector3 position, bool isClone = true)
+    {
+        if (timeCamperPrefab == null) return null;
+        if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return null;
+
+        Vector3 spawnPos = position;
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(position, out hit, sampleRadius, NavMesh.AllAreas))
+            spawnPos = hit.position;
+
+        return CreateTimeCamper(spawnPos, isClone);
+    }
+
+    TimeCamper CreateTimeCamper(Vector3 spawnPos, bool isClone)
+    {
         GameObject entity = Instantiate(timeCamperPrefab, spawnPos, Quaternion.identity);
         TimeCamper timeCamper = entity.GetComponent<TimeCamper>();
-        if (timeCamper == null) return;
+        if (timeCamper == null) return null;
 
         timeCamper.player = player;
         timeCamper.isClone = isClone;
         TimeCamperManager.Instance.Register(timeCamper);
+        return timeCamper;
     }
 
     public bool TryGetValidSpawnPosition(out Vector3 result)
