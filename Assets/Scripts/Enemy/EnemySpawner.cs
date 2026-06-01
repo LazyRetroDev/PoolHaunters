@@ -31,6 +31,7 @@ public class EnemySpawner : MonoBehaviour
     {
         if (surface == null || surfaces.Contains(surface)) return;
 
+        ConfigureSurfaceForRuntimeRoom(surface);
         surfaces.Add(surface);
 
         if (buildNow)
@@ -43,6 +44,7 @@ public class EnemySpawner : MonoBehaviour
     {
         if (surface == null) return;
 
+        surface.RemoveData();
         surfaces.Remove(surface);
         navMeshReady = surfaces.Count > 0;
     }
@@ -52,9 +54,18 @@ public class EnemySpawner : MonoBehaviour
         surfaces.RemoveAll(surface => surface == null);
 
         foreach (NavMeshSurface surface in surfaces)
+        {
+            ConfigureSurfaceForRuntimeRoom(surface);
             surface.BuildNavMesh();
+        }
 
         navMeshReady = surfaces.Count > 0;
+    }
+
+    void ConfigureSurfaceForRuntimeRoom(NavMeshSurface surface)
+    {
+        surface.collectObjects = CollectObjects.Children;
+        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
     }
 
     public void SpawnTimeCamper(bool isClone = false)
