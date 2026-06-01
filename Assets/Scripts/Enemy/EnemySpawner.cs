@@ -10,6 +10,7 @@ public class EnemySpawner : MonoBehaviour
     public GameObject timeCamperPrefab;
     public Transform player;
     public float minSpawnDistanceFromPlayer = 10f;
+    public float minSpawnDistanceFromTimeCampers = 5f;
     public int spawnAttempts = 30;
     public float sampleRadius = 10f;
 
@@ -105,12 +106,11 @@ public class EnemySpawner : MonoBehaviour
             if (!NavMesh.SamplePosition(randomPoint, out hit, sampleRadius, NavMesh.AllAreas))
                 continue;
 
-            if (player != null)
-            {
-                float distToPlayer = Vector3.Distance(hit.position, player.position);
-                if (distToPlayer < minSpawnDistanceFromPlayer)
-                    continue;
-            }
+            if (!IsFarEnoughFromPlayer(hit.position))
+                continue;
+
+            if (!IsFarEnoughFromOtherTimeCampers(hit.position))
+                continue;
 
             result = hit.position;
             return true;
@@ -118,6 +118,28 @@ public class EnemySpawner : MonoBehaviour
 
         result = Vector3.zero;
         return false;
+    }
+
+    bool IsFarEnoughFromPlayer(Vector3 position)
+    {
+        if (player == null) return true;
+        return Vector3.Distance(position, player.position) >= minSpawnDistanceFromPlayer;
+    }
+
+    bool IsFarEnoughFromOtherTimeCampers(Vector3 position)
+    {
+        TimeCamper[] timeCampers = FindObjectsOfType<TimeCamper>();
+        for (int i = 0; i < timeCampers.Length; i++)
+        {
+            TimeCamper timeCamper = timeCampers[i];
+            if (timeCamper == null) continue;
+
+            float minDistance = Mathf.Max(minSpawnDistanceFromTimeCampers, timeCamper.GetImpactRadius());
+            if (Vector3.Distance(position, timeCamper.transform.position) < minDistance)
+                return false;
+        }
+
+        return true;
     }
 
     Vector3 GetRandomSurfacePoint()
