@@ -7,7 +7,7 @@ public class TimeCamper : MonoBehaviour
 {
     [Header("Detection")]
     public Transform player;
-    public float detectionRadius = 5f;
+    public float detectionRadius = 2.5f;
 
     [Header("Countdown")]
     public float minCountdown = 8f;
@@ -32,7 +32,6 @@ public class TimeCamper : MonoBehaviour
     [Header("Clone")]
     public bool isClone = false;
 
-    private float countdownDuration;
     private float countdownTimer;
     private float damageTimer;
     private float teleportTimer;
@@ -44,18 +43,14 @@ public class TimeCamper : MonoBehaviour
     private PlayerStatus playerStatus;
     private NavMeshAgent agent;
 
-    enum State { Idle, Countdown, Beam, Leaving }
-    State currentState = State.Idle;
+    enum State { WaitingForPlayer, Countdown, Beam, Leaving }
+    State currentState = State.WaitingForPlayer;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         ResolvePlayerReferences();
-        ResetTimers();
-        SpawnWarningCircle();
-
-        if (countdownText != null)
-            countdownText.gameObject.SetActive(false);
+        ResetCycle();
     }
 
     void Update()
@@ -64,10 +59,11 @@ public class TimeCamper : MonoBehaviour
 
         switch (currentState)
         {
-            case State.Idle:
-                CheckForPlayer();
+            case State.WaitingForPlayer:
                 teleportTimer -= Time.deltaTime;
-                if (teleportTimer <= 0f)
+                if (PlayerIsInImpactArea())
+                    StartCountdown();
+                else if (teleportTimer <= 0f)
                     StartLeaving();
                 break;
 
@@ -84,6 +80,11 @@ public class TimeCamper : MonoBehaviour
         }
     }
 
+    public float GetImpactRadius()
+    {
+        return Mathf.Max(detectionRadius, damageRadius);
+    }
+
     void ResolvePlayerReferences()
     {
         if (player == null)
@@ -97,13 +98,16 @@ public class TimeCamper : MonoBehaviour
             playerStatus = player.GetComponent<PlayerStatus>();
     }
 
-    void CheckForPlayer()
+    bool PlayerIsInImpactArea()
     {
-        if (player == null) return;
+        if (player == null) return false;
+        return Vector3.Distance(transform.position, player.position) <= detectionRadius;
+    }
 
-        float dist = Vector3.Distance(transform.position, player.position);
-        if (dist <= detectionRadius)
-            currentState = State.Countdown;
+    void StartCountdown()
+    {
+        currentState = State.Countdown;
+        countdownTimer = Random.Range(minCountdown, maxCountdown);
     }
 
     void UpdateCountdown()
@@ -121,19 +125,17 @@ public class TimeCamper : MonoBehaviour
             if (countdownText != null)
                 countdownText.gameObject.SetActive(false);
 
-            StartCoroutine(FireBeam());
+            StartBeam();
         }
     }
 
-    IEnumerator FireBeam()
+    void StartBeam()
     {
         currentState = State.Beam;
         damageTimer = damageDuration;
 
         if (beamPrefab != null)
             beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
-
-        yield return null;
     }
 
     void DamagePlayerInRadius()
@@ -144,11 +146,10 @@ public class TimeCamper : MonoBehaviour
         if (dist > damageRadius) return;
 
         bool killedPlayer = playerStatus.TakeDamage(damagePerSecond * Time.deltaTime);
-        if (killedPlayer)
-        {
-            SpawnCloneFromPlayerDeath();
-            StartLeaving();
-        }
+        if (!killedPlayer) return;
+
+        SpawnCloneFromPlayerDeath();
+        StartLeaving();
     }
 
     void SpawnCloneFromPlayerDeath()
@@ -184,7 +185,7 @@ public class TimeCamper : MonoBehaviour
         if (EnemySpawner.Instance != null && EnemySpawner.Instance.TryGetValidSpawnPosition(out newPos))
         {
             TeleportTo(newPos);
-            ResetState();
+            ResetCycle();
 
             if (TimeCamperManager.Instance != null)
                 TimeCamperManager.Instance.Register(this);
@@ -203,21 +204,18 @@ public class TimeCamper : MonoBehaviour
             transform.position = newPos;
     }
 
-    void ResetState()
+    void ResetCycle()
     {
         isLeaving = false;
-        currentState = State.Idle;
         spawnedCloneForDeath = false;
-        ResetTimers();
-        SpawnWarningCircle();
-    }
-
-    void ResetTimers()
-    {
+        currentState = State.WaitingForPlayer;
         teleportTimer = teleportInterval;
-        countdownDuration = Random.Range(minCountdown, maxCountdown);
-        countdownTimer = countdownDuration;
         damageTimer = 0f;
+
+        if (countdownText != null)
+            countdownText.gameObject.SetActive(false);
+
+        SpawnWarningCircle();
     }
 
     void CleanupVisuals()
