@@ -1,5 +1,4 @@
 using UnityEngine;
-using Unity.AI.Navigation;
 using UnityEngine.AI;
 using TMPro;
 using System.Collections;
@@ -37,29 +36,23 @@ public class TimeCamper : MonoBehaviour
     private float countdownTimer;
     private float damageTimer;
     private float teleportTimer;
-    private bool playerInRadius = false;
+    private bool isLeaving;
+    private bool spawnedCloneForDeath;
 
     private GameObject redCircleInstance;
     private GameObject beamInstance;
     private PlayerStatus playerStatus;
+    private NavMeshAgent agent;
 
     enum State { Idle, Countdown, Beam, Leaving }
     State currentState = State.Idle;
 
     void Start()
     {
-        playerStatus = player != null ? player.GetComponent<PlayerStatus>() : null;
-        teleportTimer = teleportInterval;
-
-        // Randomize countdown for unpredictability
-        countdownDuration = Random.Range(minCountdown, maxCountdown);
-        countdownTimer = countdownDuration;
-
-        // Red circle appears immediately on spawn
-        if (redCirclePrefab != null)
-            redCircleInstance = Instantiate(redCirclePrefab,
-                new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
-                Quaternion.identity);
+        agent = GetComponent<NavMeshAgent>();
+        ResolvePlayerReferences();
+        ResetTimers();
+        SpawnWarningCircle();
 
         if (countdownText != null)
             countdownText.gameObject.SetActive(false);
@@ -67,55 +60,68 @@ public class TimeCamper : MonoBehaviour
 
     void Update()
     {
+        ResolvePlayerReferences();
+
         switch (currentState)
         {
             case State.Idle:
                 CheckForPlayer();
                 teleportTimer -= Time.deltaTime;
                 if (teleportTimer <= 0f)
-                    StartCoroutine(LeaveAndTeleport());
+                    StartLeaving();
                 break;
 
             case State.Countdown:
-                countdownTimer -= Time.deltaTime;
-
-                if (countdownText != null)
-                {
-                    countdownText.gameObject.SetActive(true);
-                    countdownText.text = Mathf.Ceil(countdownTimer).ToString();
-                }
-
-                if (countdownTimer <= 0f)
-                {
-                    if (countdownText != null)
-                        countdownText.gameObject.SetActive(false);
-                    StartCoroutine(FireBeam());
-                }
+                UpdateCountdown();
                 break;
 
             case State.Beam:
                 damageTimer -= Time.deltaTime;
                 DamagePlayerInRadius();
                 if (damageTimer <= 0f)
-                {
-                    currentState = State.Leaving;
-                    StartCoroutine(LeaveAndTeleport());
-                }
-                break;
-
-            case State.Leaving:
+                    StartLeaving();
                 break;
         }
+    }
+
+    void ResolvePlayerReferences()
+    {
+        if (player == null)
+        {
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null)
+                player = playerObject.transform;
+        }
+
+        if (playerStatus == null && player != null)
+            playerStatus = player.GetComponent<PlayerStatus>();
     }
 
     void CheckForPlayer()
     {
         if (player == null) return;
+
         float dist = Vector3.Distance(transform.position, player.position);
         if (dist <= detectionRadius)
-        {
-            playerInRadius = true;
             currentState = State.Countdown;
+    }
+
+    void UpdateCountdown()
+    {
+        countdownTimer -= Time.deltaTime;
+
+        if (countdownText != null)
+        {
+            countdownText.gameObject.SetActive(true);
+            countdownText.text = Mathf.Ceil(countdownTimer).ToString();
+        }
+
+        if (countdownTimer <= 0f)
+        {
+            if (countdownText != null)
+                countdownText.gameObject.SetActive(false);
+
+            StartCoroutine(FireBeam());
         }
     }
 
@@ -124,7 +130,6 @@ public class TimeCamper : MonoBehaviour
         currentState = State.Beam;
         damageTimer = damageDuration;
 
-        // Spawn beam visually
         if (beamPrefab != null)
             beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
 
@@ -134,51 +139,55 @@ public class TimeCamper : MonoBehaviour
     void DamagePlayerInRadius()
     {
         if (playerStatus == null || player == null) return;
-        float dist = Vector3.Distance(transform.position, player.position);
-        if (dist <= damageRadius)
-        {
-            playerStatus.TakeDamage(damagePerSecond * Time.deltaTime);
 
-            if (playerStatus.GetCurrentHealth() <= 0f)
-            {
-                SpawnClone();
-                StartCoroutine(LeaveAndTeleport());
-            }
+        float dist = Vector3.Distance(transform.position, player.position);
+        if (dist > damageRadius) return;
+
+        bool killedPlayer = playerStatus.TakeDamage(damagePerSecond * Time.deltaTime);
+        if (killedPlayer)
+        {
+            SpawnCloneFromPlayerDeath();
+            StartLeaving();
         }
     }
 
-    void SpawnClone()
+    void SpawnCloneFromPlayerDeath()
     {
-        if (TimeCamperManager.Instance != null && TimeCamperManager.Instance.CanSpawn())
-            EnemySpawner.Instance.SpawnTimeCamper(isClone: true);
+        if (spawnedCloneForDeath) return;
+        if (EnemySpawner.Instance == null) return;
+        if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
+
+        spawnedCloneForDeath = true;
+        EnemySpawner.Instance.SpawnTimeCamper(isClone: true);
+    }
+
+    void StartLeaving()
+    {
+        if (isLeaving) return;
+        StartCoroutine(LeaveAndTeleport());
     }
 
     IEnumerator LeaveAndTeleport()
     {
+        isLeaving = true;
         currentState = State.Leaving;
 
-        // Clean up visuals
-        if (redCircleInstance != null) Destroy(redCircleInstance);
-        if (beamInstance != null) Destroy(beamInstance);
-        if (countdownText != null) countdownText.gameObject.SetActive(false);
+        CleanupVisuals();
+        LeaveContaminationMark();
 
-        // Leave contamination mark
-        if (contaminationPrefab != null)
-            Instantiate(contaminationPrefab,
-                new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
-                Quaternion.identity);
-
-        TimeCamperManager.Instance.Unregister(this);
+        if (TimeCamperManager.Instance != null)
+            TimeCamperManager.Instance.Unregister(this);
 
         yield return new WaitForSeconds(0.1f);
 
-        // Teleport to new location instead of destroying
         Vector3 newPos;
         if (EnemySpawner.Instance != null && EnemySpawner.Instance.TryGetValidSpawnPosition(out newPos))
         {
-            transform.position = newPos;
+            TeleportTo(newPos);
             ResetState();
-            TimeCamperManager.Instance.Register(this);
+
+            if (TimeCamperManager.Instance != null)
+                TimeCamperManager.Instance.Register(this);
         }
         else
         {
@@ -186,20 +195,54 @@ public class TimeCamper : MonoBehaviour
         }
     }
 
+    void TeleportTo(Vector3 newPos)
+    {
+        if (agent != null && agent.enabled)
+            agent.Warp(newPos);
+        else
+            transform.position = newPos;
+    }
+
     void ResetState()
     {
-        playerInRadius = false;
+        isLeaving = false;
         currentState = State.Idle;
+        spawnedCloneForDeath = false;
+        ResetTimers();
+        SpawnWarningCircle();
+    }
+
+    void ResetTimers()
+    {
         teleportTimer = teleportInterval;
         countdownDuration = Random.Range(minCountdown, maxCountdown);
         countdownTimer = countdownDuration;
         damageTimer = 0f;
+    }
 
-        // Respawn red circle at new location
-        if (redCirclePrefab != null)
-            redCircleInstance = Instantiate(redCirclePrefab,
-                new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
-                Quaternion.identity);
+    void CleanupVisuals()
+    {
+        if (redCircleInstance != null) Destroy(redCircleInstance);
+        if (beamInstance != null) Destroy(beamInstance);
+        if (countdownText != null) countdownText.gameObject.SetActive(false);
+    }
+
+    void SpawnWarningCircle()
+    {
+        if (redCirclePrefab == null) return;
+
+        redCircleInstance = Instantiate(redCirclePrefab,
+            new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
+            Quaternion.identity);
+    }
+
+    void LeaveContaminationMark()
+    {
+        if (contaminationPrefab == null) return;
+
+        Instantiate(contaminationPrefab,
+            new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
+            Quaternion.identity);
     }
 
     void OnDrawGizmosSelected()
