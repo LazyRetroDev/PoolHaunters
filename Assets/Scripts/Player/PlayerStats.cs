@@ -10,12 +10,18 @@ public class PlayerStatus : MonoBehaviour
     public float maxWater = 100f;
     public float fillRate = 10f;
 
+    [Header("Death Transformation")]
+    public bool hideRenderersOnDeath = true;
+    public bool disableCollidersOnDeath = true;
+    public MonoBehaviour[] componentsToDisableOnDeath;
+
     public event Action<PlayerStatus> OnDeath;
 
     private float currentHealth;
     private float currentWater = 0f;
     private bool inWater = false;
     private bool isDead = false;
+    private bool deathTransformationApplied = false;
 
     private PlayerMovement movement;
     public bool IsMoving() => movement != null && movement.IsMoving();
@@ -57,6 +63,52 @@ public class PlayerStatus : MonoBehaviour
         isDead = true;
         OnDeath?.Invoke(this);
         return true;
+    }
+
+    public void ApplyDeathTransformation()
+    {
+        if (deathTransformationApplied) return;
+        deathTransformationApplied = true;
+
+        DisableConfiguredComponents();
+
+        if (hideRenderersOnDeath)
+        {
+            Renderer[] renderers = GetComponentsInChildren<Renderer>();
+            for (int i = 0; i < renderers.Length; i++)
+                renderers[i].enabled = false;
+        }
+
+        if (disableCollidersOnDeath)
+        {
+            Collider[] colliders = GetComponentsInChildren<Collider>();
+            for (int i = 0; i < colliders.Length; i++)
+                colliders[i].enabled = false;
+        }
+    }
+
+    void DisableConfiguredComponents()
+    {
+        if (componentsToDisableOnDeath != null && componentsToDisableOnDeath.Length > 0)
+        {
+            for (int i = 0; i < componentsToDisableOnDeath.Length; i++)
+            {
+                MonoBehaviour component = componentsToDisableOnDeath[i];
+                if (component != null && component != this)
+                    component.enabled = false;
+            }
+
+            return;
+        }
+
+        PlayerMovement playerMovement = GetComponent<PlayerMovement>();
+        if (playerMovement != null) playerMovement.enabled = false;
+
+        PlayerInventory inventory = GetComponent<PlayerInventory>();
+        if (inventory != null) inventory.enabled = false;
+
+        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
+        if (waterCannon != null) waterCannon.enabled = false;
     }
 
     public bool ConsumeWater(float amount)
