@@ -27,12 +27,6 @@ public class RoomGenerator : MonoBehaviour
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
             GenerateNextRoom();
-
-        if (spawnTimeCamperAfterStartingRooms && EnemySpawner.Instance != null)
-        {
-            EnemySpawner.Instance.SpawnTimeCamper();
-            initialEnemySpawned = true;
-        }
     }
 
     public void GenerateNextRoomFromDoor(DoorTrigger trigger)
@@ -68,13 +62,20 @@ public class RoomGenerator : MonoBehaviour
         else
             Debug.LogWarning(room.name + " is missing DoorPoint_B.");
 
-        if (!initialEnemySpawned && spawnTimeCamperAfterStartingRooms && spawnedRooms.Count >= startingRoomCount && EnemySpawner.Instance != null)
-        {
-            EnemySpawner.Instance.SpawnTimeCamper();
-            initialEnemySpawned = true;
-        }
+        TrySpawnInitialTimeCamper();
 
         return room;
+    }
+
+    void TrySpawnInitialTimeCamper()
+    {
+        if (initialEnemySpawned) return;
+        if (!spawnTimeCamperAfterStartingRooms) return;
+        if (spawnedRooms.Count < startingRoomCount) return;
+        if (EnemySpawner.Instance == null) return;
+
+        EnemySpawner.Instance.SpawnTimeCamper();
+        initialEnemySpawned = true;
     }
 
     void AlignRoomToPreviousExit(GameObject room)
