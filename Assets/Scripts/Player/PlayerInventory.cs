@@ -34,6 +34,12 @@ public class PlayerInventory : MonoBehaviour
         }
     }
 
+    public void OnUse(InputValue value)
+    {
+        if (!value.isPressed) return;
+        UseSelectedItem();
+    }
+
     public void OnPrevious(InputValue value) => SelectSlot(0);
     public void OnNext(InputValue value) => SelectSlot(1);
 
@@ -73,6 +79,39 @@ public class PlayerInventory : MonoBehaviour
             }
         }
         Debug.Log("Inventory full!");
+    }
+
+    void UseSelectedItem()
+    {
+        if (slots == null || selectedSlot < 0 || selectedSlot >= slots.Length) return;
+
+        Item item = slots[selectedSlot];
+        if (item == null)
+        {
+            Debug.Log("No item selected.");
+            return;
+        }
+
+        UsableItem usableItem = item.GetComponent<UsableItem>();
+        if (usableItem == null)
+        {
+            Debug.Log($"{item.itemName} cannot be used yet.");
+            return;
+        }
+
+        bool used = usableItem.Use(this, playerStatus);
+        if (!used)
+        {
+            Debug.Log($"{item.itemName} had no effect.");
+            return;
+        }
+
+        Debug.Log($"Used {item.itemName}.");
+        if (usableItem.consumeOnUse)
+        {
+            slots[selectedSlot] = null;
+            Destroy(item.gameObject);
+        }
     }
 
     void SelectSlot(int index)
