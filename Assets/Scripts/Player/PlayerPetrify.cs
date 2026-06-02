@@ -20,10 +20,15 @@ public class PlayerPetrify : MonoBehaviour
         if (isPetrified)
         {
             petrifyTimer -= Time.deltaTime;
-            movement.enabled = false;
-            inventory.enabled = false;
+            if (movement != null) movement.enabled = false;
+            if (inventory != null) inventory.enabled = false;
             if (petrifyTimer <= 0f) Unpetrify();
         }
+    }
+
+    public bool IsPetrified()
+    {
+        return isPetrified;
     }
 
     public void Petrify()
@@ -35,7 +40,7 @@ public class PlayerPetrify : MonoBehaviour
     public void Unpetrify()
     {
         isPetrified = false;
-        movement.enabled = true;
-        inventory.enabled = true;
+        if (movement != null) movement.enabled = true;
+        if (inventory != null) inventory.enabled = true;
     }
 }
