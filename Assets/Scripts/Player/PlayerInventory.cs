@@ -9,10 +9,12 @@ public class PlayerInventory : MonoBehaviour
 
     private Item[] slots;
     private int selectedSlot = 0;
+    private PlayerStatus playerStatus;
 
     void Start()
     {
         slots = new Item[inventorySize];
+        playerStatus = GetComponent<PlayerStatus>();
     }
 
     public void OnInteract(InputValue value)
@@ -47,12 +49,25 @@ public class PlayerInventory : MonoBehaviour
 
     void TryPickup(Item item)
     {
+        WaterItem waterItem = item.GetComponent<WaterItem>();
+        if (waterItem != null && waterItem.useImmediatelyOnPickup && waterItem.TryApply(playerStatus))
+        {
+            Debug.Log($"Used {item.itemName} on pickup. Water: {playerStatus.GetCurrentWater():0}/{playerStatus.maxWater:0} ({playerStatus.GetWaterQuality()})");
+
+            if (waterItem.destroyAfterUse)
+                Destroy(item.gameObject);
+            else
+                item.gameObject.SetActive(false);
+
+            return;
+        }
+
         for (int i = 0; i < slots.Length; i++)
         {
             if (slots[i] == null)
             {
                 slots[i] = item;
-                item.gameObject.SetActive(false); 
+                item.gameObject.SetActive(false);
                 Debug.Log($"Picked up {item.itemName} into slot {i + 1}");
                 return;
             }
