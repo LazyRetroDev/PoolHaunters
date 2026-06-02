@@ -171,7 +171,9 @@ public class Photographer : MonoBehaviour
         if (decalProjectorPrefab == null) return;
         photosTaken++;
         Quaternion rotation = Quaternion.LookRotation(-normal);
-        Instantiate(decalProjectorPrefab, position, rotation);
+        GameObject decal = Instantiate(decalProjectorPrefab, position, rotation);
+        if (decal.GetComponent<PhotographerDecal>() == null)
+            decal.AddComponent<PhotographerDecal>();
         agent.ResetPath();
         admireTimer = admireTime;
         currentState = State.Admiring;
