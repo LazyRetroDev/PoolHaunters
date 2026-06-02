@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 
 public class PlayerStatus : MonoBehaviour
 {
@@ -9,11 +10,6 @@ public class PlayerStatus : MonoBehaviour
     public float maxWater = 100f;
     public float fillRate = 10f;
 
-<<<<<<< Updated upstream
-    private float currentHealth;
-    private float currentWater = 0f;
-    private bool inWater = false;
-=======
     [Header("Death Transformation")]
     public bool hideRenderersOnDeath = true;
     public bool disableCollidersOnDeath = true;
@@ -26,7 +22,6 @@ public class PlayerStatus : MonoBehaviour
     private bool inWater = false;
     private bool isDead = false;
     private bool deathTransformationApplied = false;
->>>>>>> Stashed changes
 
     private PlayerMovement movement;
     public bool IsMoving() => movement != null && movement.IsMoving();
@@ -35,6 +30,7 @@ public class PlayerStatus : MonoBehaviour
     {
         movement = GetComponent<PlayerMovement>();
         currentHealth = maxHealth;
+        isDead = currentHealth <= 0f;
     }
 
     public void SetInWater(bool value) => inWater = value;
@@ -42,8 +38,9 @@ public class PlayerStatus : MonoBehaviour
     public float GetMaxHealth() => maxHealth;
     public float GetCurrentWater() => currentWater;
     public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
-    public float GetWaterPercent() => currentWater / maxWater;
+    public float GetWaterPercent() => maxWater > 0f ? currentWater / maxWater : 0f;
     public bool IsSprinting() => movement != null && movement.IsSprinting();
+    public bool IsDead() => isDead;
 
     void Update()
     {
@@ -54,12 +51,18 @@ public class PlayerStatus : MonoBehaviour
         }
     }
 
-    public void TakeDamage(float damage)
+    public bool TakeDamage(float damage)
     {
-        if (damage <= 0f) return;
+        if (damage <= 0f || isDead) return false;
 
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+
+        if (currentHealth > 0f) return false;
+
+        isDead = true;
+        OnDeath?.Invoke(this);
+        return true;
     }
 
     public void ApplyDeathTransformation()
