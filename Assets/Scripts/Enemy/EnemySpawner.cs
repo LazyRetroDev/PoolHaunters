@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
-using System.Collections;
 using System.Collections.Generic;
 
 public class EnemySpawner : MonoBehaviour
@@ -11,25 +10,20 @@ public class EnemySpawner : MonoBehaviour
     public GameObject timeCamperPrefab;
     public Transform player;
     public float minSpawnDistanceFromPlayer = 10f;
-<<<<<<< Updated upstream
-=======
     public float minSpawnDistanceFromTimeCampers = 5f;
     public int spawnAttempts = 30;
     public float sampleRadius = 10f;
->>>>>>> Stashed changes
 
-    private List<NavMeshSurface> surfaces = new List<NavMeshSurface>();
-    private bool navMeshReady = false;
+    private readonly List<NavMeshSurface> surfaces = new List<NavMeshSurface>();
+    private bool navMeshReady;
 
     void Awake()
     {
         Instance = this;
     }
 
-    public void RegisterSurface(NavMeshSurface surface)
+    void OnDestroy()
     {
-<<<<<<< Updated upstream
-=======
         if (Instance == this)
             Instance = null;
     }
@@ -39,36 +33,29 @@ public class EnemySpawner : MonoBehaviour
         if (surface == null || surfaces.Contains(surface)) return;
 
         ConfigureSurfaceForRuntimeRoom(surface);
->>>>>>> Stashed changes
         surfaces.Add(surface);
+
+        if (buildNow)
+            surface.BuildNavMesh();
+
+        navMeshReady = surfaces.Count > 0;
     }
 
-    public void BakeAllAndSpawn()
+    public void UnregisterSurface(NavMeshSurface surface)
     {
-<<<<<<< Updated upstream
-        StartCoroutine(BakeAndSpawn());
-=======
         if (surface == null) return;
 
         surface.RemoveData();
         surfaces.Remove(surface);
         navMeshReady = surfaces.Count > 0;
->>>>>>> Stashed changes
     }
 
-    IEnumerator BakeAndSpawn()
+    public void RebuildAllSurfaces()
     {
-        Debug.Log("Surfaces to bake: " + surfaces.Count);
+        surfaces.RemoveAll(surface => surface == null);
+
         foreach (NavMeshSurface surface in surfaces)
         {
-<<<<<<< Updated upstream
-            surface.BuildNavMesh();
-            yield return null;
-        }
-        navMeshReady = true;
-        SpawnTimeCamper();
-    }
-=======
             ConfigureSurfaceForRuntimeRoom(surface);
             surface.BuildNavMesh();
         }
@@ -82,23 +69,12 @@ public class EnemySpawner : MonoBehaviour
         surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
     }
 
->>>>>>> Stashed changes
     public void SpawnTimeCamper(bool isClone = false)
     {
-        if (!navMeshReady) return;
-        if (!TimeCamperManager.Instance.CanSpawn()) return;
+        if (!navMeshReady || timeCamperPrefab == null) return;
+        if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
 
         Vector3 spawnPos;
-<<<<<<< Updated upstream
-        if (TryGetValidSpawnPosition(out spawnPos))
-        {
-            GameObject entity = Instantiate(timeCamperPrefab, spawnPos, Quaternion.identity);
-            TimeCamper tc = entity.GetComponent<TimeCamper>();
-            tc.player = player;
-            tc.isClone = isClone;
-            TimeCamperManager.Instance.Register(tc);
-        }
-=======
         if (!TryGetValidSpawnPosition(out spawnPos)) return;
 
         CreateTimeCamper(spawnPos, isClone);
@@ -127,32 +103,24 @@ public class EnemySpawner : MonoBehaviour
         timeCamper.isClone = isClone;
         TimeCamperManager.Instance.Register(timeCamper);
         return timeCamper;
->>>>>>> Stashed changes
     }
 
     public bool TryGetValidSpawnPosition(out Vector3 result)
     {
-        for (int i = 0; i < 30; i++)
+        surfaces.RemoveAll(surface => surface == null);
+
+        if (surfaces.Count == 0)
         {
+            result = Vector3.zero;
+            navMeshReady = false;
+            return false;
+        }
+
+        int attempts = Mathf.Max(1, spawnAttempts);
+        for (int i = 0; i < attempts; i++)
+        {
+            Vector3 randomPoint = GetRandomSurfacePoint();
             NavMeshHit hit;
-<<<<<<< Updated upstream
-            Vector3 randomPoint = GetRandomNavMeshPoint();
-            Debug.Log("Trying point: " + randomPoint);
-            if (NavMesh.SamplePosition(randomPoint, out hit, 10f, NavMesh.AllAreas))
-            {
-                float distToPlayer = Vector3.Distance(hit.position, player.position);
-                Debug.Log("Valid point found: " + hit.position + " dist: " + distToPlayer);
-                if (distToPlayer >= minSpawnDistanceFromPlayer)
-                {
-                    result = hit.position;
-                    return true;
-                }
-            }
-            else
-            {
-                Debug.Log("SamplePosition failed for: " + randomPoint);
-            }
-=======
 
             if (!NavMesh.SamplePosition(randomPoint, out hit, sampleRadius, NavMesh.AllAreas))
                 continue;
@@ -165,16 +133,12 @@ public class EnemySpawner : MonoBehaviour
 
             result = hit.position;
             return true;
->>>>>>> Stashed changes
         }
-        Debug.Log("No valid spawn found after 30 attempts!");
+
         result = Vector3.zero;
         return false;
     }
 
-<<<<<<< Updated upstream
-    Vector3 GetRandomNavMeshPoint()
-=======
     bool IsFarEnoughFromPlayer(Vector3 position)
     {
         if (player == null) return true;
@@ -198,13 +162,9 @@ public class EnemySpawner : MonoBehaviour
     }
 
     Vector3 GetRandomSurfacePoint()
->>>>>>> Stashed changes
     {
-        if (surfaces.Count == 0) return Vector3.zero;
         NavMeshSurface surface = surfaces[Random.Range(0, surfaces.Count)];
-        Bounds bounds = surface.GetComponent<Collider>() != null
-            ? surface.GetComponent<Collider>().bounds
-            : new Bounds(surface.transform.position, Vector3.one * 20f);
+        Bounds bounds = GetSurfaceBounds(surface);
 
         return new Vector3(
             Random.Range(bounds.min.x, bounds.max.x),
@@ -212,8 +172,6 @@ public class EnemySpawner : MonoBehaviour
             Random.Range(bounds.min.z, bounds.max.z)
         );
     }
-<<<<<<< Updated upstream
-=======
 
     Bounds GetSurfaceBounds(NavMeshSurface surface)
     {
@@ -237,5 +195,4 @@ public class EnemySpawner : MonoBehaviour
 
         return new Bounds(surface.transform.position, Vector3.one * 20f);
     }
->>>>>>> Stashed changes
 }
