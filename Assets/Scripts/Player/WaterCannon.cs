@@ -18,6 +18,11 @@ public class WaterCannon : MonoBehaviour
     public float sprayParticleRate = 80f;
     public bool autoCreateSprayParticles = true;
 
+    [Header("Water Quality Visuals")]
+    public Color cleanWaterColor = new Color(0.65f, 0.85f, 1f, 0.8f);
+    public Color contaminatedWaterColor = new Color(0.35f, 0.9f, 0.25f, 0.85f);
+    public Color chemicallyEnhancedWaterColor = new Color(1f, 0.85f, 0.25f, 0.9f);
+
     [Header("Cleaning")]
     public float cleanPowerPerSecond = 35f;
     public float sprayDistance = 4f;
@@ -41,6 +46,8 @@ public class WaterCannon : MonoBehaviour
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private Transform ownerRoot;
+    private WaterQuality appliedVisualQuality;
+    private bool hasAppliedVisualQuality;
 
     void Awake()
     {
@@ -55,6 +62,7 @@ public class WaterCannon : MonoBehaviour
             sprayParticles = CreateDefaultSprayParticles();
 
         ApplyParticleSettings();
+        UpdateSprayColor(force: true);
         StopSprayImmediate();
     }
 
@@ -68,6 +76,8 @@ public class WaterCannon : MonoBehaviour
 
     void Update()
     {
+        UpdateSprayColor();
+
         if (playerStatus == null || attackAction == null)
         {
             StopSpray();
@@ -130,7 +140,7 @@ public class WaterCannon : MonoBehaviour
         main.startLifetime = new ParticleSystem.MinMaxCurve(0.2f, 0.35f);
         main.startSpeed = new ParticleSystem.MinMaxCurve(5f, 7f);
         main.startSize = new ParticleSystem.MinMaxCurve(0.03f, 0.06f);
-        main.startColor = new Color(0.65f, 0.85f, 1f, 0.8f);
+        main.startColor = cleanWaterColor;
         main.gravityModifier = 0.15f;
         main.maxParticles = 250;
 
@@ -157,6 +167,32 @@ public class WaterCannon : MonoBehaviour
 
         var emission = sprayParticles.emission;
         emission.rateOverTime = sprayParticleRate;
+    }
+
+    void UpdateSprayColor(bool force = false)
+    {
+        if (sprayParticles == null) return;
+
+        WaterQuality quality = playerStatus != null ? playerStatus.GetWaterQuality() : WaterQuality.Clean;
+        if (!force && hasAppliedVisualQuality && appliedVisualQuality == quality) return;
+
+        var main = sprayParticles.main;
+        main.startColor = GetWaterColor(quality);
+        appliedVisualQuality = quality;
+        hasAppliedVisualQuality = true;
+    }
+
+    Color GetWaterColor(WaterQuality quality)
+    {
+        switch (quality)
+        {
+            case WaterQuality.Contaminated:
+                return contaminatedWaterColor;
+            case WaterQuality.ChemicallyEnhanced:
+                return chemicallyEnhancedWaterColor;
+            default:
+                return cleanWaterColor;
+        }
     }
 
     void StartSpray()
