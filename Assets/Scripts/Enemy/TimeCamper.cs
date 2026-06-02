@@ -21,6 +21,13 @@ public class TimeCamper : MonoBehaviour
     [Header("Teleport")]
     public float teleportInterval = 45f;
 
+    [Header("Water Contamination")]
+    public bool contaminateWaterOnMark = true;
+    public float waterContaminationRadius = 2.5f;
+    public float waterContaminationInterval = 0.5f;
+    public float markContaminationLifetime = 0f;
+    public LayerMask playerContaminationMask = ~0;
+
     [Header("Visuals")]
     public GameObject redCirclePrefab;
     public GameObject beamPrefab;
@@ -238,11 +245,31 @@ public class TimeCamper : MonoBehaviour
 
     void LeaveContaminationMark()
     {
-        if (contaminationPrefab == null) return;
+        GameObject mark = null;
 
-        Instantiate(contaminationPrefab,
-            new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
-            Quaternion.identity);
+        if (contaminationPrefab != null)
+        {
+            mark = Instantiate(contaminationPrefab,
+                new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z),
+                Quaternion.identity);
+        }
+
+        if (!contaminateWaterOnMark) return;
+
+        if (mark == null)
+            mark = new GameObject("TimeCamperWaterContaminationZone");
+
+        mark.transform.position = new Vector3(transform.position.x, transform.position.y + 0.05f, transform.position.z);
+
+        WaterContaminationZone zone = mark.GetComponent<WaterContaminationZone>();
+        if (zone == null)
+            zone = mark.AddComponent<WaterContaminationZone>();
+
+        zone.radius = waterContaminationRadius > 0f ? waterContaminationRadius : damageRadius;
+        zone.contaminationQuality = WaterQuality.Contaminated;
+        zone.contaminateInterval = waterContaminationInterval;
+        zone.lifetime = markContaminationLifetime;
+        zone.playerMask = playerContaminationMask;
     }
 
     void OnDrawGizmosSelected()
@@ -251,5 +278,7 @@ public class TimeCamper : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, detectionRadius);
         Gizmos.color = new Color(1f, 0.3f, 0f);
         Gizmos.DrawWireSphere(transform.position, damageRadius);
+        Gizmos.color = new Color(0.2f, 1f, 0.35f, 0.35f);
+        Gizmos.DrawWireSphere(transform.position, waterContaminationRadius > 0f ? waterContaminationRadius : damageRadius);
     }
 }
