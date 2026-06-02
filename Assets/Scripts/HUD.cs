@@ -15,7 +15,6 @@ public class HUD : MonoBehaviour
 
     [Header("Water")]
     public Slider waterBar;
-    public TMP_Text waterText;
     public Image waterFillImage;
     public PlayerStatus playerStatus;
     public Color cleanWaterColor = new Color(0.35f, 0.75f, 1f, 1f);
@@ -46,29 +45,10 @@ public class HUD : MonoBehaviour
 
         WaterQuality quality = playerStatus.GetWaterQuality();
 
-        if (waterText != null)
-        {
-            int currentWater = Mathf.CeilToInt(playerStatus.GetCurrentWater());
-            int maxWater = Mathf.CeilToInt(playerStatus.maxWater);
-            waterText.text = $"{currentWater}/{maxWater} - {GetWaterQualityLabel(quality)}";
-        }
-
         if (waterFillImage != null)
             waterFillImage.color = GetWaterQualityColor(quality);
     }
 
-    string GetWaterQualityLabel(WaterQuality quality)
-    {
-        switch (quality)
-        {
-            case WaterQuality.Contaminated:
-                return "Contaminated";
-            case WaterQuality.ChemicallyEnhanced:
-                return "Chemical";
-            default:
-                return "Clean";
-        }
-    }
 
     Color GetWaterQualityColor(WaterQuality quality)
     {

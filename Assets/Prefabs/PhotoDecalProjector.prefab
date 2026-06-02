@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 6652085575020698450}
   - component: {fileID: 5527138147043759832}
+  - component: {fileID: 7000401329017314296}
   m_Layer: 0
   m_Name: PhotoDecalProjector
   m_TagString: Untagged
@@ -61,3 +62,15 @@ MonoBehaviour:
   m_VisibleInScene: 1
   version: 1
   m_DecalLayerMask: 1
+--- !u!114 &7000401329017314296
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9062481201595151145}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e04fc6edc953f640a73ee6a0018fc41, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PhotographerDecal

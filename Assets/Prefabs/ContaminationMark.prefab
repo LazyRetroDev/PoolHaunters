@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 6329770739601309605}
   - component: {fileID: 2286457273913378536}
   - component: {fileID: 3201613936494894358}
+  - component: {fileID: 1113105516502512100}
   m_Layer: 0
   m_Name: ContaminationMark
   m_TagString: Untagged
@@ -90,3 +91,22 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &1113105516502512100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2143483654893712314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc2f98daa6082f7429c1023647a46d5b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaterContaminationZone
+  radius: 2.5
+  contaminationQuality: 1
+  contaminateInterval: 0.5
+  lifetime: 13
+  playerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295

@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 25678060358676815}
   - component: {fileID: 2571754169153461791}
   - component: {fileID: 6870038451453279358}
+  - component: {fileID: 6783829761484981949}
   m_Layer: 0
   m_Name: Photo
   m_TagString: Untagged
@@ -127,3 +128,22 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Item
   itemName: Photo
   itemIcon: {fileID: 10911, guid: 0000000000000000f000000000000000, type: 0}
+--- !u!114 &6783829761484981949
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8597496806861571951}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27025754f62ca6e48898d7da78fdb036, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PhotoItem
+  consumeOnUse: 1
+  clearPhotographerDecals: 1
+  freePetrifiedPlayers: 1
+  freeRadius: 4.31
+  playerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295

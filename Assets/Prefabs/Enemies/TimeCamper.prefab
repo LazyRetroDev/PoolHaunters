@@ -386,6 +386,13 @@ MonoBehaviour:
   damageDuration: 5
   damageRadius: 5
   teleportInterval: 45
+  contaminateWaterOnMark: 1
+  waterContaminationRadius: 2.5
+  waterContaminationInterval: 0.5
+  markContaminationLifetime: 6
+  playerContaminationMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
   redCirclePrefab: {fileID: 5278376469368105931, guid: 2aa3f7eddb6150348a7a836ff8c451f2, type: 3}
   beamPrefab: {fileID: 5278376469368105931, guid: 2aa3f7eddb6150348a7a836ff8c451f2, type: 3}
   contaminationPrefab: {fileID: 2143483654893712314, guid: fb1c52731fd641443980817a71ccc068, type: 3}

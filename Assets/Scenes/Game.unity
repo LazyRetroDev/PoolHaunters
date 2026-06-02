@@ -501,6 +501,9 @@ MonoBehaviour:
   waterUsagePerSecond: 10
   sprayParticleRate: 80
   autoCreateSprayParticles: 1
+  cleanWaterColor: {r: 0.65, g: 0.85, b: 1, a: 0.8}
+  contaminatedWaterColor: {r: 0.35, g: 0.9, b: 0.25, a: 0.85}
+  chemicallyEnhancedWaterColor: {r: 0.5330188, g: 1, b: 0.9593674, a: 0.9}
   cleanPowerPerSecond: 35
   sprayDistance: 4
   sprayRadius: 0.2
@@ -509,7 +512,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   debugSprayRay: 0
-  aimCamera: {fileID: 0}
+  aimCamera: {fileID: 330585545}
   aimMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -1160,7 +1163,11 @@ MonoBehaviour:
   - {fileID: 1121441868}
   - {fileID: 733245490}
   waterBar: {fileID: 1854779604}
+  waterFillImage: {fileID: 313946394}
   playerStatus: {fileID: 1826071992}
+  cleanWaterColor: {r: 0.35, g: 0.75, b: 1, a: 1}
+  contaminatedWaterColor: {r: 0.35, g: 0.9, b: 0.25, a: 1}
+  chemicallyEnhancedWaterColor: {r: 0.6839622, g: 1, b: 0.9805565, a: 1}
 --- !u!114 &353593401
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9497,6 +9504,10 @@ MonoBehaviour:
   maxHealth: 10
   maxWater: 100
   fillRate: 10
+  waterFillQuality: 0
+  startingWaterQuality: 0
+  contaminatedCleaningMultiplier: 0.25
+  chemicallyEnhancedCleaningMultiplier: 1.35
   hideRenderersOnDeath: 1
   disableCollidersOnDeath: 1
   componentsToDisableOnDeath: []
@@ -9925,9 +9936,14 @@ MonoBehaviour:
   maxHealth: 100
   maxWater: 100
   fillRate: 10
+  waterFillQuality: 0
+  startingWaterQuality: 0
+  contaminatedCleaningMultiplier: 0.25
+  chemicallyEnhancedCleaningMultiplier: 1.55
   hideRenderersOnDeath: 1
   disableCollidersOnDeath: 1
-  componentsToDisableOnDeath: []
+  componentsToDisableOnDeath:
+  - {fileID: 1826071991}
 --- !u!114 &1826071993
 MonoBehaviour:
   m_ObjectHideFlags: 0
