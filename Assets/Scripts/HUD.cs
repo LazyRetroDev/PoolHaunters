@@ -10,10 +10,17 @@ public class HUD : MonoBehaviour
     public PlayerMovement player;
     public PlayerInventory inventory;
 
-    public Image[] itemSlots;        
+    public Image[] itemSlots;
     public Image[] slotHighlights;
+
+    [Header("Water")]
     public Slider waterBar;
+    public TMP_Text waterText;
+    public Image waterFillImage;
     public PlayerStatus playerStatus;
+    public Color cleanWaterColor = new Color(0.35f, 0.75f, 1f, 1f);
+    public Color contaminatedWaterColor = new Color(0.35f, 0.9f, 0.25f, 1f);
+    public Color chemicallyEnhancedWaterColor = new Color(1f, 0.85f, 0.25f, 1f);
 
     void Update()
     {
@@ -26,10 +33,54 @@ public class HUD : MonoBehaviour
         if (player != null && staminaBar != null)
             staminaBar.value = player.GetStaminaPercent();
 
-        if (playerStatus != null && waterBar != null)
+        UpdateWaterHUD();
+        UpdateInventoryHUD();
+    }
+
+    void UpdateWaterHUD()
+    {
+        if (playerStatus == null) return;
+
+        if (waterBar != null)
             waterBar.value = playerStatus.GetWaterPercent();
 
-        UpdateInventoryHUD();
+        WaterQuality quality = playerStatus.GetWaterQuality();
+
+        if (waterText != null)
+        {
+            int currentWater = Mathf.CeilToInt(playerStatus.GetCurrentWater());
+            int maxWater = Mathf.CeilToInt(playerStatus.maxWater);
+            waterText.text = $"{currentWater}/{maxWater} - {GetWaterQualityLabel(quality)}";
+        }
+
+        if (waterFillImage != null)
+            waterFillImage.color = GetWaterQualityColor(quality);
+    }
+
+    string GetWaterQualityLabel(WaterQuality quality)
+    {
+        switch (quality)
+        {
+            case WaterQuality.Contaminated:
+                return "Contaminated";
+            case WaterQuality.ChemicallyEnhanced:
+                return "Chemical";
+            default:
+                return "Clean";
+        }
+    }
+
+    Color GetWaterQualityColor(WaterQuality quality)
+    {
+        switch (quality)
+        {
+            case WaterQuality.Contaminated:
+                return contaminatedWaterColor;
+            case WaterQuality.ChemicallyEnhanced:
+                return chemicallyEnhancedWaterColor;
+            default:
+                return cleanWaterColor;
+        }
     }
 
     void UpdateInventoryHUD()
