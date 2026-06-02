@@ -87,8 +87,9 @@ public class WaterCannon : MonoBehaviour
             return;
         }
 
+        float qualityMultiplier = playerStatus.GetWaterCleaningMultiplier();
         StartSpray();
-        CleanDirt(cleanPowerPerSecond * Time.deltaTime);
+        CleanDirt(cleanPowerPerSecond * qualityMultiplier * Time.deltaTime);
     }
 
     void LateUpdate()
