@@ -9,6 +9,12 @@ public class PlayerStatus : MonoBehaviour
     [Header("Water")]
     public float maxWater = 100f;
     public float fillRate = 10f;
+    public WaterQuality waterFillQuality = WaterQuality.Clean;
+    public WaterQuality startingWaterQuality = WaterQuality.Clean;
+
+    [Header("Water Cleaning Effects")]
+    public float contaminatedCleaningMultiplier = 0.25f;
+    public float chemicallyEnhancedCleaningMultiplier = 1.35f;
 
     [Header("Death Transformation")]
     public bool hideRenderersOnDeath = true;
@@ -16,9 +22,11 @@ public class PlayerStatus : MonoBehaviour
     public MonoBehaviour[] componentsToDisableOnDeath;
 
     public event Action<PlayerStatus> OnDeath;
+    public event Action<WaterQuality> OnWaterQualityChanged;
 
     private float currentHealth;
     private float currentWater = 0f;
+    private WaterQuality currentWaterQuality;
     private bool inWater = false;
     private bool isDead = false;
     private bool deathTransformationApplied = false;
@@ -30,6 +38,7 @@ public class PlayerStatus : MonoBehaviour
     {
         movement = GetComponent<PlayerMovement>();
         currentHealth = maxHealth;
+        currentWaterQuality = startingWaterQuality;
         isDead = currentHealth <= 0f;
     }
 
@@ -37,18 +46,17 @@ public class PlayerStatus : MonoBehaviour
     public float GetCurrentHealth() => currentHealth;
     public float GetMaxHealth() => maxHealth;
     public float GetCurrentWater() => currentWater;
+    public WaterQuality GetWaterQuality() => currentWaterQuality;
     public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
     public float GetWaterPercent() => maxWater > 0f ? currentWater / maxWater : 0f;
     public bool IsSprinting() => movement != null && movement.IsSprinting();
     public bool IsDead() => isDead;
+    public bool HasContaminatedWater() => currentWater > 0f && currentWaterQuality == WaterQuality.Contaminated;
 
     void Update()
     {
         if (inWater && currentWater < maxWater)
-        {
-            currentWater += fillRate * Time.deltaTime;
-            currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
-        }
+            AddWater(fillRate * Time.deltaTime, waterFillQuality);
     }
 
     public bool TakeDamage(float damage)
@@ -117,6 +125,56 @@ public class PlayerStatus : MonoBehaviour
 
         currentWater -= amount;
         currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+
+        if (currentWater <= 0f)
+            SetWaterQuality(WaterQuality.Clean);
+
         return true;
+    }
+
+    public bool AddWater(float amount, WaterQuality quality, bool replaceExistingQuality = false)
+    {
+        if (amount <= 0f || currentWater >= maxWater) return false;
+
+        bool wasEmpty = currentWater <= 0f;
+        currentWater += amount;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+
+        if (wasEmpty || replaceExistingQuality || quality == WaterQuality.Contaminated)
+            SetWaterQuality(quality);
+        else if (currentWaterQuality != WaterQuality.Contaminated && quality == WaterQuality.ChemicallyEnhanced)
+            SetWaterQuality(WaterQuality.ChemicallyEnhanced);
+
+        return true;
+    }
+
+    public void ContaminateWater()
+    {
+        if (currentWater <= 0f) return;
+        SetWaterQuality(WaterQuality.Contaminated);
+    }
+
+    public void PurifyWater()
+    {
+        if (currentWater <= 0f) return;
+        SetWaterQuality(WaterQuality.Clean);
+    }
+
+    public float GetWaterCleaningMultiplier()
+    {
+        if (currentWaterQuality == WaterQuality.Contaminated)
+            return contaminatedCleaningMultiplier;
+
+        if (currentWaterQuality == WaterQuality.ChemicallyEnhanced)
+            return chemicallyEnhancedCleaningMultiplier;
+
+        return 1f;
+    }
+
+    void SetWaterQuality(WaterQuality quality)
+    {
+        if (currentWaterQuality == quality) return;
+        currentWaterQuality = quality;
+        OnWaterQualityChanged?.Invoke(currentWaterQuality);
     }
 }
