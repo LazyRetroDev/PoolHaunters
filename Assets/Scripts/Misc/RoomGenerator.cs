@@ -1,65 +1,64 @@
 using UnityEngine;
-using UnityEngine.AI;
 using Unity.AI.Navigation;
 using System.Collections.Generic;
 
 public class RoomGenerator : MonoBehaviour
 {
+    [Header("Rooms")]
     public GameObject[] roomPrefabs;
-    public int roomCount = 3;
+    public int startingRoomCount = 2;
+    public int maxGeneratedRooms = 0;
+    public int roomsToKeep = 5;
     public int seed = 0;
 
-    private List<GameObject> spawnedRooms = new List<GameObject>();
+    [Header("Enemy Setup")]
+    public bool spawnTimeCamperAfterStartingRooms = true;
+
+    private readonly List<GameObject> spawnedRooms = new List<GameObject>();
+    private readonly List<NavMeshSurface> registeredSurfaces = new List<NavMeshSurface>();
+    private Transform lastExitPoint;
+    private int generatedRoomCount;
+    private bool initialEnemySpawned;
 
     void Start()
     {
         Random.InitState(seed);
-<<<<<<< Updated upstream
-        GenerateRooms();
-        BakeAndSpawnEnemies();
-=======
 
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
             GenerateNextRoom();
->>>>>>> Stashed changes
     }
 
-    void GenerateRooms()
+    public void GenerateNextRoomFromDoor(DoorTrigger trigger)
     {
-        Transform lastExitPoint = null;
-        DoorTrigger lastDoorTrigger = null;
-
-        for (int i = 0; i < roomCount; i++)
-        {
-            GameObject roomPrefab = roomPrefabs[Random.Range(0, roomPrefabs.Length)];
-            GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
-            spawnedRooms.Add(room);
-
-            Transform entryPoint = room.transform.Find("DoorPoint_A");
-            Transform exitPoint = room.transform.Find("DoorPoint_B");
-
-            if (lastExitPoint != null && entryPoint != null)
-            {
-                Quaternion rotationDiff = lastExitPoint.rotation * Quaternion.Inverse(entryPoint.rotation);
-                rotationDiff *= Quaternion.Euler(0, 180f, 0);
-                room.transform.rotation = rotationDiff;
-                Vector3 offset = lastExitPoint.position - entryPoint.position;
-                room.transform.position += offset;
-            }
-
-            if (lastDoorTrigger != null)
-                lastDoorTrigger.nextRoom = room;
-
-            DoorTrigger exitTrigger = room.transform.Find("DoorTrigger_B")?.GetComponent<DoorTrigger>();
-            lastDoorTrigger = exitTrigger;
-            lastExitPoint = exitPoint;
-<<<<<<< Updated upstream
-        }
+        GenerateNextRoom();
+        CullOldRooms();
     }
 
-    void BakeAndSpawnEnemies()
-=======
+    public GameObject GenerateNextRoom()
+    {
+        if (roomPrefabs == null || roomPrefabs.Length == 0)
+        {
+            Debug.LogWarning("RoomGenerator has no room prefabs assigned.");
+            return null;
+        }
+
+        if (maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms)
+            return null;
+
+        GameObject roomPrefab = roomPrefabs[Random.Range(0, roomPrefabs.Length)];
+        GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
+
+        AlignRoomToPreviousExit(room);
+        spawnedRooms.Add(room);
+        generatedRoomCount++;
+
+        RegisterRoomDoor(room);
+        RegisterRoomNavMesh(room);
+
+        Transform exitPoint = room.transform.Find("DoorPoint_B");
+        if (exitPoint != null)
+            lastExitPoint = exitPoint;
         else
             Debug.LogWarning(room.name + " is missing DoorPoint_B.");
 
@@ -108,21 +107,22 @@ public class RoomGenerator : MonoBehaviour
     }
 
     void RegisterRoomNavMesh(GameObject room)
->>>>>>> Stashed changes
     {
         if (EnemySpawner.Instance == null) return;
 
-        foreach (GameObject room in spawnedRooms)
+        NavMeshSurface surface = room.GetComponent<NavMeshSurface>();
+        if (surface == null)
+            surface = room.GetComponentInChildren<NavMeshSurface>();
+
+        if (surface == null)
         {
-            NavMeshSurface surface = room.GetComponent<NavMeshSurface>();
-            if (surface != null)
-                EnemySpawner.Instance.RegisterSurface(surface);
+            Debug.LogWarning(room.name + " is missing a NavMeshSurface.");
+            return;
         }
 
-        EnemySpawner.Instance.BakeAllAndSpawn();
+        registeredSurfaces.Add(surface);
+        EnemySpawner.Instance.RegisterSurface(surface, buildNow: true);
     }
-<<<<<<< Updated upstream
-=======
 
     void CullOldRooms()
     {
@@ -144,5 +144,4 @@ public class RoomGenerator : MonoBehaviour
                 Destroy(room);
         }
     }
->>>>>>> Stashed changes
 }
