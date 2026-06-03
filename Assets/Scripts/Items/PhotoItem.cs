@@ -10,10 +10,30 @@ public class PhotoItem : UsableItem
     public LayerMask playerMask = ~0;
 
     private PlayerPetrify capturedPlayer;
+    private PhotographerDecal linkedDecal;
+    private Item item;
+
+    void Awake()
+    {
+        item = GetComponent<Item>();
+    }
 
     public void SetCapturedPlayer(PlayerPetrify playerPetrify)
     {
         capturedPlayer = playerPetrify;
+    }
+
+    public void SetLinkedDecal(PhotographerDecal decal)
+    {
+        linkedDecal = decal;
+        if (linkedDecal != null)
+            linkedDecal.LinkPhoto(this);
+    }
+
+    public void InvalidateFromLinkedDecal()
+    {
+        RemoveFromInventories();
+        Destroy(gameObject);
     }
 
     public override bool Use(PlayerInventory inventory, PlayerStatus playerStatus)
@@ -21,7 +41,7 @@ public class PhotoItem : UsableItem
         bool didSomething = false;
 
         if (clearPhotographerDecals)
-            didSomething |= ClearDecals();
+            didSomething |= ClearLinkedDecal();
 
         if (freePetrifiedPlayers)
         {
@@ -40,16 +60,13 @@ public class PhotoItem : UsableItem
         return didSomething;
     }
 
-    bool ClearDecals()
+    bool ClearLinkedDecal()
     {
-        PhotographerDecal[] decals = FindObjectsOfType<PhotographerDecal>();
-        for (int i = 0; i < decals.Length; i++)
-        {
-            if (decals[i] != null)
-                Destroy(decals[i].gameObject);
-        }
+        if (linkedDecal == null) return false;
 
-        return decals.Length > 0;
+        linkedDecal.ClearFromPhoto();
+        linkedDecal = null;
+        return true;
     }
 
     bool FreePetrifiedPlayers(Vector3 origin)
@@ -67,6 +84,16 @@ public class PhotoItem : UsableItem
         }
 
         return freedAny;
+    }
+
+    void RemoveFromInventories()
+    {
+        if (item == null)
+            item = GetComponent<Item>();
+
+        PlayerInventory[] inventories = FindObjectsOfType<PlayerInventory>();
+        for (int i = 0; i < inventories.Length; i++)
+            inventories[i].RemoveItem(item, destroyItem: false);
     }
 
     void OnDrawGizmosSelected()
