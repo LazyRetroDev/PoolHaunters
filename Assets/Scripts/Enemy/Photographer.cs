@@ -27,6 +27,11 @@ public class Photographer : MonoBehaviour
     public GameObject photoItemPrefab;
     public int maxPhotos = 5;
 
+    [Header("Captured Photo")]
+    public Transform capturedPhotoPoint;
+    public Vector3 capturedPhotoOffset = new Vector3(0.8f, 1f, 0.4f);
+    public bool parentCapturedPhotoToPhotographer = true;
+
     [Header("Petrify")]
     public float petrifyWanderDuration = 5f;
 
@@ -43,15 +48,25 @@ public class Photographer : MonoBehaviour
     private float loseSightTimer = 0f;
     public float loseSightDelay = 1f;
 
+    private GameObject activeCapturedPhoto;
+    private bool admiringCapturedPhoto = false;
+
     enum State { Wandering, Observing, Chasing, Admiring }
     State currentState = State.Wandering;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
-        playerStatus = player.GetComponent<PlayerStatus>();
-        agent.speed = wanderSpeed;
-        agent.angularSpeed = 120f;
+
+        if (player != null)
+            playerStatus = player.GetComponent<PlayerStatus>();
+
+        if (agent != null)
+        {
+            agent.speed = wanderSpeed;
+            agent.angularSpeed = 120f;
+        }
+
         waitTimer = 0f;
         SetNewDestination();
     }
@@ -63,28 +78,40 @@ public class Photographer : MonoBehaviour
         switch (currentState)
         {
             case State.Wandering:
-                agent.isStopped = false;
+                if (agent != null) agent.isStopped = false;
                 HandleWander();
                 TrySnapshot();
                 if (playerVisible)
                 {
-                    agent.isStopped = true;
-                    agent.ResetPath();
+                    if (agent != null)
+                    {
+                        agent.isStopped = true;
+                        agent.ResetPath();
+                    }
                     currentState = State.Observing;
                     sprintTimer = 0f;
                 }
                 break;
 
             case State.Observing:
-                agent.isStopped = true;
-                agent.velocity = Vector3.zero;
-                FaceTarget(player.position);
+                if (agent != null)
+                {
+                    agent.isStopped = true;
+                    agent.velocity = Vector3.zero;
+                }
+
+                if (player != null)
+                    FaceTarget(player.position);
+
                 TrySnapshot();
 
                 if (!playerVisible)
                 {
-                    agent.isStopped = false;
-                    agent.speed = wanderSpeed;
+                    if (agent != null)
+                    {
+                        agent.isStopped = false;
+                        agent.speed = wanderSpeed;
+                    }
                     SetNewDestination();
                     sprintTimer = 0f;
                     currentState = State.Wandering;
@@ -97,8 +124,11 @@ public class Photographer : MonoBehaviour
                     Debug.Log("Sprint timer: " + sprintTimer);
                     if (sprintTimer >= sprintDetectDelay)
                     {
-                        agent.isStopped = false;
-                        agent.speed = chaseSpeed;
+                        if (agent != null)
+                        {
+                            agent.isStopped = false;
+                            agent.speed = chaseSpeed;
+                        }
                         sprintTimer = 0f;
                         currentState = State.Chasing;
                     }
@@ -110,36 +140,45 @@ public class Photographer : MonoBehaviour
                 break;
 
             case State.Chasing:
-                agent.isStopped = false;
-                agent.SetDestination(player.position);
+                if (agent != null)
+                {
+                    agent.isStopped = false;
+                    if (player != null) agent.SetDestination(player.position);
+                }
+
                 if (!playerDetected)
                 {
-                    agent.speed = wanderSpeed;
+                    if (agent != null) agent.speed = wanderSpeed;
                     SetNewDestination();
                     currentState = State.Wandering;
+                    break;
                 }
-                if (Vector3.Distance(transform.position, player.position) <= petrifyRange)
-                    PetrifyPlayer();
+
+                if (player != null && Vector3.Distance(transform.position, player.position) <= petrifyRange)
+                    PhotographPlayer();
                 break;
 
             case State.Admiring:
-                agent.isStopped = true;
-                agent.velocity = Vector3.zero;
-                admireTimer -= Time.deltaTime;
-                if (admireTimer <= 0f)
+                if (agent != null)
                 {
-                    DropPhoto();
-                    agent.isStopped = false;
-                    agent.speed = wanderSpeed;
-                    currentState = State.Wandering;
-                    SetNewDestination();
+                    agent.isStopped = true;
+                    agent.velocity = Vector3.zero;
                 }
+
+                if (activeCapturedPhoto != null)
+                    FaceTarget(activeCapturedPhoto.transform.position);
+
+                admireTimer -= Time.deltaTime;
+                if (activeCapturedPhoto == null || admireTimer <= 0f)
+                    FinishAdmiring();
                 break;
         }
     }
 
     void HandleWander()
     {
+        if (agent == null) return;
+
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
         {
             waitTimer -= Time.deltaTime;
@@ -169,40 +208,85 @@ public class Photographer : MonoBehaviour
     void TakeSnapshot(Vector3 position, Vector3 normal)
     {
         if (decalProjectorPrefab == null) return;
+
         photosTaken++;
         Quaternion rotation = Quaternion.LookRotation(-normal);
         GameObject decal = Instantiate(decalProjectorPrefab, position, rotation);
         if (decal.GetComponent<PhotographerDecal>() == null)
             decal.AddComponent<PhotographerDecal>();
-        agent.ResetPath();
+
+        if (agent != null) agent.ResetPath();
         admireTimer = admireTime;
+        admiringCapturedPhoto = false;
         currentState = State.Admiring;
     }
 
-    void PetrifyPlayer()
+    void PhotographPlayer()
     {
+        if (player == null) return;
+
         PlayerPetrify petrify = player.GetComponent<PlayerPetrify>();
-        if (petrify != null) petrify.Petrify();
+        if (petrify != null)
+            petrify.Petrify();
+
+        SpawnCapturedPhoto(petrify);
 
         petrifyWanderCooldown = petrifyWanderDuration;
         playerDetected = false;
         loseSightTimer = loseSightDelay + 1f;
-        agent.isStopped = false;
-        agent.speed = wanderSpeed;
-        currentState = State.Wandering;
+        admireTimer = admireTime;
+        admiringCapturedPhoto = true;
+        currentState = State.Admiring;
 
-        Vector3 awayFromPlayer = transform.position + (transform.position - player.position).normalized * wanderRadius;
-        NavMeshHit hit;
-        if (NavMesh.SamplePosition(awayFromPlayer, out hit, wanderRadius, NavMesh.AllAreas))
-            agent.SetDestination(hit.position);
-        else
-            SetNewDestination();
+        if (agent != null)
+        {
+            agent.isStopped = true;
+            agent.ResetPath();
+        }
     }
 
-    void DropPhoto()
+    void SpawnCapturedPhoto(PlayerPetrify petrify)
     {
-        if (photoItemPrefab != null)
-            Instantiate(photoItemPrefab, transform.position + transform.forward, Quaternion.identity);
+        if (photoItemPrefab == null) return;
+
+        Vector3 spawnPosition = GetCapturedPhotoPosition();
+        activeCapturedPhoto = Instantiate(photoItemPrefab, spawnPosition, transform.rotation);
+        activeCapturedPhoto.SetActive(true);
+
+        if (parentCapturedPhotoToPhotographer)
+            activeCapturedPhoto.transform.SetParent(transform, true);
+
+        PhotoItem photoItem = activeCapturedPhoto.GetComponent<PhotoItem>();
+        if (photoItem == null)
+            photoItem = activeCapturedPhoto.AddComponent<PhotoItem>();
+
+        photoItem.SetCapturedPlayer(petrify);
+    }
+
+    Vector3 GetCapturedPhotoPosition()
+    {
+        if (capturedPhotoPoint != null)
+            return capturedPhotoPoint.position;
+
+        return transform.position + transform.TransformDirection(capturedPhotoOffset);
+    }
+
+    void FinishAdmiring()
+    {
+        if (activeCapturedPhoto != null && admiringCapturedPhoto)
+            activeCapturedPhoto.transform.SetParent(null, true);
+
+        activeCapturedPhoto = null;
+        admiringCapturedPhoto = false;
+
+        if (agent != null)
+        {
+            agent.isStopped = false;
+            agent.speed = wanderSpeed;
+        }
+
+        currentState = State.Wandering;
+        SetNewDestination();
     }
 
     void FaceTarget(Vector3 target)
@@ -218,6 +302,8 @@ public class Photographer : MonoBehaviour
 
     void SetNewDestination()
     {
+        if (agent == null) return;
+
         Vector3 randomDirection = Random.insideUnitSphere * wanderRadius;
         randomDirection += transform.position;
         NavMeshHit hit;
