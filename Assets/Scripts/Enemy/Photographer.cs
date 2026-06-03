@@ -30,6 +30,10 @@ public class Photographer : MonoBehaviour
     public int randomSnapshotAttempts = 10;
     public float snapshotEyeHeight = 0.5f;
 
+    [Header("Photo Contamination")]
+    public float decalContaminationDelay = 20f;
+    public GameObject dirtPrefab;
+
     [Header("Dropped Photo")]
     public Transform capturedPhotoPoint;
     public Vector3 capturedPhotoOffset = new Vector3(0.8f, 1f, 0.4f);
@@ -52,7 +56,6 @@ public class Photographer : MonoBehaviour
     public float loseSightDelay = 1f;
 
     private GameObject activeCapturedPhoto;
-    private bool admiringCapturedPhoto = false;
 
     enum State { Wandering, Observing, Chasing, Admiring }
     State currentState = State.Wandering;
@@ -243,15 +246,20 @@ public class Photographer : MonoBehaviour
     {
         photosTaken++;
         Quaternion rotation = Quaternion.LookRotation(-normal);
-        GameObject decal = Instantiate(decalProjectorPrefab, position, rotation);
-        if (decal.GetComponent<PhotographerDecal>() == null)
-            decal.AddComponent<PhotographerDecal>();
+        GameObject decalObject = Instantiate(decalProjectorPrefab, position, rotation);
+        PhotographerDecal decal = decalObject.GetComponent<PhotographerDecal>();
+        if (decal == null)
+            decal = decalObject.AddComponent<PhotographerDecal>();
 
-        SpawnPhotoItem(null);
+        decal.contaminationDelay = decalContaminationDelay;
+        decal.dirtPrefab = dirtPrefab;
+
+        PhotoItem photoItem = SpawnPhotoItem(null);
+        if (photoItem != null)
+            photoItem.SetLinkedDecal(decal);
 
         if (agent != null) agent.ResetPath();
         admireTimer = admireTime;
-        admiringCapturedPhoto = false;
         currentState = State.Admiring;
     }
 
@@ -269,7 +277,6 @@ public class Photographer : MonoBehaviour
         playerDetected = false;
         loseSightTimer = loseSightDelay + 1f;
         admireTimer = admireTime;
-        admiringCapturedPhoto = true;
         currentState = State.Admiring;
 
         if (agent != null)
@@ -279,9 +286,9 @@ public class Photographer : MonoBehaviour
         }
     }
 
-    void SpawnPhotoItem(PlayerPetrify petrify)
+    PhotoItem SpawnPhotoItem(PlayerPetrify petrify)
     {
-        if (photoItemPrefab == null) return;
+        if (photoItemPrefab == null) return null;
 
         Vector3 spawnPosition = GetPhotoItemPosition();
         activeCapturedPhoto = Instantiate(photoItemPrefab, spawnPosition, transform.rotation);
@@ -295,6 +302,7 @@ public class Photographer : MonoBehaviour
             photoItem = activeCapturedPhoto.AddComponent<PhotoItem>();
 
         photoItem.SetCapturedPlayer(petrify);
+        return photoItem;
     }
 
     Vector3 GetPhotoItemPosition()
@@ -311,7 +319,6 @@ public class Photographer : MonoBehaviour
             activeCapturedPhoto.transform.SetParent(null, true);
 
         activeCapturedPhoto = null;
-        admiringCapturedPhoto = false;
 
         if (agent != null)
         {
