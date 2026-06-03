@@ -17,13 +17,13 @@ public class PlayerPetrify : MonoBehaviour
 
     void Update()
     {
-        if (isPetrified)
-        {
-            petrifyTimer -= Time.deltaTime;
-            if (movement != null) movement.enabled = false;
-            if (inventory != null) inventory.enabled = false;
-            if (petrifyTimer <= 0f) Unpetrify();
-        }
+        if (!isPetrified) return;
+
+        petrifyTimer -= Time.deltaTime;
+        ApplyPetrifiedControlLock();
+
+        if (petrifyTimer <= 0f)
+            Unpetrify();
     }
 
     public bool IsPetrified()
@@ -35,6 +35,7 @@ public class PlayerPetrify : MonoBehaviour
     {
         isPetrified = true;
         petrifyTimer = petrifyDuration;
+        ApplyPetrifiedControlLock();
     }
 
     public void Unpetrify()
@@ -42,5 +43,11 @@ public class PlayerPetrify : MonoBehaviour
         isPetrified = false;
         if (movement != null) movement.enabled = true;
         if (inventory != null) inventory.enabled = true;
+    }
+
+    void ApplyPetrifiedControlLock()
+    {
+        if (movement != null) movement.enabled = false;
+        if (inventory != null) inventory.enabled = false;
     }
 }
