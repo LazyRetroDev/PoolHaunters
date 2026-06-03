@@ -21,6 +21,8 @@ public class PlayerMovement : MonoBehaviour
     private bool isSprinting;
     private float currentStamina;
     private float regenTimer;
+    private float staminaDrainMultiplier = 1f;
+    private float staminaDrainMultiplierTimer;
 
     void Start()
     {
@@ -32,6 +34,11 @@ public class PlayerMovement : MonoBehaviour
     public void OnMove(InputValue value)
     {
         moveInput = value.Get<Vector2>();
+    }
+
+    void Update()
+    {
+        UpdateTimedStaminaMultiplier();
     }
 
     void FixedUpdate()
@@ -56,7 +63,7 @@ public class PlayerMovement : MonoBehaviour
         // Stamina logic
         if (canSprint)
         {
-            currentStamina -= staminaDrainRate * Time.fixedDeltaTime;
+            currentStamina -= staminaDrainRate * staminaDrainMultiplier * Time.fixedDeltaTime;
             currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             regenTimer = 0f;
         }
@@ -71,5 +78,23 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    public float GetStaminaPercent() => currentStamina / maxStamina;
+    public void ApplyStaminaDrainMultiplier(float multiplier, float duration)
+    {
+        staminaDrainMultiplier = Mathf.Clamp(multiplier, 0f, 10f);
+        staminaDrainMultiplierTimer = Mathf.Max(0f, duration);
+    }
+
+    void UpdateTimedStaminaMultiplier()
+    {
+        if (staminaDrainMultiplierTimer <= 0f) return;
+
+        staminaDrainMultiplierTimer -= Time.deltaTime;
+        if (staminaDrainMultiplierTimer <= 0f)
+        {
+            staminaDrainMultiplierTimer = 0f;
+            staminaDrainMultiplier = 1f;
+        }
+    }
+
+    public float GetStaminaPercent() => maxStamina > 0f ? currentStamina / maxStamina : 0f;
 }
