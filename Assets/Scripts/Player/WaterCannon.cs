@@ -43,6 +43,7 @@ public class WaterCannon : MonoBehaviour
 
     private PlayerInput playerInput;
     private PlayerStatus playerStatus;
+    private PlayerPetrify playerPetrify;
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private Transform ownerRoot;
@@ -55,6 +56,7 @@ public class WaterCannon : MonoBehaviour
     {
         playerInput = GetComponentInParent<PlayerInput>();
         playerStatus = GetComponentInParent<PlayerStatus>();
+        playerPetrify = GetComponentInParent<PlayerPetrify>();
         ownerRoot = playerStatus != null ? playerStatus.transform : transform.root;
 
         if (sprayOrigin == null)
@@ -80,6 +82,12 @@ public class WaterCannon : MonoBehaviour
     {
         UpdateTimedWaterUsageMultiplier();
         UpdateSprayColor();
+
+        if (IsOwnerPetrified())
+        {
+            StopSpray();
+            return;
+        }
 
         if (playerStatus == null || attackAction == null)
         {
@@ -116,6 +124,11 @@ public class WaterCannon : MonoBehaviour
     void OnDisable()
     {
         StopSprayImmediate();
+    }
+
+    bool IsOwnerPetrified()
+    {
+        return playerPetrify != null && playerPetrify.IsPetrified();
     }
 
     public void ApplyWaterUsageMultiplier(float multiplier, float duration)
