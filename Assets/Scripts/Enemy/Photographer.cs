@@ -26,11 +26,14 @@ public class Photographer : MonoBehaviour
     public float admireTime = 3f;
     public GameObject photoItemPrefab;
     public int maxPhotos = 5;
+    public LayerMask snapshotMask = ~0;
+    public int randomSnapshotAttempts = 10;
+    public float snapshotEyeHeight = 0.5f;
 
     [Header("Captured Photo")]
     public Transform capturedPhotoPoint;
     public Vector3 capturedPhotoOffset = new Vector3(0.8f, 1f, 0.4f);
-    public bool parentCapturedPhotoToPhotographer = true;
+    public bool parentCapturedPhotoToPhotographer = false;
 
     [Header("Petrify")]
     public float petrifyWanderDuration = 5f;
@@ -165,7 +168,7 @@ public class Photographer : MonoBehaviour
                     agent.velocity = Vector3.zero;
                 }
 
-                if (activeCapturedPhoto != null)
+                if (activeCapturedPhoto != null && activeCapturedPhoto.transform.parent != transform)
                     FaceTarget(activeCapturedPhoto.transform.position);
 
                 admireTimer -= Time.deltaTime;
@@ -196,20 +199,48 @@ public class Photographer : MonoBehaviour
         snapshotTimer -= Time.deltaTime;
         if (snapshotTimer > 0f) return;
         if (photosTaken >= maxPhotos) return;
+        if (decalProjectorPrefab == null) return;
 
-        Ray ray = new Ray(transform.position + Vector3.up * 0.5f, transform.forward);
-        if (Physics.Raycast(ray, out RaycastHit hit, snapshotDistance))
+        if (TryFindSnapshotSurface(out RaycastHit hit))
         {
-            if (hit.collider.CompareTag("Player")) return;
             TakeSnapshot(hit.point, hit.normal);
             snapshotTimer = snapshotCooldown;
         }
     }
 
+    bool TryFindSnapshotSurface(out RaycastHit snapshotHit)
+    {
+        Vector3 eyePosition = transform.position + Vector3.up * snapshotEyeHeight;
+
+        if (TrySnapshotRay(eyePosition, transform.forward, out snapshotHit))
+            return true;
+
+        for (int i = 0; i < randomSnapshotAttempts; i++)
+        {
+            Vector3 direction = Random.onUnitSphere;
+            direction.y = Random.Range(-0.65f, 0.25f);
+            direction.Normalize();
+
+            if (Vector3.Dot(transform.forward, direction) < -0.2f)
+                direction = Vector3.Reflect(direction, -transform.forward).normalized;
+
+            if (TrySnapshotRay(eyePosition, direction, out snapshotHit))
+                return true;
+        }
+
+        return false;
+    }
+
+    bool TrySnapshotRay(Vector3 origin, Vector3 direction, out RaycastHit hit)
+    {
+        if (Physics.Raycast(origin, direction, out hit, snapshotDistance, snapshotMask, QueryTriggerInteraction.Ignore))
+            return !hit.collider.CompareTag("Player");
+
+        return false;
+    }
+
     void TakeSnapshot(Vector3 position, Vector3 normal)
     {
-        if (decalProjectorPrefab == null) return;
-
         photosTaken++;
         Quaternion rotation = Quaternion.LookRotation(-normal);
         GameObject decal = Instantiate(decalProjectorPrefab, position, rotation);
