@@ -48,6 +48,8 @@ public class WaterCannon : MonoBehaviour
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
+    private float waterUsageMultiplier = 1f;
+    private float waterUsageMultiplierTimer;
 
     void Awake()
     {
@@ -76,6 +78,7 @@ public class WaterCannon : MonoBehaviour
 
     void Update()
     {
+        UpdateTimedWaterUsageMultiplier();
         UpdateSprayColor();
 
         if (playerStatus == null || attackAction == null)
@@ -90,7 +93,7 @@ public class WaterCannon : MonoBehaviour
             return;
         }
 
-        float waterThisFrame = waterUsagePerSecond * Time.deltaTime;
+        float waterThisFrame = waterUsagePerSecond * waterUsageMultiplier * Time.deltaTime;
         if (!playerStatus.ConsumeWater(waterThisFrame))
         {
             StopSpray();
@@ -113,6 +116,24 @@ public class WaterCannon : MonoBehaviour
     void OnDisable()
     {
         StopSprayImmediate();
+    }
+
+    public void ApplyWaterUsageMultiplier(float multiplier, float duration)
+    {
+        waterUsageMultiplier = Mathf.Clamp(multiplier, 0f, 10f);
+        waterUsageMultiplierTimer = Mathf.Max(0f, duration);
+    }
+
+    void UpdateTimedWaterUsageMultiplier()
+    {
+        if (waterUsageMultiplierTimer <= 0f) return;
+
+        waterUsageMultiplierTimer -= Time.deltaTime;
+        if (waterUsageMultiplierTimer <= 0f)
+        {
+            waterUsageMultiplierTimer = 0f;
+            waterUsageMultiplier = 1f;
+        }
     }
 
     Transform CreateSprayOrigin()
