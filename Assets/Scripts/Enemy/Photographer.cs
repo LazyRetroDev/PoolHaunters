@@ -169,7 +169,8 @@ public class Photographer : MonoBehaviour
                     FaceTarget(activeCapturedPhoto.transform.position);
 
                 admireTimer -= Time.deltaTime;
-                if (activeCapturedPhoto == null || admireTimer <= 0f)
+                bool capturedPhotoWasTaken = admiringCapturedPhoto && activeCapturedPhoto == null;
+                if (capturedPhotoWasTaken || admireTimer <= 0f)
                     FinishAdmiring();
                 break;
         }
