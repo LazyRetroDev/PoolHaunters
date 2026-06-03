@@ -30,7 +30,7 @@ public class Photographer : MonoBehaviour
     public int randomSnapshotAttempts = 10;
     public float snapshotEyeHeight = 0.5f;
 
-    [Header("Captured Photo")]
+    [Header("Dropped Photo")]
     public Transform capturedPhotoPoint;
     public Vector3 capturedPhotoOffset = new Vector3(0.8f, 1f, 0.4f);
     public bool parentCapturedPhotoToPhotographer = false;
@@ -172,8 +172,8 @@ public class Photographer : MonoBehaviour
                     FaceTarget(activeCapturedPhoto.transform.position);
 
                 admireTimer -= Time.deltaTime;
-                bool capturedPhotoWasTaken = admiringCapturedPhoto && activeCapturedPhoto == null;
-                if (capturedPhotoWasTaken || admireTimer <= 0f)
+                bool photoWasTaken = activeCapturedPhoto == null;
+                if (photoWasTaken || admireTimer <= 0f)
                     FinishAdmiring();
                 break;
         }
@@ -247,6 +247,8 @@ public class Photographer : MonoBehaviour
         if (decal.GetComponent<PhotographerDecal>() == null)
             decal.AddComponent<PhotographerDecal>();
 
+        SpawnPhotoItem(null);
+
         if (agent != null) agent.ResetPath();
         admireTimer = admireTime;
         admiringCapturedPhoto = false;
@@ -261,7 +263,7 @@ public class Photographer : MonoBehaviour
         if (petrify != null)
             petrify.Petrify();
 
-        SpawnCapturedPhoto(petrify);
+        SpawnPhotoItem(petrify);
 
         petrifyWanderCooldown = petrifyWanderDuration;
         playerDetected = false;
@@ -277,11 +279,11 @@ public class Photographer : MonoBehaviour
         }
     }
 
-    void SpawnCapturedPhoto(PlayerPetrify petrify)
+    void SpawnPhotoItem(PlayerPetrify petrify)
     {
         if (photoItemPrefab == null) return;
 
-        Vector3 spawnPosition = GetCapturedPhotoPosition();
+        Vector3 spawnPosition = GetPhotoItemPosition();
         activeCapturedPhoto = Instantiate(photoItemPrefab, spawnPosition, transform.rotation);
         activeCapturedPhoto.SetActive(true);
 
@@ -295,7 +297,7 @@ public class Photographer : MonoBehaviour
         photoItem.SetCapturedPlayer(petrify);
     }
 
-    Vector3 GetCapturedPhotoPosition()
+    Vector3 GetPhotoItemPosition()
     {
         if (capturedPhotoPoint != null)
             return capturedPhotoPoint.position;
@@ -305,7 +307,7 @@ public class Photographer : MonoBehaviour
 
     void FinishAdmiring()
     {
-        if (activeCapturedPhoto != null && admiringCapturedPhoto)
+        if (activeCapturedPhoto != null)
             activeCapturedPhoto.transform.SetParent(null, true);
 
         activeCapturedPhoto = null;
