@@ -9,6 +9,13 @@ public class PhotoItem : UsableItem
     public float freeRadius = 4f;
     public LayerMask playerMask = ~0;
 
+    private PlayerPetrify capturedPlayer;
+
+    public void SetCapturedPlayer(PlayerPetrify playerPetrify)
+    {
+        capturedPlayer = playerPetrify;
+    }
+
     public override bool Use(PlayerInventory inventory, PlayerStatus playerStatus)
     {
         bool didSomething = false;
@@ -18,8 +25,16 @@ public class PhotoItem : UsableItem
 
         if (freePetrifiedPlayers)
         {
-            Transform origin = playerStatus != null ? playerStatus.transform : transform;
-            didSomething |= FreePetrifiedPlayers(origin.position);
+            if (capturedPlayer != null && capturedPlayer.IsPetrified())
+            {
+                capturedPlayer.Unpetrify();
+                didSomething = true;
+            }
+            else
+            {
+                Transform origin = playerStatus != null ? playerStatus.transform : transform;
+                didSomething |= FreePetrifiedPlayers(origin.position);
+            }
         }
 
         return didSomething;
