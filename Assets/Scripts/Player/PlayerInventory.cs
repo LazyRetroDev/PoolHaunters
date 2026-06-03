@@ -129,10 +129,24 @@ public class PlayerInventory : MonoBehaviour
 
         Debug.Log($"Used {item.itemName}.");
         if (usableItem.consumeOnUse)
+            RemoveItem(item, destroyItem: true);
+    }
+
+    public bool RemoveItem(Item item, bool destroyItem)
+    {
+        if (item == null || slots == null) return false;
+
+        for (int i = 0; i < slots.Length; i++)
         {
-            slots[selectedSlot] = null;
-            Destroy(item.gameObject);
+            if (slots[i] != item) continue;
+
+            slots[i] = null;
+            if (destroyItem)
+                Destroy(item.gameObject);
+            return true;
         }
+
+        return false;
     }
 
     void SelectSlot(int index)
