@@ -10,16 +10,18 @@ public class PlayerInventory : MonoBehaviour
     private Item[] slots;
     private int selectedSlot = 0;
     private PlayerStatus playerStatus;
+    private PlayerPetrify playerPetrify;
 
     void Start()
     {
         slots = new Item[inventorySize];
         playerStatus = GetComponent<PlayerStatus>();
+        playerPetrify = GetComponent<PlayerPetrify>();
     }
 
     public void OnInteract(InputValue value)
     {
-        if (!value.isPressed) return;
+        if (!value.isPressed || IsInventoryLocked()) return;
 
         Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
         if (Physics.Raycast(ray, out RaycastHit hit, pickupRange))
@@ -36,15 +38,26 @@ public class PlayerInventory : MonoBehaviour
 
     public void OnUse(InputValue value)
     {
-        if (!value.isPressed) return;
+        if (!value.isPressed || IsInventoryLocked()) return;
         UseSelectedItem();
     }
 
-    public void OnPrevious(InputValue value) => SelectSlot(0);
-    public void OnNext(InputValue value) => SelectSlot(1);
+    public void OnPrevious(InputValue value)
+    {
+        if (!value.isPressed || IsInventoryLocked()) return;
+        SelectSlot(0);
+    }
+
+    public void OnNext(InputValue value)
+    {
+        if (!value.isPressed || IsInventoryLocked()) return;
+        SelectSlot(1);
+    }
 
     void Update()
     {
+        if (IsInventoryLocked()) return;
+
         // Number keys 1-4
         for (int i = 0; i < inventorySize; i++)
         {
@@ -53,8 +66,15 @@ public class PlayerInventory : MonoBehaviour
         }
     }
 
+    bool IsInventoryLocked()
+    {
+        return playerPetrify != null && playerPetrify.IsPetrified();
+    }
+
     void TryPickup(Item item)
     {
+        if (IsInventoryLocked()) return;
+
         WaterItem waterItem = item.GetComponent<WaterItem>();
         if (waterItem != null && waterItem.useImmediatelyOnPickup && waterItem.TryApply(playerStatus))
         {
@@ -83,6 +103,7 @@ public class PlayerInventory : MonoBehaviour
 
     void UseSelectedItem()
     {
+        if (IsInventoryLocked()) return;
         if (slots == null || selectedSlot < 0 || selectedSlot >= slots.Length) return;
 
         Item item = slots[selectedSlot];
@@ -116,6 +137,8 @@ public class PlayerInventory : MonoBehaviour
 
     void SelectSlot(int index)
     {
+        if (IsInventoryLocked()) return;
+
         selectedSlot = Mathf.Clamp(index, 0, inventorySize - 1);
         Debug.Log($"Selected slot {selectedSlot + 1}");
     }
