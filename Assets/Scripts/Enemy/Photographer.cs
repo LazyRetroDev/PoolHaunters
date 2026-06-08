@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
+using System.Collections.Generic;
 
 public class Photographer : MonoBehaviour
 {
@@ -29,6 +30,12 @@ public class Photographer : MonoBehaviour
     public LayerMask snapshotMask = ~0;
     public int randomSnapshotAttempts = 10;
     public float snapshotEyeHeight = 0.5f;
+
+    [Header("Snapshot Cone")]
+    public float snapshotConeHorizontalAngle = 55f;
+    public float snapshotConeVerticalAngle = 28f;
+    public int snapshotConeHorizontalRays = 5;
+    public int snapshotConeVerticalRays = 3;
 
     [Header("Photo Contamination")]
     public float decalContaminationDelay = 20f;
@@ -206,14 +213,14 @@ public class Photographer : MonoBehaviour
 
         if (TryFindSnapshotSurface(out RaycastHit hit))
         {
-            TakeSnapshot(hit.point, hit.normal);
+            TakeSnapshotCone(hit.point);
             snapshotTimer = snapshotCooldown;
         }
     }
 
     bool TryFindSnapshotSurface(out RaycastHit snapshotHit)
     {
-        Vector3 eyePosition = transform.position + Vector3.up * snapshotEyeHeight;
+        Vector3 eyePosition = GetEyePosition();
 
         if (TrySnapshotRay(eyePosition, transform.forward, out snapshotHit))
             return true;
@@ -242,9 +249,61 @@ public class Photographer : MonoBehaviour
         return false;
     }
 
-    void TakeSnapshot(Vector3 position, Vector3 normal)
+    void TakeSnapshotCone(Vector3 focusPoint)
     {
         photosTaken++;
+
+        PhotoItem photoItem = SpawnPhotoItem(null);
+        Vector3 eyePosition = GetEyePosition();
+        Vector3 focusDirection = (focusPoint - eyePosition).normalized;
+        List<PhotographerDecal> decals = CreateConeDecals(eyePosition, focusDirection);
+
+        if (photoItem != null)
+        {
+            for (int i = 0; i < decals.Count; i++)
+                photoItem.AddLinkedDecal(decals[i]);
+        }
+
+        if (agent != null) agent.ResetPath();
+        admireTimer = admireTime;
+        currentState = State.Admiring;
+    }
+
+    List<PhotographerDecal> CreateConeDecals(Vector3 origin, Vector3 forward)
+    {
+        List<PhotographerDecal> decals = new List<PhotographerDecal>();
+        HashSet<Collider> hitColliders = new HashSet<Collider>();
+        Quaternion coneRotation = Quaternion.LookRotation(forward);
+
+        int horizontalCount = Mathf.Max(1, snapshotConeHorizontalRays);
+        int verticalCount = Mathf.Max(1, snapshotConeVerticalRays);
+
+        for (int y = 0; y < verticalCount; y++)
+        {
+            float verticalT = verticalCount == 1 ? 0.5f : (float)y / (verticalCount - 1);
+            float pitch = Mathf.Lerp(-snapshotConeVerticalAngle * 0.5f, snapshotConeVerticalAngle * 0.5f, verticalT);
+
+            for (int x = 0; x < horizontalCount; x++)
+            {
+                float horizontalT = horizontalCount == 1 ? 0.5f : (float)x / (horizontalCount - 1);
+                float yaw = Mathf.Lerp(-snapshotConeHorizontalAngle * 0.5f, snapshotConeHorizontalAngle * 0.5f, horizontalT);
+                Vector3 direction = coneRotation * Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+
+                if (!TrySnapshotRay(origin, direction, out RaycastHit hit)) continue;
+                if (hitColliders.Contains(hit.collider)) continue;
+
+                hitColliders.Add(hit.collider);
+                PhotographerDecal decal = CreateDecal(hit.point, hit.normal);
+                if (decal != null)
+                    decals.Add(decal);
+            }
+        }
+
+        return decals;
+    }
+
+    PhotographerDecal CreateDecal(Vector3 position, Vector3 normal)
+    {
         Quaternion rotation = Quaternion.LookRotation(-normal);
         GameObject decalObject = Instantiate(decalProjectorPrefab, position, rotation);
         PhotographerDecal decal = decalObject.GetComponent<PhotographerDecal>();
@@ -253,14 +312,7 @@ public class Photographer : MonoBehaviour
 
         decal.contaminationDelay = decalContaminationDelay;
         decal.dirtPrefab = dirtPrefab;
-
-        PhotoItem photoItem = SpawnPhotoItem(null);
-        if (photoItem != null)
-            photoItem.SetLinkedDecal(decal);
-
-        if (agent != null) agent.ResetPath();
-        admireTimer = admireTime;
-        currentState = State.Admiring;
+        return decal;
     }
 
     void PhotographPlayer()
@@ -311,6 +363,11 @@ public class Photographer : MonoBehaviour
             return capturedPhotoPoint.position;
 
         return transform.position + transform.TransformDirection(capturedPhotoOffset);
+    }
+
+    Vector3 GetEyePosition()
+    {
+        return transform.position + Vector3.up * snapshotEyeHeight;
     }
 
     void FinishAdmiring()
@@ -379,7 +436,7 @@ public class Photographer : MonoBehaviour
     {
         if (player == null) return false;
 
-        Vector3 directionToPlayer = player.position - transform.position;
+        Vector3 directionToPlayer = player.position - GetEyePosition();
         float distanceToPlayer = directionToPlayer.magnitude;
 
         if (distanceToPlayer > sightRange) return false;
@@ -387,23 +444,8 @@ public class Photographer : MonoBehaviour
         float angle = Vector3.Angle(transform.forward, directionToPlayer);
         if (angle > fieldOfView / 2f) return false;
 
-        int rayCount = 7;
-        float halfFOV = fieldOfView / 2f;
-
-        for (int i = 0; i < rayCount; i++)
-        {
-            float t = (float)i / (rayCount - 1);
-            float rayAngle = Mathf.Lerp(-halfFOV, halfFOV, t);
-            Vector3 rayDirection = Quaternion.Euler(0, rayAngle, 0) * transform.forward;
-
-            Debug.DrawRay(transform.position + Vector3.up * 0.5f, rayDirection * sightRange, Color.green);
-
-            if (Physics.Raycast(transform.position + Vector3.up * 0.5f, rayDirection, out RaycastHit rayHit, sightRange))
-            {
-                if (rayHit.collider.CompareTag("Player"))
-                    return true;
-            }
-        }
+        if (Physics.Raycast(GetEyePosition(), directionToPlayer.normalized, out RaycastHit hit, sightRange, snapshotMask, QueryTriggerInteraction.Ignore))
+            return hit.collider.CompareTag("Player");
 
         return false;
     }
@@ -412,16 +454,13 @@ public class Photographer : MonoBehaviour
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, sightRange);
-        float halfFOV = fieldOfView / 2f;
-        Vector3 leftDirection = Quaternion.Euler(0, -halfFOV, 0) * transform.forward;
-        Vector3 rightDirection = Quaternion.Euler(0, halfFOV, 0) * transform.forward;
+        Vector3 eye = Application.isPlaying ? GetEyePosition() : transform.position + Vector3.up * snapshotEyeHeight;
         Gizmos.color = Color.blue;
-        Gizmos.DrawRay(transform.position, leftDirection * sightRange);
-        Gizmos.DrawRay(transform.position, rightDirection * sightRange);
+        Gizmos.DrawRay(eye, transform.forward * sightRange);
         if (Application.isPlaying && CanSeePlayer())
         {
             Gizmos.color = Color.red;
-            Gizmos.DrawLine(transform.position, player.position);
+            Gizmos.DrawLine(eye, player.position);
         }
     }
 }
