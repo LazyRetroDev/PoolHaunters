@@ -10,8 +10,8 @@ public class TimeCamper : MonoBehaviour
     public float detectionRadius = 2.5f;
 
     [Header("Countdown")]
-    public float minCountdown = 8f;
-    public float maxCountdown = 14f;
+    public float minCountdown = 10f;
+    public float maxCountdown = 10f;
 
     [Header("Damage")]
     public float damagePerSecond = 90f;
@@ -23,7 +23,7 @@ public class TimeCamper : MonoBehaviour
 
     [Header("Water Contamination")]
     public bool contaminateWaterOnMark = true;
-    public float waterContaminationRadius = 2.5f;
+    public float waterContaminationRadius = 0f;
     public float waterContaminationInterval = 0.5f;
     public float markContaminationLifetime = 0f;
     public LayerMask playerContaminationMask = ~0;
@@ -265,11 +265,16 @@ public class TimeCamper : MonoBehaviour
         if (zone == null)
             zone = mark.AddComponent<WaterContaminationZone>();
 
-        zone.radius = waterContaminationRadius > 0f ? waterContaminationRadius : damageRadius;
+        zone.radius = GetContaminationRadius();
         zone.contaminationQuality = WaterQuality.Contaminated;
         zone.contaminateInterval = waterContaminationInterval;
         zone.lifetime = markContaminationLifetime;
         zone.playerMask = playerContaminationMask;
+    }
+
+    float GetContaminationRadius()
+    {
+        return waterContaminationRadius > 0f ? waterContaminationRadius : detectionRadius;
     }
 
     void OnDrawGizmosSelected()
@@ -279,6 +284,6 @@ public class TimeCamper : MonoBehaviour
         Gizmos.color = new Color(1f, 0.3f, 0f);
         Gizmos.DrawWireSphere(transform.position, damageRadius);
         Gizmos.color = new Color(0.2f, 1f, 0.35f, 0.35f);
-        Gizmos.DrawWireSphere(transform.position, waterContaminationRadius > 0f ? waterContaminationRadius : damageRadius);
+        Gizmos.DrawWireSphere(transform.position, GetContaminationRadius());
     }
 }
