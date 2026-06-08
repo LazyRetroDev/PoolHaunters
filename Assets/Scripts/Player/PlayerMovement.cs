@@ -15,6 +15,18 @@ public class PlayerMovement : MonoBehaviour
     public float staminaRegenDelay = 1.5f;
     public bool IsSprinting() => playerInput.actions["Sprint"].IsPressed() && currentStamina > 0f;
 
+    [Header("Footstep Noise")]
+    public float walkNoiseRadius = 4f;
+    public float sprintNoiseRadius = 10f;
+    public float walkStepInterval = 0.55f;
+    public float sprintStepInterval = 0.32f;
+
+    [Header("Footstep Audio")]
+    public AudioSource footstepAudioSource;
+    public AudioClip walkFootstepClip;
+    public AudioClip sprintFootstepClip;
+    [Range(0f, 1f)] public float footstepVolume = 0.75f;
+
     private Rigidbody rb;
     private PlayerInput playerInput;
     private Vector2 moveInput;
@@ -23,12 +35,16 @@ public class PlayerMovement : MonoBehaviour
     private float regenTimer;
     private float staminaDrainMultiplier = 1f;
     private float staminaDrainMultiplierTimer;
+    private float footstepTimer;
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
         playerInput = GetComponent<PlayerInput>();
         currentStamina = maxStamina;
+
+        if (footstepAudioSource == null)
+            footstepAudioSource = GetComponent<AudioSource>();
     }
 
     public void OnMove(InputValue value)
@@ -39,6 +55,7 @@ public class PlayerMovement : MonoBehaviour
     void Update()
     {
         UpdateTimedStaminaMultiplier();
+        UpdateFootstepNoise();
     }
 
     void FixedUpdate()
@@ -76,6 +93,36 @@ public class PlayerMovement : MonoBehaviour
                 currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             }
         }
+    }
+
+    void UpdateFootstepNoise()
+    {
+        bool moving = moveInput != Vector2.zero;
+        if (!moving)
+        {
+            footstepTimer = 0f;
+            return;
+        }
+
+        bool sprintingNow = IsSprinting();
+        float interval = sprintingNow ? sprintStepInterval : walkStepInterval;
+        footstepTimer -= Time.deltaTime;
+
+        if (footstepTimer > 0f) return;
+
+        footstepTimer = interval;
+        float noiseRadius = sprintingNow ? sprintNoiseRadius : walkNoiseRadius;
+        NoiseEvent.Emit(transform.position, noiseRadius, gameObject);
+        PlayFootstepAudio(sprintingNow);
+    }
+
+    void PlayFootstepAudio(bool sprintingNow)
+    {
+        if (footstepAudioSource == null) return;
+
+        AudioClip clip = sprintingNow ? sprintFootstepClip : walkFootstepClip;
+        if (clip != null)
+            footstepAudioSource.PlayOneShot(clip, footstepVolume);
     }
 
     public void ApplyStaminaDrainMultiplier(float multiplier, float duration)
