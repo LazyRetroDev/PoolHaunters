@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(Item))]
 public class PhotoItem : UsableItem
@@ -10,7 +11,7 @@ public class PhotoItem : UsableItem
     public LayerMask playerMask = ~0;
 
     private PlayerPetrify capturedPlayer;
-    private PhotographerDecal linkedDecal;
+    private readonly List<PhotographerDecal> linkedDecals = new List<PhotographerDecal>();
     private Item item;
 
     void Awake()
@@ -25,9 +26,15 @@ public class PhotoItem : UsableItem
 
     public void SetLinkedDecal(PhotographerDecal decal)
     {
-        linkedDecal = decal;
-        if (linkedDecal != null)
-            linkedDecal.LinkPhoto(this);
+        AddLinkedDecal(decal);
+    }
+
+    public void AddLinkedDecal(PhotographerDecal decal)
+    {
+        if (decal == null || linkedDecals.Contains(decal)) return;
+
+        linkedDecals.Add(decal);
+        decal.LinkPhoto(this);
     }
 
     public void InvalidateFromLinkedDecal()
@@ -41,7 +48,7 @@ public class PhotoItem : UsableItem
         bool didSomething = false;
 
         if (clearPhotographerDecals)
-            didSomething |= ClearLinkedDecal();
+            didSomething |= ClearLinkedDecals();
 
         if (freePetrifiedPlayers)
         {
@@ -60,13 +67,25 @@ public class PhotoItem : UsableItem
         return didSomething;
     }
 
-    bool ClearLinkedDecal()
+    bool ClearLinkedDecals()
     {
-        if (linkedDecal == null) return false;
+        bool clearedAny = false;
 
-        linkedDecal.ClearFromPhoto();
-        linkedDecal = null;
-        return true;
+        for (int i = linkedDecals.Count - 1; i >= 0; i--)
+        {
+            PhotographerDecal decal = linkedDecals[i];
+            if (decal == null)
+            {
+                linkedDecals.RemoveAt(i);
+                continue;
+            }
+
+            decal.ClearFromPhoto();
+            linkedDecals.RemoveAt(i);
+            clearedAny = true;
+        }
+
+        return clearedAny;
     }
 
     bool FreePetrifiedPlayers(Vector3 origin)
