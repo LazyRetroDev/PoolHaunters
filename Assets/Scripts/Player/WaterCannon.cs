@@ -46,6 +46,7 @@ public class WaterCannon : MonoBehaviour
     private PlayerPetrify playerPetrify;
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
+    private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
@@ -110,7 +111,7 @@ public class WaterCannon : MonoBehaviour
 
         float qualityMultiplier = playerStatus.GetWaterCleaningMultiplier();
         StartSpray();
-        CleanDirt(cleanPowerPerSecond * qualityMultiplier * Time.deltaTime);
+        ApplySprayEffects(cleanPowerPerSecond * qualityMultiplier * Time.deltaTime);
     }
 
     void LateUpdate()
@@ -270,11 +271,12 @@ public class WaterCannon : MonoBehaviour
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, blend);
     }
 
-    void CleanDirt(float cleanAmount)
+    void ApplySprayEffects(float cleanAmount)
     {
         if (sprayOrigin == null || cleanAmount <= 0f) return;
 
         dirtHits.Clear();
+        goldenMouthHits.Clear();
 
         Ray ray = new Ray(sprayOrigin.position, sprayOrigin.forward);
         RaycastHit[] hits = Physics.SphereCastAll(ray, sprayRadius, sprayDistance, cleanMask, QueryTriggerInteraction.Collide);
@@ -285,10 +287,18 @@ public class WaterCannon : MonoBehaviour
         for (int i = 0; i < hits.Length; i++)
         {
             DirtSpot dirtSpot = hits[i].collider.GetComponentInParent<DirtSpot>();
-            if (dirtSpot == null || dirtHits.Contains(dirtSpot)) continue;
+            if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
+            {
+                dirtHits.Add(dirtSpot);
+                dirtSpot.CleanAtWorldPoint(hits[i].point, cleanContactRadius, cleanAmount);
+            }
 
-            dirtHits.Add(dirtSpot);
-            dirtSpot.CleanAtWorldPoint(hits[i].point, cleanContactRadius, cleanAmount);
+            GoldenMouthBehavior goldenMouth = hits[i].collider.GetComponentInParent<GoldenMouthBehavior>();
+            if (goldenMouth != null && !goldenMouthHits.Contains(goldenMouth))
+            {
+                goldenMouthHits.Add(goldenMouth);
+                goldenMouth.ApplyWater(playerStatus.GetWaterQuality(), cleanAmount);
+            }
         }
     }
 
