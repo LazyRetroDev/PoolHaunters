@@ -1601,6 +1601,12 @@ MonoBehaviour:
   capturedPhotoOffset: {x: 0.8, y: 1, z: 0.4}
   parentCapturedPhotoToPhotographer: 1
   petrifyWanderDuration: 5
+  cameraEffects: {fileID: 803943126}
+  snapshotPulseIntensity: 0.65
+  snapshotPulseDuration: 0.25
+  playerPhotoPulseIntensity: 0.85
+  playerPhotoPulseDuration: 0.45
+  chaseVignetteIntensity: 0.35
   loseSightDelay: 1
 --- !u!65 &663828920
 BoxCollider:
@@ -2005,11 +2011,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerVignetteEffect
   playerStatus: {fileID: 1826071992}
+  targetCinemachineVolumeSettings: {fileID: 803943125}
   targetVolume: {fileID: 0}
+  preferCinemachineVolumeSettings: 1
   findVolumeAutomatically: 1
   createLocalVolumeIfMissing: 1
   vignetteColor: {r: 0.02, g: 0, b: 0, a: 1}
-  baseIntensity: 0.12
+  baseIntensity: 0.24
   maxIntensity: 0.8
   smoothness: 0.55
   rounded: 0
@@ -2020,7 +2028,7 @@ MonoBehaviour:
   damagePulseIntensity: 0.65
   damagePulseDuration: 0.35
   useBreathingPulse: 1
-  breathingAmount: 0.08
+  breathingAmount: 0.782
   breathingSpeed: 1.25
   fadeInSpeed: 8
   fadeOutSpeed: 4
@@ -9901,7 +9909,6 @@ GameObject:
   - component: {fileID: 1826071990}
   - component: {fileID: 1826071993}
   - component: {fileID: 1826071994}
-  - component: {fileID: 1826071995}
   m_Layer: 0
   m_Name: Ben
   m_TagString: Player
@@ -10141,6 +10148,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: '::'
   petrifyDuration: 10
+  cameraEffects: {fileID: 803943126}
+  petrifiedVignetteIntensity: 0.7
+  petrifyPulseIntensity: 0.9
+  petrifyPulseDuration: 0.4
 --- !u!114 &1826071994
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10157,38 +10168,6 @@ MonoBehaviour:
   hideCursorWhenLocked: 1
   relockOnLeftClick: 1
   relockOnFocus: 1
---- !u!114 &1826071995
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1826071983}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3f6363a343882a242a81799e419c4908, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::PlayerVignetteEffect
-  playerStatus: {fileID: 1826071992}
-  targetVolume: {fileID: 0}
-  findVolumeAutomatically: 1
-  createLocalVolumeIfMissing: 1
-  vignetteColor: {r: 0.02, g: 0, b: 0, a: 1}
-  baseIntensity: 0.12
-  maxIntensity: 0.8
-  smoothness: 0.55
-  rounded: 0
-  reactToLowHealth: 1
-  lowHealthStartsAt: 0.45
-  lowHealthIntensity: 0.45
-  pulseWhenDamaged: 1
-  damagePulseIntensity: 0.65
-  damagePulseDuration: 0.35
-  useBreathingPulse: 1
-  breathingAmount: 0.08
-  breathingSpeed: 1.25
-  fadeInSpeed: 8
-  fadeOutSpeed: 4
 --- !u!1 &1854779602
 GameObject:
   m_ObjectHideFlags: 0
@@ -11255,6 +11234,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8935449640858803466, guid: b6f55c75915fafd489a612548b543150, type: 3}
+      propertyPath: cameraEffects
+      value: 
+      objectReference: {fileID: 803943126}
+    - target: {fileID: 8935449640858803466, guid: b6f55c75915fafd489a612548b543150, type: 3}
       propertyPath: willOWispPrefab
       value: 
       objectReference: {fileID: 5391840916023673374, guid: e788bd971b457ab4b8b475b131044221, type: 3}
@@ -11347,6 +11330,10 @@ PrefabInstance:
       propertyPath: player
       value: 
       objectReference: {fileID: 1773760232}
+    - target: {fileID: 1957813611067331793, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
+      propertyPath: cameraEffects
+      value: 
+      objectReference: {fileID: 803943126}
     - target: {fileID: 1981104001206282427, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
       propertyPath: m_Camera
       value: 
