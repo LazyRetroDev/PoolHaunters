@@ -47,6 +47,13 @@ public class GoldenMouthBehavior : MonoBehaviour
     public GameObject fireHazardPrefab;
     public float fireHazardInterval = 1.5f;
 
+    [Header("Camera Effects")]
+    public PlayerVignetteEffect cameraEffects;
+    [Range(0f, 1f)] public float combustionPulseIntensity = 0.9f;
+    public float combustionPulseDuration = 0.6f;
+    [Range(0f, 1f)] public float aggressiveMinVignette = 0.2f;
+    [Range(0f, 1f)] public float aggressiveMaxVignette = 0.75f;
+
     private readonly HashSet<PlayerStatus> transformedPlayers = new HashSet<PlayerStatus>();
     private NavMeshAgent agent;
     private Transform player;
@@ -64,6 +71,7 @@ public class GoldenMouthBehavior : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         helpTimer = timeToExtinguish;
         ResolvePlayer();
+        ResolveCameraEffects();
         UpdateVisuals();
         SetWanderDestination(helpWanderSpeed);
     }
@@ -71,6 +79,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     void Update()
     {
         ResolvePlayer();
+        ResolveCameraEffects();
 
         switch (state)
         {
@@ -84,6 +93,9 @@ public class GoldenMouthBehavior : MonoBehaviour
                 UpdateAggressiveBehavior();
                 TryLeaveFireHazard();
                 break;
+            case GoldenMouthState.Pacified:
+                ClearCameraEffect();
+                break;
         }
     }
 
@@ -96,6 +108,12 @@ public class GoldenMouthBehavior : MonoBehaviour
 
         player = playerObject.transform;
         playerStatus = playerObject.GetComponent<PlayerStatus>();
+    }
+
+    void ResolveCameraEffects()
+    {
+        if (cameraEffects != null) return;
+        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
     }
 
     void UpdateHelpState()
@@ -131,6 +149,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     {
         state = GoldenMouthState.Pacified;
         StopAgent();
+        ClearCameraEffect();
         UpdateVisuals();
     }
 
@@ -141,6 +160,10 @@ public class GoldenMouthBehavior : MonoBehaviour
         dealtCombustionDamage = false;
         StopAgent();
         SpawnBurstFireHazards();
+
+        if (cameraEffects != null)
+            cameraEffects.Pulse(combustionPulseIntensity, combustionPulseDuration);
+
         UpdateVisuals();
     }
 
@@ -176,11 +199,14 @@ public class GoldenMouthBehavior : MonoBehaviour
     {
         if (player == null || playerStatus == null)
         {
+            ClearCameraEffect();
             Wander(wanderSpeed);
             return;
         }
 
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
+        UpdateAggressiveCameraEffect(distanceToPlayer);
+
         if (distanceToPlayer <= detectionRange)
         {
             MoveTo(player.position, chaseSpeed);
@@ -189,9 +215,28 @@ public class GoldenMouthBehavior : MonoBehaviour
         }
 
         if (distanceToPlayer >= loseInterestDistance)
+        {
+            ClearCameraEffect();
             Wander(wanderSpeed);
+        }
         else
+        {
             MoveTo(player.position, wanderSpeed);
+        }
+    }
+
+    void UpdateAggressiveCameraEffect(float distanceToPlayer)
+    {
+        if (cameraEffects == null) return;
+
+        if (distanceToPlayer > loseInterestDistance)
+        {
+            cameraEffects.ClearThreatIntensity();
+            return;
+        }
+
+        float danger = 1f - Mathf.Clamp01(distanceToPlayer / Mathf.Max(0.01f, detectionRange));
+        cameraEffects.SetThreatIntensity(Mathf.Lerp(aggressiveMinVignette, aggressiveMaxVignette, danger));
     }
 
     void TryAttack(float distanceToPlayer)
@@ -317,6 +362,12 @@ public class GoldenMouthBehavior : MonoBehaviour
         }
     }
 
+    void ClearCameraEffect()
+    {
+        if (cameraEffects != null)
+            cameraEffects.ClearThreatIntensity();
+    }
+
     void UpdateVisuals()
     {
         bool pacified = state == GoldenMouthState.Pacified;
@@ -330,6 +381,11 @@ public class GoldenMouthBehavior : MonoBehaviour
 
         if (combustionVisual != null)
             combustionVisual.SetActive(combusting);
+    }
+
+    void OnDestroy()
+    {
+        ClearCameraEffect();
     }
 
     void OnDrawGizmosSelected()
