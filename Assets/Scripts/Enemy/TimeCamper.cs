@@ -33,6 +33,14 @@ public class TimeCamper : MonoBehaviour
     public GameObject beamPrefab;
     public GameObject contaminationPrefab;
 
+    [Header("Camera Effects")]
+    public PlayerVignetteEffect cameraEffects;
+    [Range(0f, 1f)] public float countdownMinVignette = 0.18f;
+    [Range(0f, 1f)] public float countdownMaxVignette = 0.75f;
+    [Range(0f, 1f)] public float beamVignette = 0.8f;
+    [Range(0f, 1f)] public float beamPulseIntensity = 0.9f;
+    public float beamPulseDuration = 0.6f;
+
     [Header("Countdown UI")]
     public TextMeshProUGUI countdownText;
 
@@ -40,6 +48,7 @@ public class TimeCamper : MonoBehaviour
     public bool isClone = false;
 
     private float countdownTimer;
+    private float countdownDuration;
     private float damageTimer;
     private float teleportTimer;
     private bool isLeaving;
@@ -57,12 +66,14 @@ public class TimeCamper : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
         ResolvePlayerReferences();
+        ResolveCameraEffects();
         ResetCycle();
     }
 
     void Update()
     {
         ResolvePlayerReferences();
+        ResolveCameraEffects();
 
         switch (currentState)
         {
@@ -79,6 +90,7 @@ public class TimeCamper : MonoBehaviour
                 break;
 
             case State.Beam:
+                UpdateBeamEffect();
                 damageTimer -= Time.deltaTime;
                 DamagePlayerInRadius();
                 if (damageTimer <= 0f)
@@ -105,6 +117,12 @@ public class TimeCamper : MonoBehaviour
             playerStatus = player.GetComponent<PlayerStatus>();
     }
 
+    void ResolveCameraEffects()
+    {
+        if (cameraEffects != null) return;
+        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+    }
+
     bool PlayerIsInImpactArea()
     {
         if (player == null) return false;
@@ -115,11 +133,13 @@ public class TimeCamper : MonoBehaviour
     {
         currentState = State.Countdown;
         countdownTimer = Random.Range(minCountdown, maxCountdown);
+        countdownDuration = Mathf.Max(0.01f, countdownTimer);
     }
 
     void UpdateCountdown()
     {
         countdownTimer -= Time.deltaTime;
+        UpdateCountdownEffect();
 
         if (countdownText != null)
         {
@@ -136,13 +156,30 @@ public class TimeCamper : MonoBehaviour
         }
     }
 
+    void UpdateCountdownEffect()
+    {
+        if (cameraEffects == null) return;
+
+        float progress = 1f - Mathf.Clamp01(countdownTimer / Mathf.Max(0.01f, countdownDuration));
+        cameraEffects.SetThreatIntensity(Mathf.Lerp(countdownMinVignette, countdownMaxVignette, progress));
+    }
+
     void StartBeam()
     {
         currentState = State.Beam;
         damageTimer = damageDuration;
 
+        if (cameraEffects != null)
+            cameraEffects.Pulse(beamPulseIntensity, beamPulseDuration);
+
         if (beamPrefab != null)
             beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
+    }
+
+    void UpdateBeamEffect()
+    {
+        if (cameraEffects != null)
+            cameraEffects.SetThreatIntensity(beamVignette);
     }
 
     void DamagePlayerInRadius()
@@ -174,6 +211,7 @@ public class TimeCamper : MonoBehaviour
     void StartLeaving()
     {
         if (isLeaving) return;
+        ClearCameraEffect();
         StartCoroutine(LeaveAndTeleport());
     }
 
@@ -220,11 +258,18 @@ public class TimeCamper : MonoBehaviour
         currentState = State.WaitingForPlayer;
         teleportTimer = teleportInterval;
         damageTimer = 0f;
+        ClearCameraEffect();
 
         if (countdownText != null)
             countdownText.gameObject.SetActive(false);
 
         SpawnWarningCircle();
+    }
+
+    void ClearCameraEffect()
+    {
+        if (cameraEffects != null)
+            cameraEffects.ClearThreatIntensity();
     }
 
     void CleanupVisuals()
@@ -275,6 +320,11 @@ public class TimeCamper : MonoBehaviour
     float GetContaminationRadius()
     {
         return waterContaminationRadius > 0f ? waterContaminationRadius : detectionRadius;
+    }
+
+    void OnDestroy()
+    {
+        ClearCameraEffect();
     }
 
     void OnDrawGizmosSelected()
