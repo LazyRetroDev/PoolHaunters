@@ -61,27 +61,29 @@ public class FireHazard : MonoBehaviour
         {
             GameObject target = hits[i].gameObject;
             if (IsPool(target)) continue;
-            if (!IsIgnitableItem(target)) continue;
 
-            target.SendMessageUpwards("OnIgnited", SendMessageOptions.DontRequireReceiver);
+            GameObject itemRoot = FindTaggedAncestor(target, itemTag);
+            if (itemRoot == null) continue;
+
+            itemRoot.SendMessageUpwards("OnIgnited", SendMessageOptions.DontRequireReceiver);
 
             if (destroyItemsOnIgnite)
-                Destroy(target.transform.root.gameObject);
+                Destroy(itemRoot);
         }
     }
 
-    bool IsIgnitableItem(GameObject target)
+    GameObject FindTaggedAncestor(GameObject target, string targetTag)
     {
         Transform current = target.transform;
         while (current != null)
         {
-            if (current.gameObject.tag == itemTag)
-                return true;
+            if (current.gameObject.tag == targetTag)
+                return current.gameObject;
 
             current = current.parent;
         }
 
-        return false;
+        return null;
     }
 
     bool IsPool(GameObject target)
