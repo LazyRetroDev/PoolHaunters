@@ -78,8 +78,9 @@ public class WillOWispBehavior : MonoBehaviour
             if (IsWaterSource(target))
                 DryWaterSource(target);
 
-            if (IsIgnitableItem(target))
-                IgniteItem(target);
+            GameObject itemRoot = FindTaggedAncestor(target, itemTag);
+            if (itemRoot != null)
+                IgniteItem(itemRoot);
         }
     }
 
@@ -89,29 +90,29 @@ public class WillOWispBehavior : MonoBehaviour
         target.SendMessageUpwards("OnDriedByWillOWisp", SendMessageOptions.DontRequireReceiver);
     }
 
-    void IgniteItem(GameObject target)
+    void IgniteItem(GameObject itemRoot)
     {
         if (fireHazardPrefab != null)
-            Instantiate(fireHazardPrefab, target.transform.position, Quaternion.identity);
+            Instantiate(fireHazardPrefab, itemRoot.transform.position, Quaternion.identity);
 
-        target.SendMessageUpwards("OnIgnited", SendMessageOptions.DontRequireReceiver);
+        itemRoot.SendMessageUpwards("OnIgnited", SendMessageOptions.DontRequireReceiver);
 
         if (destroyItemsOnIgnite)
-            Destroy(target.transform.root.gameObject);
+            Destroy(itemRoot);
     }
 
-    bool IsIgnitableItem(GameObject target)
+    GameObject FindTaggedAncestor(GameObject target, string targetTag)
     {
         Transform current = target.transform;
         while (current != null)
         {
-            if (current.gameObject.tag == itemTag)
-                return true;
+            if (current.gameObject.tag == targetTag)
+                return current.gameObject;
 
             current = current.parent;
         }
 
-        return false;
+        return null;
     }
 
     bool IsWaterSource(GameObject target)
