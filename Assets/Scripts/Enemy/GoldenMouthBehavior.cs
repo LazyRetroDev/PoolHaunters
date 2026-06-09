@@ -3,12 +3,30 @@ using UnityEngine.AI;
 
 public class GoldenMouthBehavior : MonoBehaviour
 {
+    enum GoldenMouthState
+    {
+        WaitingForHelp,
+        Combusting,
+        Aggressive,
+        Pacified
+    }
+
     [Header("Help / Fire State")]
     public float timeToExtinguish = 20f;
     public float extinguishRequired = 100f;
     public bool chemicalWaterCountsAsPure = false;
+    public bool moveWhileWaitingForHelp = true;
+    public float helpWanderSpeed = 1.75f;
     public GameObject fireVisual;
     public GameObject pacifiedVisual;
+
+    [Header("Combustion")]
+    public GameObject combustionVisual;
+    public float combustionDuration = 1.5f;
+    public float combustionDamageRadius = 4f;
+    public float combustionDamage = 30f;
+    public int burstHazardCount = 6;
+    public float burstHazardRadius = 3f;
 
     [Header("Aggressive State")]
     public float chaseSpeed = 5.5f;
@@ -18,25 +36,27 @@ public class GoldenMouthBehavior : MonoBehaviour
     public float attackRange = 1.75f;
     public float damagePerAttack = 25f;
     public float attackCooldown = 1f;
+    public float loseInterestDistance = 18f;
 
     [Header("After Kill")]
     public GameObject willOWispPrefab;
     public Vector3 willOWispSpawnOffset = new Vector3(0f, 1f, 0f);
 
-    [Header("Contamination / Fire Spread")]
+    [Header("Fire Spread")]
     public GameObject fireHazardPrefab;
     public float fireHazardInterval = 1.5f;
 
     private NavMeshAgent agent;
     private Transform player;
     private PlayerStatus playerStatus;
+    private GoldenMouthState state = GoldenMouthState.WaitingForHelp;
     private float extinguishProgress;
     private float helpTimer;
+    private float combustionTimer;
     private float nextAttackTime;
     private float fireHazardTimer;
-    private bool isAggressive;
-    private bool isPacified;
     private bool spawnedDeathEffect;
+    private bool dealtCombustionDamage;
 
     void Start()
     {
@@ -44,23 +64,26 @@ public class GoldenMouthBehavior : MonoBehaviour
         helpTimer = timeToExtinguish;
         ResolvePlayer();
         UpdateVisuals();
-        SetWanderDestination();
+        SetWanderDestination(helpWanderSpeed);
     }
 
     void Update()
     {
         ResolvePlayer();
 
-        if (isPacified) return;
-
-        if (!isAggressive)
+        switch (state)
         {
-            UpdateHelpTimer();
-            return;
+            case GoldenMouthState.WaitingForHelp:
+                UpdateHelpState();
+                break;
+            case GoldenMouthState.Combusting:
+                UpdateCombustionState();
+                break;
+            case GoldenMouthState.Aggressive:
+                UpdateAggressiveBehavior();
+                TryLeaveFireHazard();
+                break;
         }
-
-        UpdateAggressiveBehavior();
-        TryLeaveFireHazard();
     }
 
     void ResolvePlayer()
@@ -74,16 +97,22 @@ public class GoldenMouthBehavior : MonoBehaviour
         playerStatus = playerObject.GetComponent<PlayerStatus>();
     }
 
-    void UpdateHelpTimer()
+    void UpdateHelpState()
     {
         helpTimer -= Time.deltaTime;
+
+        if (moveWhileWaitingForHelp)
+            Wander(helpWanderSpeed);
+        else
+            StopAgent();
+
         if (helpTimer <= 0f)
-            BecomeAggressive();
+            StartCombustion();
     }
 
     public void ApplyWater(WaterQuality quality, float amount)
     {
-        if (isPacified || isAggressive || amount <= 0f) return;
+        if (state != GoldenMouthState.WaitingForHelp || amount <= 0f) return;
         if (!IsPureWater(quality)) return;
 
         extinguishProgress += amount;
@@ -99,15 +128,40 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     void Pacify()
     {
-        isPacified = true;
-        isAggressive = false;
+        state = GoldenMouthState.Pacified;
         StopAgent();
         UpdateVisuals();
     }
 
+    void StartCombustion()
+    {
+        state = GoldenMouthState.Combusting;
+        combustionTimer = combustionDuration;
+        dealtCombustionDamage = false;
+        StopAgent();
+        SpawnBurstFireHazards();
+        UpdateVisuals();
+    }
+
+    void UpdateCombustionState()
+    {
+        FacePlayerIfVisible();
+
+        if (!dealtCombustionDamage)
+        {
+            DealCombustionDamage();
+            dealtCombustionDamage = true;
+        }
+
+        combustionTimer -= Time.deltaTime;
+        if (combustionTimer <= 0f)
+            BecomeAggressive();
+    }
+
     void BecomeAggressive()
     {
-        isAggressive = true;
+        state = GoldenMouthState.Aggressive;
+        fireHazardTimer = 0f;
         UpdateVisuals();
 
         if (agent != null && agent.enabled && agent.isOnNavMesh)
@@ -121,7 +175,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     {
         if (player == null || playerStatus == null)
         {
-            Wander();
+            Wander(wanderSpeed);
             return;
         }
 
@@ -130,11 +184,13 @@ public class GoldenMouthBehavior : MonoBehaviour
         {
             MoveTo(player.position, chaseSpeed);
             TryAttack(distanceToPlayer);
+            return;
         }
+
+        if (distanceToPlayer >= loseInterestDistance)
+            Wander(wanderSpeed);
         else
-        {
-            Wander();
-        }
+            MoveTo(player.position, wanderSpeed);
     }
 
     void TryAttack(float distanceToPlayer)
@@ -160,16 +216,16 @@ public class GoldenMouthBehavior : MonoBehaviour
             playerStatus.ApplyDeathTransformation();
     }
 
-    void Wander()
+    void Wander(float speed)
     {
         if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
 
-        agent.speed = wanderSpeed;
+        agent.speed = speed;
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
-            SetWanderDestination();
+            SetWanderDestination(speed);
     }
 
-    void SetWanderDestination()
+    void SetWanderDestination(float speed)
     {
         if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
 
@@ -177,7 +233,7 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (NavMesh.SamplePosition(randomDirection, out NavMeshHit hit, wanderRadius, NavMesh.AllAreas))
         {
             agent.isStopped = false;
-            agent.speed = isAggressive ? chaseSpeed : wanderSpeed;
+            agent.speed = speed;
             agent.SetDestination(hit.position);
         }
     }
@@ -203,6 +259,12 @@ public class GoldenMouthBehavior : MonoBehaviour
             agent.isStopped = true;
     }
 
+    void FacePlayerIfVisible()
+    {
+        if (player != null)
+            FaceTarget(player.position);
+    }
+
     void FaceTarget(Vector3 target)
     {
         Vector3 direction = target - transform.position;
@@ -210,6 +272,20 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (direction.sqrMagnitude <= 0.001f) return;
 
         transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(direction.normalized), Time.deltaTime * 8f);
+    }
+
+    void DealCombustionDamage()
+    {
+        Collider[] hits = Physics.OverlapSphere(transform.position, combustionDamageRadius);
+        for (int i = 0; i < hits.Length; i++)
+        {
+            PlayerStatus status = hits[i].GetComponentInParent<PlayerStatus>();
+            if (status == null) continue;
+
+            bool killed = status.TakeDamage(combustionDamage);
+            if (killed && status == playerStatus)
+                HandlePlayerKilled();
+        }
     }
 
     void TryLeaveFireHazard()
@@ -223,13 +299,37 @@ public class GoldenMouthBehavior : MonoBehaviour
         Instantiate(fireHazardPrefab, transform.position, Quaternion.identity);
     }
 
+    void SpawnBurstFireHazards()
+    {
+        if (fireHazardPrefab == null) return;
+
+        Instantiate(fireHazardPrefab, transform.position, Quaternion.identity);
+
+        int count = Mathf.Max(0, burstHazardCount);
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 offset2D = Random.insideUnitCircle * burstHazardRadius;
+            Vector3 spawnPosition = transform.position + new Vector3(offset2D.x, 0f, offset2D.y);
+            if (NavMesh.SamplePosition(spawnPosition, out NavMeshHit hit, burstHazardRadius, NavMesh.AllAreas))
+                spawnPosition = hit.position;
+
+            Instantiate(fireHazardPrefab, spawnPosition, Quaternion.identity);
+        }
+    }
+
     void UpdateVisuals()
     {
+        bool pacified = state == GoldenMouthState.Pacified;
+        bool combusting = state == GoldenMouthState.Combusting;
+
         if (fireVisual != null)
-            fireVisual.SetActive(!isPacified);
+            fireVisual.SetActive(!pacified);
 
         if (pacifiedVisual != null)
-            pacifiedVisual.SetActive(isPacified);
+            pacifiedVisual.SetActive(pacified);
+
+        if (combustionVisual != null)
+            combustionVisual.SetActive(combusting);
     }
 
     void OnDrawGizmosSelected()
@@ -238,5 +338,7 @@ public class GoldenMouthBehavior : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, detectionRange);
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, attackRange);
+        Gizmos.color = new Color(1f, 0.45f, 0f, 0.75f);
+        Gizmos.DrawWireSphere(transform.position, combustionDamageRadius);
     }
 }
