@@ -3,6 +3,13 @@ using UnityEngine;
 public class PlayerPetrify : MonoBehaviour
 {
     public float petrifyDuration = 10f;
+
+    [Header("Camera Effects")]
+    public PlayerVignetteEffect cameraEffects;
+    [Range(0f, 1f)] public float petrifiedVignetteIntensity = 0.7f;
+    [Range(0f, 1f)] public float petrifyPulseIntensity = 0.9f;
+    public float petrifyPulseDuration = 0.4f;
+
     private bool isPetrified = false;
     private float petrifyTimer;
 
@@ -13,11 +20,16 @@ public class PlayerPetrify : MonoBehaviour
     {
         movement = GetComponent<PlayerMovement>();
         inventory = GetComponent<PlayerInventory>();
+        ResolveCameraEffects();
     }
 
     void Update()
     {
         if (!isPetrified) return;
+
+        ResolveCameraEffects();
+        if (cameraEffects != null)
+            cameraEffects.SetThreatIntensity(petrifiedVignetteIntensity);
 
         petrifyTimer -= Time.deltaTime;
         ApplyPetrifiedControlLock();
@@ -35,6 +47,14 @@ public class PlayerPetrify : MonoBehaviour
     {
         isPetrified = true;
         petrifyTimer = petrifyDuration;
+        ResolveCameraEffects();
+
+        if (cameraEffects != null)
+        {
+            cameraEffects.Pulse(petrifyPulseIntensity, petrifyPulseDuration);
+            cameraEffects.SetThreatIntensity(petrifiedVignetteIntensity);
+        }
+
         ApplyPetrifiedControlLock();
     }
 
@@ -43,6 +63,15 @@ public class PlayerPetrify : MonoBehaviour
         isPetrified = false;
         if (movement != null) movement.enabled = true;
         if (inventory != null) inventory.enabled = true;
+
+        if (cameraEffects != null)
+            cameraEffects.ClearThreatIntensity();
+    }
+
+    void ResolveCameraEffects()
+    {
+        if (cameraEffects != null) return;
+        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
     }
 
     void ApplyPetrifiedControlLock()
