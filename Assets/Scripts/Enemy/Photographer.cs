@@ -49,6 +49,14 @@ public class Photographer : MonoBehaviour
     [Header("Petrify")]
     public float petrifyWanderDuration = 5f;
 
+    [Header("Camera Effects")]
+    public PlayerVignetteEffect cameraEffects;
+    [Range(0f, 1f)] public float snapshotPulseIntensity = 0.65f;
+    public float snapshotPulseDuration = 0.25f;
+    [Range(0f, 1f)] public float playerPhotoPulseIntensity = 0.85f;
+    public float playerPhotoPulseDuration = 0.45f;
+    [Range(0f, 1f)] public float chaseVignetteIntensity = 0.35f;
+
     private NavMeshAgent agent;
     private PlayerStatus playerStatus;
     private float waitTimer;
@@ -70,6 +78,7 @@ public class Photographer : MonoBehaviour
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+        ResolveCameraEffects();
 
         if (player != null)
             playerStatus = player.GetComponent<PlayerStatus>();
@@ -86,11 +95,13 @@ public class Photographer : MonoBehaviour
 
     void Update()
     {
+        ResolveCameraEffects();
         bool playerVisible = GetPlayerVisibility();
 
         switch (currentState)
         {
             case State.Wandering:
+                ClearChaseCameraEffect();
                 if (agent != null) agent.isStopped = false;
                 HandleWander();
                 TrySnapshot();
@@ -107,6 +118,7 @@ public class Photographer : MonoBehaviour
                 break;
 
             case State.Observing:
+                SetChaseCameraEffect();
                 if (agent != null)
                 {
                     agent.isStopped = true;
@@ -120,6 +132,7 @@ public class Photographer : MonoBehaviour
 
                 if (!playerVisible)
                 {
+                    ClearChaseCameraEffect();
                     if (agent != null)
                     {
                         agent.isStopped = false;
@@ -153,6 +166,7 @@ public class Photographer : MonoBehaviour
                 break;
 
             case State.Chasing:
+                SetChaseCameraEffect();
                 if (agent != null)
                 {
                     agent.isStopped = false;
@@ -161,6 +175,7 @@ public class Photographer : MonoBehaviour
 
                 if (!playerDetected)
                 {
+                    ClearChaseCameraEffect();
                     if (agent != null) agent.speed = wanderSpeed;
                     SetNewDestination();
                     currentState = State.Wandering;
@@ -172,6 +187,7 @@ public class Photographer : MonoBehaviour
                 break;
 
             case State.Admiring:
+                ClearChaseCameraEffect();
                 if (agent != null)
                 {
                     agent.isStopped = true;
@@ -187,6 +203,30 @@ public class Photographer : MonoBehaviour
                     FinishAdmiring();
                 break;
         }
+    }
+
+    void ResolveCameraEffects()
+    {
+        if (cameraEffects != null) return;
+        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+    }
+
+    void SetChaseCameraEffect()
+    {
+        if (cameraEffects != null)
+            cameraEffects.SetThreatIntensity(chaseVignetteIntensity);
+    }
+
+    void ClearChaseCameraEffect()
+    {
+        if (cameraEffects != null)
+            cameraEffects.ClearThreatIntensity();
+    }
+
+    void PulseSnapshotCamera(float intensity, float duration)
+    {
+        if (cameraEffects != null)
+            cameraEffects.Pulse(intensity, duration);
     }
 
     void HandleWander()
@@ -252,6 +292,7 @@ public class Photographer : MonoBehaviour
     void TakeSnapshotCone(Vector3 focusPoint)
     {
         photosTaken++;
+        PulseSnapshotCamera(snapshotPulseIntensity, snapshotPulseDuration);
 
         PhotoItem photoItem = SpawnPhotoItem(null);
         Vector3 eyePosition = GetEyePosition();
@@ -318,6 +359,8 @@ public class Photographer : MonoBehaviour
     void PhotographPlayer()
     {
         if (player == null) return;
+
+        PulseSnapshotCamera(playerPhotoPulseIntensity, playerPhotoPulseDuration);
 
         PlayerPetrify petrify = player.GetComponent<PlayerPetrify>();
         if (petrify != null)
@@ -448,6 +491,11 @@ public class Photographer : MonoBehaviour
             return hit.collider.CompareTag("Player");
 
         return false;
+    }
+
+    void OnDestroy()
+    {
+        ClearChaseCameraEffect();
     }
 
     void OnDrawGizmosSelected()
