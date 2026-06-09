@@ -1,3 +1,4 @@
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -6,7 +7,9 @@ public class PlayerVignetteEffect : MonoBehaviour
 {
     [Header("References")]
     public PlayerStatus playerStatus;
+    public Component targetCinemachineVolumeSettings;
     public Volume targetVolume;
+    public bool preferCinemachineVolumeSettings = true;
     public bool findVolumeAutomatically = true;
     public bool createLocalVolumeIfMissing = true;
 
@@ -37,6 +40,7 @@ public class PlayerVignetteEffect : MonoBehaviour
     public float fadeOutSpeed = 4f;
 
     private Vignette vignette;
+    private VolumeProfile activeProfile;
     private float externalThreatIntensity;
     private float pulseIntensity;
     private float pulseStartIntensity;
@@ -89,8 +93,124 @@ public class PlayerVignetteEffect : MonoBehaviour
 
     void ResolveVignette()
     {
+        VolumeProfile profile = null;
+
+        if (preferCinemachineVolumeSettings)
+            profile = ResolveCinemachineVolumeProfile();
+
+        if (profile == null)
+            profile = ResolveUnityVolumeProfile();
+
+        if (profile == null) return;
+        activeProfile = profile;
+
+        if (!activeProfile.TryGet(out vignette))
+            vignette = activeProfile.Add<Vignette>(true);
+
+        vignette.active = true;
+        vignette.color.overrideState = true;
+        vignette.intensity.overrideState = true;
+        vignette.smoothness.overrideState = true;
+        vignette.rounded.overrideState = true;
+    }
+
+    VolumeProfile ResolveCinemachineVolumeProfile()
+    {
+        ResolveCinemachineVolumeSettings();
+        if (targetCinemachineVolumeSettings == null) return null;
+
+        VolumeProfile profile = GetProfileFromCinemachineVolumeSettings(targetCinemachineVolumeSettings);
+        if (profile != null) return profile;
+
+        profile = ScriptableObject.CreateInstance<VolumeProfile>();
+        SetProfileOnCinemachineVolumeSettings(targetCinemachineVolumeSettings, profile);
+        return GetProfileFromCinemachineVolumeSettings(targetCinemachineVolumeSettings);
+    }
+
+    void ResolveCinemachineVolumeSettings()
+    {
+        if (targetCinemachineVolumeSettings != null) return;
+
+        targetCinemachineVolumeSettings = GetComponent("CinemachineVolumeSettings");
+        if (targetCinemachineVolumeSettings == null)
+            targetCinemachineVolumeSettings = GetComponentInChildrenByName("CinemachineVolumeSettings");
+        if (targetCinemachineVolumeSettings == null)
+            targetCinemachineVolumeSettings = GetComponentInParentByName("CinemachineVolumeSettings");
+    }
+
+    Component GetComponentInChildrenByName(string typeName)
+    {
+        Component[] components = GetComponentsInChildren<Component>(true);
+        for (int i = 0; i < components.Length; i++)
+        {
+            if (components[i] != null && components[i].GetType().Name == typeName)
+                return components[i];
+        }
+
+        return null;
+    }
+
+    Component GetComponentInParentByName(string typeName)
+    {
+        Component[] components = GetComponentsInParent<Component>(true);
+        for (int i = 0; i < components.Length; i++)
+        {
+            if (components[i] != null && components[i].GetType().Name == typeName)
+                return components[i];
+        }
+
+        return null;
+    }
+
+    VolumeProfile GetProfileFromCinemachineVolumeSettings(Component volumeSettings)
+    {
+        if (volumeSettings == null) return null;
+
+        object value = GetMemberValue(volumeSettings, "Profile");
+        if (value is VolumeProfile profile)
+            return profile;
+
+        return null;
+    }
+
+    void SetProfileOnCinemachineVolumeSettings(Component volumeSettings, VolumeProfile profile)
+    {
+        if (volumeSettings == null || profile == null) return;
+
+        TypeMemberAccessor accessor = GetMemberAccessor(volumeSettings, "Profile");
+        if (accessor.property != null && accessor.property.CanWrite)
+            accessor.property.SetValue(volumeSettings, profile, null);
+        else if (accessor.field != null && !accessor.field.IsInitOnly)
+            accessor.field.SetValue(volumeSettings, profile);
+    }
+
+    object GetMemberValue(object target, string memberName)
+    {
+        TypeMemberAccessor accessor = GetMemberAccessor(target, memberName);
+        if (accessor.property != null)
+            return accessor.property.GetValue(target, null);
+        if (accessor.field != null)
+            return accessor.field.GetValue(target);
+
+        return null;
+    }
+
+    TypeMemberAccessor GetMemberAccessor(object target, string memberName)
+    {
+        BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        System.Type type = target.GetType();
+
+        return new TypeMemberAccessor
+        {
+            property = type.GetProperty(memberName, flags),
+            field = type.GetField(memberName, flags)
+        };
+    }
+
+    VolumeProfile ResolveUnityVolumeProfile()
+    {
         ResolveVolume();
-        if (targetVolume == null) return;
+        if (targetVolume == null) return null;
 
         VolumeProfile profile = targetVolume.profile;
         if (profile == null)
@@ -99,14 +219,7 @@ public class PlayerVignetteEffect : MonoBehaviour
             targetVolume.profile = profile;
         }
 
-        if (!profile.TryGet(out vignette))
-            vignette = profile.Add<Vignette>(true);
-
-        vignette.active = true;
-        vignette.color.overrideState = true;
-        vignette.intensity.overrideState = true;
-        vignette.smoothness.overrideState = true;
-        vignette.rounded.overrideState = true;
+        return profile;
     }
 
     void ResolveVolume()
@@ -204,5 +317,11 @@ public class PlayerVignetteEffect : MonoBehaviour
         lowHealthStartsAt = Mathf.Max(0.01f, lowHealthStartsAt);
         damagePulseDuration = Mathf.Max(0.01f, damagePulseDuration);
         pulseDuration = Mathf.Max(0.01f, pulseDuration);
+    }
+
+    struct TypeMemberAccessor
+    {
+        public PropertyInfo property;
+        public FieldInfo field;
     }
 }
