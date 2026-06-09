@@ -1,19 +1,21 @@
 using UnityEngine;
-using UnityEngine.UI;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 public class PlayerVignetteEffect : MonoBehaviour
 {
     [Header("References")]
     public PlayerStatus playerStatus;
-    public Canvas targetCanvas;
+    public Volume targetVolume;
+    public bool findVolumeAutomatically = true;
+    public bool createLocalVolumeIfMissing = true;
 
     [Header("Look")]
     public Color vignetteColor = new Color(0.02f, 0f, 0f, 1f);
     [Range(0f, 1f)] public float baseIntensity = 0.12f;
     [Range(0f, 1f)] public float maxIntensity = 0.8f;
-    [Range(0f, 1f)] public float centerClearRadius = 0.34f;
-    [Range(0.1f, 8f)] public float edgeSoftness = 2.4f;
-    public int textureSize = 256;
+    [Range(0f, 1f)] public float smoothness = 0.55f;
+    public bool rounded = false;
 
     [Header("Low Health")]
     public bool reactToLowHealth = true;
@@ -34,11 +36,12 @@ public class PlayerVignetteEffect : MonoBehaviour
     public float fadeInSpeed = 8f;
     public float fadeOutSpeed = 4f;
 
-    private RawImage vignetteImage;
-    private Texture2D vignetteTexture;
+    private Vignette vignette;
     private float externalThreatIntensity;
     private float pulseIntensity;
+    private float pulseStartIntensity;
     private float pulseTimer;
+    private float pulseDuration;
     private float currentIntensity;
     private float previousHealthPercent = 1f;
 
@@ -47,8 +50,7 @@ public class PlayerVignetteEffect : MonoBehaviour
         if (playerStatus == null)
             playerStatus = GetComponentInParent<PlayerStatus>();
 
-        CreateOverlayIfNeeded();
-        BuildVignetteTexture();
+        ResolveVignette();
     }
 
     void Start()
@@ -59,6 +61,9 @@ public class PlayerVignetteEffect : MonoBehaviour
 
     void Update()
     {
+        if (vignette == null)
+            ResolveVignette();
+
         DetectDamagePulse();
         UpdatePulse();
         UpdateIntensity();
@@ -76,74 +81,61 @@ public class PlayerVignetteEffect : MonoBehaviour
 
     public void Pulse(float intensity, float duration)
     {
-        pulseIntensity = Mathf.Max(pulseIntensity, Mathf.Clamp01(intensity));
-        pulseTimer = Mathf.Max(pulseTimer, duration);
+        pulseStartIntensity = Mathf.Max(pulseStartIntensity, Mathf.Clamp01(intensity));
+        pulseIntensity = pulseStartIntensity;
+        pulseDuration = Mathf.Max(0.01f, duration);
+        pulseTimer = Mathf.Max(pulseTimer, pulseDuration);
     }
 
-    void CreateOverlayIfNeeded()
+    void ResolveVignette()
     {
-        if (targetCanvas == null)
+        ResolveVolume();
+        if (targetVolume == null) return;
+
+        VolumeProfile profile = targetVolume.profile;
+        if (profile == null)
         {
-            GameObject canvasObject = new GameObject("Player Vignette Canvas");
-            canvasObject.transform.SetParent(transform, false);
-
-            targetCanvas = canvasObject.AddComponent<Canvas>();
-            targetCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            targetCanvas.sortingOrder = 200;
-
-            CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight = 0.5f;
-
-            canvasObject.AddComponent<GraphicRaycaster>();
+            profile = ScriptableObject.CreateInstance<VolumeProfile>();
+            targetVolume.profile = profile;
         }
 
-        Transform existing = targetCanvas.transform.Find("Player Vignette Overlay");
-        if (existing != null)
-        {
-            vignetteImage = existing.GetComponent<RawImage>();
-            return;
-        }
+        if (!profile.TryGet(out vignette))
+            vignette = profile.Add<Vignette>(true);
 
-        GameObject imageObject = new GameObject("Player Vignette Overlay");
-        imageObject.transform.SetParent(targetCanvas.transform, false);
-
-        vignetteImage = imageObject.AddComponent<RawImage>();
-        vignetteImage.raycastTarget = false;
-
-        RectTransform rect = imageObject.GetComponent<RectTransform>();
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
+        vignette.active = true;
+        vignette.color.overrideState = true;
+        vignette.intensity.overrideState = true;
+        vignette.smoothness.overrideState = true;
+        vignette.rounded.overrideState = true;
     }
 
-    void BuildVignetteTexture()
+    void ResolveVolume()
     {
-        int size = Mathf.Max(32, textureSize);
-        vignetteTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        vignetteTexture.name = "Generated Player Vignette";
-        vignetteTexture.wrapMode = TextureWrapMode.Clamp;
+        if (targetVolume != null) return;
 
-        Vector2 center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
-        float maxDistance = center.magnitude;
-
-        for (int y = 0; y < size; y++)
+        if (findVolumeAutomatically)
         {
-            for (int x = 0; x < size; x++)
-            {
-                float distance = Vector2.Distance(new Vector2(x, y), center) / maxDistance;
-                float alpha = Mathf.InverseLerp(centerClearRadius, 1f, distance);
-                alpha = Mathf.Pow(Mathf.Clamp01(alpha), edgeSoftness);
-                vignetteTexture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
-            }
+            targetVolume = GetComponentInChildren<Volume>();
+            if (targetVolume == null)
+                targetVolume = GetComponentInParent<Volume>();
+            if (targetVolume == null)
+                targetVolume = FindObjectOfType<Volume>();
         }
 
-        vignetteTexture.Apply();
+        if (targetVolume == null && createLocalVolumeIfMissing)
+            targetVolume = CreateLocalVolume();
+    }
 
-        if (vignetteImage != null)
-            vignetteImage.texture = vignetteTexture;
+    Volume CreateLocalVolume()
+    {
+        GameObject volumeObject = new GameObject("Player Vignette Volume");
+        volumeObject.transform.SetParent(transform, false);
+
+        Volume volume = volumeObject.AddComponent<Volume>();
+        volume.isGlobal = true;
+        volume.priority = 100f;
+        volume.profile = ScriptableObject.CreateInstance<VolumeProfile>();
+        return volume;
     }
 
     void DetectDamagePulse()
@@ -162,12 +154,13 @@ public class PlayerVignetteEffect : MonoBehaviour
         if (pulseTimer <= 0f)
         {
             pulseIntensity = 0f;
+            pulseStartIntensity = 0f;
             return;
         }
 
         pulseTimer -= Time.deltaTime;
-        float normalizedTime = damagePulseDuration > 0f ? pulseTimer / damagePulseDuration : 0f;
-        pulseIntensity = Mathf.Clamp01(pulseIntensity * Mathf.Clamp01(normalizedTime));
+        float normalizedTime = pulseDuration > 0f ? pulseTimer / pulseDuration : 0f;
+        pulseIntensity = pulseStartIntensity * Mathf.Clamp01(normalizedTime);
     }
 
     void UpdateIntensity()
@@ -185,22 +178,31 @@ public class PlayerVignetteEffect : MonoBehaviour
 
         if (useBreathingPulse && targetIntensity > 0.001f)
         {
-            float pulse = (Mathf.Sin(Time.time * breathingSpeed) + 1f) * 0.5f;
-            targetIntensity += pulse * breathingAmount * targetIntensity;
+            float breathingT = (Mathf.Sin(Time.time * breathingSpeed) + 1f) * 0.5f;
+            targetIntensity += breathingT * breathingAmount * targetIntensity;
         }
 
         targetIntensity = Mathf.Clamp(targetIntensity, 0f, maxIntensity);
         float speed = targetIntensity > currentIntensity ? fadeInSpeed : fadeOutSpeed;
         currentIntensity = Mathf.MoveTowards(currentIntensity, targetIntensity, speed * Time.deltaTime);
 
-        if (vignetteImage != null)
-            vignetteImage.color = new Color(vignetteColor.r, vignetteColor.g, vignetteColor.b, currentIntensity);
+        ApplyVignette(currentIntensity);
+    }
+
+    void ApplyVignette(float intensity)
+    {
+        if (vignette == null) return;
+
+        vignette.color.Override(vignetteColor);
+        vignette.intensity.Override(intensity);
+        vignette.smoothness.Override(smoothness);
+        vignette.rounded.Override(rounded);
     }
 
     void OnValidate()
     {
-        textureSize = Mathf.Max(32, textureSize);
         lowHealthStartsAt = Mathf.Max(0.01f, lowHealthStartsAt);
         damagePulseDuration = Mathf.Max(0.01f, damagePulseDuration);
+        pulseDuration = Mathf.Max(0.01f, pulseDuration);
     }
 }
