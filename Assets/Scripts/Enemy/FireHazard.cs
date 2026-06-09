@@ -1,0 +1,118 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public class FireHazard : MonoBehaviour
+{
+    [Header("Lifetime")]
+    public float lifetime = 8f;
+    public bool destroyWhenLifetimeEnds = true;
+
+    [Header("Damage")]
+    public float radius = 2f;
+    public float damagePerSecond = 12f;
+    public float damageTickInterval = 0.5f;
+    public LayerMask damageMask = ~0;
+
+    [Header("Item Ignition")]
+    public bool canIgniteItems = true;
+    public bool destroyItemsOnIgnite = false;
+    public float itemIgniteRadius = 1.75f;
+    public string itemTag = "Item";
+    public string poolTag = "Pool";
+    public string swimmingPoolTag = "SwimmingPool";
+
+    private readonly Dictionary<PlayerStatus, float> nextDamageTimes = new Dictionary<PlayerStatus, float>();
+    private float lifetimeTimer;
+
+    void Start()
+    {
+        lifetimeTimer = lifetime;
+    }
+
+    void Update()
+    {
+        DamagePlayersInRadius();
+        TryIgniteItems();
+        UpdateLifetime();
+    }
+
+    void DamagePlayersInRadius()
+    {
+        Collider[] hits = Physics.OverlapSphere(transform.position, radius, damageMask, QueryTriggerInteraction.Collide);
+        for (int i = 0; i < hits.Length; i++)
+        {
+            PlayerStatus player = hits[i].GetComponentInParent<PlayerStatus>();
+            if (player == null) continue;
+
+            if (nextDamageTimes.TryGetValue(player, out float nextTime) && Time.time < nextTime)
+                continue;
+
+            player.TakeDamage(damagePerSecond * damageTickInterval);
+            nextDamageTimes[player] = Time.time + damageTickInterval;
+        }
+    }
+
+    void TryIgniteItems()
+    {
+        if (!canIgniteItems) return;
+
+        Collider[] hits = Physics.OverlapSphere(transform.position, itemIgniteRadius, ~0, QueryTriggerInteraction.Collide);
+        for (int i = 0; i < hits.Length; i++)
+        {
+            GameObject target = hits[i].gameObject;
+            if (IsPool(target)) continue;
+            if (!IsIgnitableItem(target)) continue;
+
+            target.SendMessageUpwards("OnIgnited", SendMessageOptions.DontRequireReceiver);
+
+            if (destroyItemsOnIgnite)
+                Destroy(target.transform.root.gameObject);
+        }
+    }
+
+    bool IsIgnitableItem(GameObject target)
+    {
+        Transform current = target.transform;
+        while (current != null)
+        {
+            if (current.gameObject.tag == itemTag)
+                return true;
+
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    bool IsPool(GameObject target)
+    {
+        Transform current = target.transform;
+        while (current != null)
+        {
+            string currentTag = current.gameObject.tag;
+            if (currentTag == poolTag || currentTag == swimmingPoolTag)
+                return true;
+
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    void UpdateLifetime()
+    {
+        if (lifetime <= 0f) return;
+
+        lifetimeTimer -= Time.deltaTime;
+        if (lifetimeTimer <= 0f && destroyWhenLifetimeEnds)
+            Destroy(gameObject);
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, radius);
+        Gizmos.color = new Color(1f, 0.6f, 0f, 0.75f);
+        Gizmos.DrawWireSphere(transform.position, itemIgniteRadius);
+    }
+}
