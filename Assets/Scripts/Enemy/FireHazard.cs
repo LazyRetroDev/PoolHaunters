@@ -21,7 +21,13 @@ public class FireHazard : MonoBehaviour
     public string poolTag = "Pool";
     public string swimmingPoolTag = "SwimmingPool";
 
+    [Header("Water Source Drying")]
+    public bool canDryWaterSources = true;
+    public float waterSourceDryRadius = 2f;
+    public string waterSourceTag = "WaterSource";
+
     private readonly Dictionary<PlayerStatus, float> nextDamageTimes = new Dictionary<PlayerStatus, float>();
+    private readonly HashSet<GameObject> driedWaterSources = new HashSet<GameObject>();
     private float lifetimeTimer;
 
     void Start()
@@ -33,6 +39,7 @@ public class FireHazard : MonoBehaviour
     {
         DamagePlayersInRadius();
         TryIgniteItems();
+        TryDryWaterSources();
         UpdateLifetime();
     }
 
@@ -69,6 +76,23 @@ public class FireHazard : MonoBehaviour
 
             if (destroyItemsOnIgnite)
                 Destroy(itemRoot);
+        }
+    }
+
+    void TryDryWaterSources()
+    {
+        if (!canDryWaterSources) return;
+
+        Collider[] hits = Physics.OverlapSphere(transform.position, waterSourceDryRadius, ~0, QueryTriggerInteraction.Collide);
+        for (int i = 0; i < hits.Length; i++)
+        {
+            GameObject waterSourceRoot = FindTaggedAncestor(hits[i].gameObject, waterSourceTag);
+            if (waterSourceRoot == null || IsPool(waterSourceRoot)) continue;
+            if (driedWaterSources.Contains(waterSourceRoot)) continue;
+
+            driedWaterSources.Add(waterSourceRoot);
+            waterSourceRoot.SendMessage("DryOut", SendMessageOptions.DontRequireReceiver);
+            waterSourceRoot.SendMessage("OnDriedByFire", SendMessageOptions.DontRequireReceiver);
         }
     }
 
@@ -116,5 +140,7 @@ public class FireHazard : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, radius);
         Gizmos.color = new Color(1f, 0.6f, 0f, 0.75f);
         Gizmos.DrawWireSphere(transform.position, itemIgniteRadius);
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawWireSphere(transform.position, waterSourceDryRadius);
     }
 }
