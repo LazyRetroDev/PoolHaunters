@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -46,6 +47,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     public GameObject fireHazardPrefab;
     public float fireHazardInterval = 1.5f;
 
+    private readonly HashSet<PlayerStatus> transformedPlayers = new HashSet<PlayerStatus>();
     private NavMeshAgent agent;
     private Transform player;
     private PlayerStatus playerStatus;
@@ -55,7 +57,6 @@ public class GoldenMouthBehavior : MonoBehaviour
     private float combustionTimer;
     private float nextAttackTime;
     private float fireHazardTimer;
-    private bool spawnedDeathEffect;
     private bool dealtCombustionDamage;
 
     void Start()
@@ -201,19 +202,18 @@ public class GoldenMouthBehavior : MonoBehaviour
         nextAttackTime = Time.time + attackCooldown;
 
         if (killed)
-            HandlePlayerKilled();
+            HandlePlayerKilled(playerStatus);
     }
 
-    void HandlePlayerKilled()
+    void HandlePlayerKilled(PlayerStatus killedPlayer)
     {
-        if (spawnedDeathEffect) return;
-        spawnedDeathEffect = true;
+        if (killedPlayer == null || transformedPlayers.Contains(killedPlayer)) return;
+        transformedPlayers.Add(killedPlayer);
 
-        if (willOWispPrefab != null && playerStatus != null)
-            Instantiate(willOWispPrefab, playerStatus.transform.position + willOWispSpawnOffset, Quaternion.identity);
+        if (willOWispPrefab != null)
+            Instantiate(willOWispPrefab, killedPlayer.transform.position + willOWispSpawnOffset, Quaternion.identity);
 
-        if (playerStatus != null)
-            playerStatus.ApplyDeathTransformation();
+        killedPlayer.ApplyDeathTransformation();
     }
 
     void Wander(float speed)
@@ -283,8 +283,8 @@ public class GoldenMouthBehavior : MonoBehaviour
             if (status == null) continue;
 
             bool killed = status.TakeDamage(combustionDamage);
-            if (killed && status == playerStatus)
-                HandlePlayerKilled();
+            if (killed)
+                HandlePlayerKilled(status);
         }
     }
 
