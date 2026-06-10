@@ -51,6 +51,7 @@ public class TimeCamper : MonoBehaviour
 
     [Header("Clone")]
     public bool isClone = false;
+    public bool transformKnockedOutPlayerImmediately = false;
 
     private float countdownTimer;
     private float countdownDuration;
@@ -201,10 +202,12 @@ public class TimeCamper : MonoBehaviour
         float dist = Vector3.Distance(transform.position, player.position);
         if (dist > damageRadius) return;
 
-        bool killedPlayer = playerStatus.TakeDamage(damagePerSecond * Time.deltaTime);
-        if (!killedPlayer) return;
+        bool knockedOutPlayer = playerStatus.TakeDamage(damagePerSecond * Time.deltaTime);
+        if (!knockedOutPlayer) return;
 
-        TransformKilledPlayerIntoClone();
+        if (transformKnockedOutPlayerImmediately)
+            TransformKilledPlayerIntoClone();
+
         StartLeaving();
     }
 
@@ -214,10 +217,11 @@ public class TimeCamper : MonoBehaviour
         if (EnemySpawner.Instance == null || playerStatus == null) return;
         if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
 
-        spawnedCloneForDeath = true;
         Vector3 clonePosition = playerStatus.transform.position;
+        if (!playerStatus.ForceTransformDeath()) return;
+
+        spawnedCloneForDeath = true;
         EnemySpawner.Instance.SpawnTimeCamperAt(clonePosition, isClone: true);
-        playerStatus.ApplyDeathTransformation();
     }
 
     void StartLeaving()
