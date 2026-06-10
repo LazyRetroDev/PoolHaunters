@@ -9,6 +9,9 @@ public class PlayerPetrify : MonoBehaviour
     [Range(0f, 1f)] public float petrifiedVignetteIntensity = 0.7f;
     [Range(0f, 1f)] public float petrifyPulseIntensity = 0.9f;
     public float petrifyPulseDuration = 0.4f;
+    public float petrifyShakeAmplitude = 0.8f;
+    public float petrifyShakeFrequency = 13f;
+    public float petrifyShakeDuration = 0.3f;
 
     private bool isPetrified = false;
     private float petrifyTimer;
@@ -52,6 +55,7 @@ public class PlayerPetrify : MonoBehaviour
         if (cameraEffects != null)
         {
             cameraEffects.Pulse(petrifyPulseIntensity, petrifyPulseDuration);
+            cameraEffects.Shake(petrifyShakeAmplitude, petrifyShakeFrequency, petrifyShakeDuration);
             cameraEffects.SetThreatIntensity(petrifiedVignetteIntensity);
         }
 
@@ -65,7 +69,10 @@ public class PlayerPetrify : MonoBehaviour
         if (inventory != null) inventory.enabled = true;
 
         if (cameraEffects != null)
+        {
             cameraEffects.ClearThreatIntensity();
+            cameraEffects.StopShake();
+        }
     }
 
     void ResolveCameraEffects()
