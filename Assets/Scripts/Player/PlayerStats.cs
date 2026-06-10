@@ -6,6 +6,11 @@ public class PlayerStatus : MonoBehaviour
     [Header("Health")]
     public float maxHealth = 100f;
 
+    [Header("Knockout")]
+    public float knockoutDuration = 45f;
+    [Range(0.01f, 1f)] public float reviveHealthPercent = 0.35f;
+    public bool disableControlsWhileKnockedOut = true;
+
     [Header("Water")]
     public float maxWater = 100f;
     public float fillRate = 10f;
@@ -21,25 +26,31 @@ public class PlayerStatus : MonoBehaviour
     public bool disableCollidersOnDeath = true;
     public MonoBehaviour[] componentsToDisableOnDeath;
 
+    public event Action<PlayerStatus> OnKnockedOut;
+    public event Action<PlayerStatus> OnRevived;
     public event Action<PlayerStatus> OnDeath;
     public event Action<WaterQuality> OnWaterQualityChanged;
 
     private float currentHealth;
     private float currentWater = 0f;
+    private float knockoutTimer;
     private WaterQuality currentWaterQuality;
     private bool inWater = false;
+    private bool isKnockedOut = false;
     private bool isDead = false;
     private bool deathTransformationApplied = false;
 
     private PlayerMovement movement;
-    public bool IsMoving() => movement != null && movement.IsMoving();
+    public bool IsMoving() => movement != null && movement.IsMoving() && CanAct();
 
     void Start()
     {
         movement = GetComponent<PlayerMovement>();
         currentHealth = maxHealth;
         currentWaterQuality = startingWaterQuality;
-        isDead = currentHealth <= 0f;
+
+        if (currentHealth <= 0f)
+            EnterKnockout();
     }
 
     public void SetInWater(bool value) => inWater = value;
@@ -49,28 +60,88 @@ public class PlayerStatus : MonoBehaviour
     public WaterQuality GetWaterQuality() => currentWaterQuality;
     public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
     public float GetWaterPercent() => maxWater > 0f ? currentWater / maxWater : 0f;
-    public bool IsSprinting() => movement != null && movement.IsSprinting();
+    public float GetKnockoutTimeRemaining() => knockoutTimer;
+    public float GetKnockoutPercent() => knockoutDuration > 0f ? knockoutTimer / knockoutDuration : 0f;
+    public bool IsSprinting() => movement != null && movement.IsSprinting() && CanAct();
+    public bool IsKnockedOut() => isKnockedOut;
     public bool IsDead() => isDead;
+    public bool IsTransformed() => deathTransformationApplied;
+    public bool CanAct() => !isKnockedOut && !isDead && !deathTransformationApplied;
     public bool HasContaminatedWater() => currentWater > 0f && currentWaterQuality == WaterQuality.Contaminated;
 
     void Update()
     {
-        if (inWater && currentWater < maxWater)
+        if (isKnockedOut)
+        {
+            UpdateKnockoutTimer();
+            return;
+        }
+
+        if (CanAct() && inWater && currentWater < maxWater)
             AddWater(fillRate * Time.deltaTime, waterFillQuality);
     }
 
     public bool TakeDamage(float damage)
     {
-        if (damage <= 0f || isDead) return false;
+        if (damage <= 0f || isDead || isKnockedOut || deathTransformationApplied) return false;
 
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
 
         if (currentHealth > 0f) return false;
 
-        isDead = true;
-        OnDeath?.Invoke(this);
+        EnterKnockout();
         return true;
+    }
+
+    public void EnterKnockout()
+    {
+        if (isDead || deathTransformationApplied || isKnockedOut) return;
+
+        isKnockedOut = true;
+        currentHealth = 0f;
+        knockoutTimer = knockoutDuration;
+
+        if (disableControlsWhileKnockedOut)
+            DisableConfiguredComponents();
+
+        OnKnockedOut?.Invoke(this);
+    }
+
+    void UpdateKnockoutTimer()
+    {
+        knockoutTimer -= Time.deltaTime;
+        if (knockoutTimer <= 0f)
+            Die();
+    }
+
+    public bool Revive()
+    {
+        return Revive(maxHealth * reviveHealthPercent);
+    }
+
+    public bool Revive(float revivedHealth)
+    {
+        if (!isKnockedOut || isDead || deathTransformationApplied) return false;
+
+        isKnockedOut = false;
+        knockoutTimer = 0f;
+        currentHealth = Mathf.Clamp(revivedHealth, 1f, maxHealth);
+        RestoreConfiguredComponents();
+        OnRevived?.Invoke(this);
+        return true;
+    }
+
+    public void Die()
+    {
+        if (isDead) return;
+
+        isKnockedOut = false;
+        isDead = true;
+        currentHealth = 0f;
+        knockoutTimer = 0f;
+        DisableConfiguredComponents();
+        OnDeath?.Invoke(this);
     }
 
     public void ApplyDeathTransformation()
@@ -78,7 +149,12 @@ public class PlayerStatus : MonoBehaviour
         if (deathTransformationApplied) return;
         deathTransformationApplied = true;
 
+        isKnockedOut = false;
+        isDead = true;
+        currentHealth = 0f;
+        knockoutTimer = 0f;
         DisableConfiguredComponents();
+        OnDeath?.Invoke(this);
 
         if (hideRenderersOnDeath)
         {
@@ -119,8 +195,33 @@ public class PlayerStatus : MonoBehaviour
         if (waterCannon != null) waterCannon.enabled = false;
     }
 
+    void RestoreConfiguredComponents()
+    {
+        if (componentsToDisableOnDeath != null && componentsToDisableOnDeath.Length > 0)
+        {
+            for (int i = 0; i < componentsToDisableOnDeath.Length; i++)
+            {
+                MonoBehaviour component = componentsToDisableOnDeath[i];
+                if (component != null && component != this)
+                    component.enabled = true;
+            }
+
+            return;
+        }
+
+        PlayerMovement playerMovement = GetComponent<PlayerMovement>();
+        if (playerMovement != null) playerMovement.enabled = true;
+
+        PlayerInventory inventory = GetComponent<PlayerInventory>();
+        if (inventory != null) inventory.enabled = true;
+
+        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
+        if (waterCannon != null) waterCannon.enabled = true;
+    }
+
     public bool ConsumeWater(float amount)
     {
+        if (!CanAct()) return false;
         if (amount <= 0f || currentWater <= 0f) return false;
 
         currentWater -= amount;
@@ -134,6 +235,7 @@ public class PlayerStatus : MonoBehaviour
 
     public bool AddWater(float amount, WaterQuality quality, bool replaceExistingQuality = false)
     {
+        if (!CanAct()) return false;
         if (amount <= 0f || currentWater >= maxWater) return false;
 
         bool wasEmpty = currentWater <= 0f;
@@ -150,12 +252,14 @@ public class PlayerStatus : MonoBehaviour
 
     public void ContaminateWater()
     {
+        if (!CanAct()) return;
         if (currentWater <= 0f) return;
         SetWaterQuality(WaterQuality.Contaminated);
     }
 
     public void PurifyWater()
     {
+        if (!CanAct()) return;
         if (currentWater <= 0f) return;
         SetWaterQuality(WaterQuality.Clean);
     }
