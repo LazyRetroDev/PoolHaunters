@@ -8,6 +8,7 @@ public class PlayerVignetteEffect : MonoBehaviour
     [Header("References")]
     public PlayerStatus playerStatus;
     public Component targetCinemachineVolumeSettings;
+    public Component targetCinemachineNoise;
     public Volume targetVolume;
     public bool preferCinemachineVolumeSettings = true;
     public bool findVolumeAutomatically = true;
@@ -29,6 +30,16 @@ public class PlayerVignetteEffect : MonoBehaviour
     public bool pulseWhenDamaged = true;
     [Range(0f, 1f)] public float damagePulseIntensity = 0.65f;
     public float damagePulseDuration = 0.35f;
+    public bool shakeWhenDamaged = true;
+    public float damageShakeAmplitude = 0.45f;
+    public float damageShakeFrequency = 8f;
+    public float damageShakeDuration = 0.25f;
+
+    [Header("Screen Shake")]
+    public bool enableScreenShake = true;
+    public float maxShakeAmplitude = 2.5f;
+    public float maxShakeFrequency = 18f;
+    public float shakeFadeSpeed = 8f;
 
     [Header("Horror Breathing")]
     public bool useBreathingPulse = true;
@@ -49,12 +60,22 @@ public class PlayerVignetteEffect : MonoBehaviour
     private float currentIntensity;
     private float previousHealthPercent = 1f;
 
+    private float baseShakeAmplitude;
+    private float baseShakeFrequency;
+    private float targetShakeAmplitude;
+    private float targetShakeFrequency;
+    private float currentShakeAmplitude;
+    private float currentShakeFrequency;
+    private float shakeTimer;
+
     void Awake()
     {
         if (playerStatus == null)
             playerStatus = GetComponentInParent<PlayerStatus>();
 
         ResolveVignette();
+        ResolveCinemachineNoise();
+        CaptureBaseNoiseValues();
     }
 
     void Start()
@@ -68,9 +89,16 @@ public class PlayerVignetteEffect : MonoBehaviour
         if (vignette == null)
             ResolveVignette();
 
+        if (targetCinemachineNoise == null)
+        {
+            ResolveCinemachineNoise();
+            CaptureBaseNoiseValues();
+        }
+
         DetectDamagePulse();
         UpdatePulse();
         UpdateIntensity();
+        UpdateShake();
     }
 
     public void SetThreatIntensity(float intensity)
@@ -89,6 +117,22 @@ public class PlayerVignetteEffect : MonoBehaviour
         pulseIntensity = pulseStartIntensity;
         pulseDuration = Mathf.Max(0.01f, duration);
         pulseTimer = Mathf.Max(pulseTimer, pulseDuration);
+    }
+
+    public void Shake(float amplitude, float frequency, float duration)
+    {
+        if (!enableScreenShake) return;
+
+        targetShakeAmplitude = Mathf.Max(targetShakeAmplitude, Mathf.Clamp(amplitude, 0f, maxShakeAmplitude));
+        targetShakeFrequency = Mathf.Max(targetShakeFrequency, Mathf.Clamp(frequency, 0f, maxShakeFrequency));
+        shakeTimer = Mathf.Max(shakeTimer, Mathf.Max(0.01f, duration));
+    }
+
+    public void StopShake()
+    {
+        targetShakeAmplitude = 0f;
+        targetShakeFrequency = 0f;
+        shakeTimer = 0f;
     }
 
     void ResolveVignette()
@@ -136,6 +180,27 @@ public class PlayerVignetteEffect : MonoBehaviour
             targetCinemachineVolumeSettings = GetComponentInChildrenByName("CinemachineVolumeSettings");
         if (targetCinemachineVolumeSettings == null)
             targetCinemachineVolumeSettings = GetComponentInParentByName("CinemachineVolumeSettings");
+    }
+
+    void ResolveCinemachineNoise()
+    {
+        if (targetCinemachineNoise != null) return;
+
+        targetCinemachineNoise = GetComponent("CinemachineBasicMultiChannelPerlin");
+        if (targetCinemachineNoise == null)
+            targetCinemachineNoise = GetComponentInChildrenByName("CinemachineBasicMultiChannelPerlin");
+        if (targetCinemachineNoise == null)
+            targetCinemachineNoise = GetComponentInParentByName("CinemachineBasicMultiChannelPerlin");
+    }
+
+    void CaptureBaseNoiseValues()
+    {
+        if (targetCinemachineNoise == null) return;
+
+        baseShakeAmplitude = GetFloatMemberValue(targetCinemachineNoise, "AmplitudeGain", baseShakeAmplitude);
+        baseShakeFrequency = GetFloatMemberValue(targetCinemachineNoise, "FrequencyGain", baseShakeFrequency);
+        currentShakeAmplitude = Mathf.Max(currentShakeAmplitude, baseShakeAmplitude);
+        currentShakeFrequency = Mathf.Max(currentShakeFrequency, baseShakeFrequency);
     }
 
     Component GetComponentInChildrenByName(string typeName)
@@ -193,6 +258,24 @@ public class PlayerVignetteEffect : MonoBehaviour
             return accessor.field.GetValue(target);
 
         return null;
+    }
+
+    float GetFloatMemberValue(object target, string memberName, float fallback)
+    {
+        object value = GetMemberValue(target, memberName);
+        if (value is float floatValue)
+            return floatValue;
+
+        return fallback;
+    }
+
+    void SetFloatMemberValue(object target, string memberName, float value)
+    {
+        TypeMemberAccessor accessor = GetMemberAccessor(target, memberName);
+        if (accessor.property != null && accessor.property.CanWrite)
+            accessor.property.SetValue(target, value, null);
+        else if (accessor.field != null && !accessor.field.IsInitOnly)
+            accessor.field.SetValue(target, value);
     }
 
     TypeMemberAccessor GetMemberAccessor(object target, string memberName)
@@ -257,7 +340,11 @@ public class PlayerVignetteEffect : MonoBehaviour
 
         float healthPercent = playerStatus.GetHealthPercent();
         if (healthPercent < previousHealthPercent - 0.001f)
+        {
             Pulse(damagePulseIntensity, damagePulseDuration);
+            if (shakeWhenDamaged)
+                Shake(damageShakeAmplitude, damageShakeFrequency, damageShakeDuration);
+        }
 
         previousHealthPercent = healthPercent;
     }
@@ -302,6 +389,29 @@ public class PlayerVignetteEffect : MonoBehaviour
         ApplyVignette(currentIntensity);
     }
 
+    void UpdateShake()
+    {
+        if (targetCinemachineNoise == null || !enableScreenShake) return;
+
+        if (shakeTimer > 0f)
+            shakeTimer -= Time.deltaTime;
+        else
+        {
+            targetShakeAmplitude = 0f;
+            targetShakeFrequency = 0f;
+        }
+
+        float desiredAmplitude = baseShakeAmplitude + targetShakeAmplitude;
+        float desiredFrequency = baseShakeFrequency + targetShakeFrequency;
+        float speed = shakeTimer > 0f ? shakeFadeSpeed * 2f : shakeFadeSpeed;
+
+        currentShakeAmplitude = Mathf.MoveTowards(currentShakeAmplitude, desiredAmplitude, speed * Time.deltaTime);
+        currentShakeFrequency = Mathf.MoveTowards(currentShakeFrequency, desiredFrequency, speed * Time.deltaTime);
+
+        SetFloatMemberValue(targetCinemachineNoise, "AmplitudeGain", currentShakeAmplitude);
+        SetFloatMemberValue(targetCinemachineNoise, "FrequencyGain", currentShakeFrequency);
+    }
+
     void ApplyVignette(float intensity)
     {
         if (vignette == null) return;
@@ -312,11 +422,22 @@ public class PlayerVignetteEffect : MonoBehaviour
         vignette.rounded.Override(rounded);
     }
 
+    void OnDisable()
+    {
+        if (targetCinemachineNoise == null) return;
+
+        SetFloatMemberValue(targetCinemachineNoise, "AmplitudeGain", baseShakeAmplitude);
+        SetFloatMemberValue(targetCinemachineNoise, "FrequencyGain", baseShakeFrequency);
+    }
+
     void OnValidate()
     {
         lowHealthStartsAt = Mathf.Max(0.01f, lowHealthStartsAt);
         damagePulseDuration = Mathf.Max(0.01f, damagePulseDuration);
+        damageShakeDuration = Mathf.Max(0.01f, damageShakeDuration);
         pulseDuration = Mathf.Max(0.01f, pulseDuration);
+        maxShakeAmplitude = Mathf.Max(0f, maxShakeAmplitude);
+        maxShakeFrequency = Mathf.Max(0f, maxShakeFrequency);
     }
 
     struct TypeMemberAccessor
