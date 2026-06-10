@@ -42,6 +42,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     [Header("After Kill")]
     public GameObject willOWispPrefab;
     public Vector3 willOWispSpawnOffset = new Vector3(0f, 1f, 0f);
+    public bool transformKnockedOutPlayerImmediately = false;
 
     [Header("Fire Spread")]
     public GameObject fireHazardPrefab;
@@ -259,22 +260,22 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (cameraEffects != null)
             cameraEffects.Shake(attackShakeAmplitude, attackShakeFrequency, attackShakeDuration);
 
-        bool killed = playerStatus.TakeDamage(damagePerAttack);
+        bool knockedOut = playerStatus.TakeDamage(damagePerAttack);
         nextAttackTime = Time.time + attackCooldown;
 
-        if (killed)
+        if (knockedOut && transformKnockedOutPlayerImmediately)
             HandlePlayerKilled(playerStatus);
     }
 
     void HandlePlayerKilled(PlayerStatus killedPlayer)
     {
         if (killedPlayer == null || transformedPlayers.Contains(killedPlayer)) return;
+        if (!killedPlayer.ForceTransformDeath()) return;
+
         transformedPlayers.Add(killedPlayer);
 
         if (willOWispPrefab != null)
             Instantiate(willOWispPrefab, killedPlayer.transform.position + willOWispSpawnOffset, Quaternion.identity);
-
-        killedPlayer.ApplyDeathTransformation();
     }
 
     void Wander(float speed)
@@ -343,8 +344,8 @@ public class GoldenMouthBehavior : MonoBehaviour
             PlayerStatus status = hits[i].GetComponentInParent<PlayerStatus>();
             if (status == null) continue;
 
-            bool killed = status.TakeDamage(combustionDamage);
-            if (killed)
+            bool knockedOut = status.TakeDamage(combustionDamage);
+            if (knockedOut && transformKnockedOutPlayerImmediately)
                 HandlePlayerKilled(status);
         }
     }
