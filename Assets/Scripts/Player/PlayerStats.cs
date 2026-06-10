@@ -141,6 +141,7 @@ public class PlayerStatus : MonoBehaviour
         currentHealth = 0f;
         knockoutTimer = 0f;
         DisableConfiguredComponents();
+        ActivateSpectatorMode();
         OnDeath?.Invoke(this);
     }
 
@@ -154,6 +155,7 @@ public class PlayerStatus : MonoBehaviour
         currentHealth = 0f;
         knockoutTimer = 0f;
         DisableConfiguredComponents();
+        ActivateSpectatorMode();
         OnDeath?.Invoke(this);
 
         if (hideRenderersOnDeath)
@@ -169,6 +171,11 @@ public class PlayerStatus : MonoBehaviour
             for (int i = 0; i < colliders.Length; i++)
                 colliders[i].enabled = false;
         }
+    }
+
+    void ActivateSpectatorMode()
+    {
+        PlayerSpectatorMode.ActivateFor(this);
     }
 
     void DisableKnockoutBlockedComponents()
