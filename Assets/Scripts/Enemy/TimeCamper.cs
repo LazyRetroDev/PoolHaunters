@@ -40,6 +40,11 @@ public class TimeCamper : MonoBehaviour
     [Range(0f, 1f)] public float beamVignette = 0.8f;
     [Range(0f, 1f)] public float beamPulseIntensity = 0.9f;
     public float beamPulseDuration = 0.6f;
+    public float countdownMaxShakeAmplitude = 0.7f;
+    public float countdownShakeFrequency = 6f;
+    public float beamShakeAmplitude = 1.6f;
+    public float beamShakeFrequency = 14f;
+    public float beamShakeDuration = 0.7f;
 
     [Header("Countdown UI")]
     public TextMeshProUGUI countdownText;
@@ -162,6 +167,7 @@ public class TimeCamper : MonoBehaviour
 
         float progress = 1f - Mathf.Clamp01(countdownTimer / Mathf.Max(0.01f, countdownDuration));
         cameraEffects.SetThreatIntensity(Mathf.Lerp(countdownMinVignette, countdownMaxVignette, progress));
+        cameraEffects.Shake(countdownMaxShakeAmplitude * progress, countdownShakeFrequency, 0.15f);
     }
 
     void StartBeam()
@@ -170,7 +176,10 @@ public class TimeCamper : MonoBehaviour
         damageTimer = damageDuration;
 
         if (cameraEffects != null)
+        {
             cameraEffects.Pulse(beamPulseIntensity, beamPulseDuration);
+            cameraEffects.Shake(beamShakeAmplitude, beamShakeFrequency, beamShakeDuration);
+        }
 
         if (beamPrefab != null)
             beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
@@ -179,7 +188,10 @@ public class TimeCamper : MonoBehaviour
     void UpdateBeamEffect()
     {
         if (cameraEffects != null)
+        {
             cameraEffects.SetThreatIntensity(beamVignette);
+            cameraEffects.Shake(beamShakeAmplitude * 0.35f, beamShakeFrequency, 0.15f);
+        }
     }
 
     void DamagePlayerInRadius()
@@ -269,7 +281,10 @@ public class TimeCamper : MonoBehaviour
     void ClearCameraEffect()
     {
         if (cameraEffects != null)
+        {
             cameraEffects.ClearThreatIntensity();
+            cameraEffects.StopShake();
+        }
     }
 
     void CleanupVisuals()
