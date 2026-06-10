@@ -53,6 +53,14 @@ public class GoldenMouthBehavior : MonoBehaviour
     public float combustionPulseDuration = 0.6f;
     [Range(0f, 1f)] public float aggressiveMinVignette = 0.2f;
     [Range(0f, 1f)] public float aggressiveMaxVignette = 0.75f;
+    public float combustionShakeAmplitude = 1.8f;
+    public float combustionShakeFrequency = 15f;
+    public float combustionShakeDuration = 0.8f;
+    public float aggressiveMaxShakeAmplitude = 0.45f;
+    public float aggressiveShakeFrequency = 7f;
+    public float attackShakeAmplitude = 0.85f;
+    public float attackShakeFrequency = 12f;
+    public float attackShakeDuration = 0.25f;
 
     private readonly HashSet<PlayerStatus> transformedPlayers = new HashSet<PlayerStatus>();
     private NavMeshAgent agent;
@@ -162,7 +170,10 @@ public class GoldenMouthBehavior : MonoBehaviour
         SpawnBurstFireHazards();
 
         if (cameraEffects != null)
+        {
             cameraEffects.Pulse(combustionPulseIntensity, combustionPulseDuration);
+            cameraEffects.Shake(combustionShakeAmplitude, combustionShakeFrequency, combustionShakeDuration);
+        }
 
         UpdateVisuals();
     }
@@ -232,16 +243,21 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (distanceToPlayer > loseInterestDistance)
         {
             cameraEffects.ClearThreatIntensity();
+            cameraEffects.StopShake();
             return;
         }
 
         float danger = 1f - Mathf.Clamp01(distanceToPlayer / Mathf.Max(0.01f, detectionRange));
         cameraEffects.SetThreatIntensity(Mathf.Lerp(aggressiveMinVignette, aggressiveMaxVignette, danger));
+        cameraEffects.Shake(aggressiveMaxShakeAmplitude * danger, aggressiveShakeFrequency, 0.15f);
     }
 
     void TryAttack(float distanceToPlayer)
     {
         if (distanceToPlayer > attackRange || Time.time < nextAttackTime) return;
+
+        if (cameraEffects != null)
+            cameraEffects.Shake(attackShakeAmplitude, attackShakeFrequency, attackShakeDuration);
 
         bool killed = playerStatus.TakeDamage(damagePerAttack);
         nextAttackTime = Time.time + attackCooldown;
@@ -365,7 +381,10 @@ public class GoldenMouthBehavior : MonoBehaviour
     void ClearCameraEffect()
     {
         if (cameraEffects != null)
+        {
             cameraEffects.ClearThreatIntensity();
+            cameraEffects.StopShake();
+        }
     }
 
     void UpdateVisuals()
