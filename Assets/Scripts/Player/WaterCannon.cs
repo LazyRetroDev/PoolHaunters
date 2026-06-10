@@ -84,7 +84,7 @@ public class WaterCannon : MonoBehaviour
         UpdateTimedWaterUsageMultiplier();
         UpdateSprayColor();
 
-        if (IsOwnerPetrified())
+        if (!CanOwnerUseWaterCannon())
         {
             StopSpray();
             return;
@@ -127,9 +127,10 @@ public class WaterCannon : MonoBehaviour
         StopSprayImmediate();
     }
 
-    bool IsOwnerPetrified()
+    bool CanOwnerUseWaterCannon()
     {
-        return playerPetrify != null && playerPetrify.IsPetrified();
+        if (playerStatus != null && !playerStatus.CanAct()) return false;
+        return playerPetrify == null || !playerPetrify.IsPetrified();
     }
 
     public void ApplyWaterUsageMultiplier(float multiplier, float duration)
