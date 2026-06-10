@@ -6,6 +6,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("Movement")]
     public float walkSpeed = 5f;
     public float sprintSpeed = 9f;
+    public float knockedOutCrawlSpeed = 1.35f;
     public bool IsMoving() => moveInput != Vector2.zero;
 
     [Header("Stamina")]
@@ -13,7 +14,7 @@ public class PlayerMovement : MonoBehaviour
     public float staminaDrainRate = 20f;
     public float staminaRegenRate = 10f;
     public float staminaRegenDelay = 1.5f;
-    public bool IsSprinting() => playerInput.actions["Sprint"].IsPressed() && currentStamina > 0f;
+    public bool IsSprinting() => CanSprintNow();
 
     [Header("Footstep Noise")]
     public float walkNoiseRadius = 4f;
@@ -29,6 +30,7 @@ public class PlayerMovement : MonoBehaviour
 
     private Rigidbody rb;
     private PlayerInput playerInput;
+    private PlayerStatus playerStatus;
     private Vector2 moveInput;
     private bool isSprinting;
     private float currentStamina;
@@ -41,6 +43,7 @@ public class PlayerMovement : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         playerInput = GetComponent<PlayerInput>();
+        playerStatus = GetComponent<PlayerStatus>();
         currentStamina = maxStamina;
 
         if (footstepAudioSource == null)
@@ -60,6 +63,9 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (playerStatus != null && playerStatus.IsDead()) return;
+        if (playerStatus != null && playerStatus.IsTransformed()) return;
+
         Vector3 camForward = Camera.main.transform.forward;
         Vector3 camRight = Camera.main.transform.right;
         camForward.y = 0f;
@@ -67,15 +73,22 @@ public class PlayerMovement : MonoBehaviour
         camForward.Normalize();
         camRight.Normalize();
 
-        isSprinting = playerInput.actions["Sprint"].IsPressed();
-        bool canSprint = isSprinting && currentStamina > 0f && moveInput != Vector2.zero;
-        float speed = canSprint ? sprintSpeed : walkSpeed;
+        bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
+        isSprinting = !knockedOut && playerInput.actions["Sprint"].IsPressed();
+        bool canSprint = !knockedOut && isSprinting && currentStamina > 0f && moveInput != Vector2.zero;
+        float speed = knockedOut ? knockedOutCrawlSpeed : canSprint ? sprintSpeed : walkSpeed;
 
         Vector3 move = camForward * moveInput.y + camRight * moveInput.x;
         rb.MovePosition(rb.position + move * speed * Time.fixedDeltaTime);
 
         Quaternion targetRotation = Quaternion.Euler(0f, Camera.main.transform.eulerAngles.y, 0f);
         rb.MoveRotation(targetRotation);
+
+        if (knockedOut)
+        {
+            regenTimer = 0f;
+            return;
+        }
 
         // Stamina logic
         if (canSprint)
@@ -95,8 +108,21 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    bool CanSprintNow()
+    {
+        if (playerStatus != null && !playerStatus.CanAct()) return false;
+        if (playerInput == null) return false;
+        return playerInput.actions["Sprint"].IsPressed() && currentStamina > 0f;
+    }
+
     void UpdateFootstepNoise()
     {
+        if (playerStatus != null && playerStatus.IsKnockedOut())
+        {
+            footstepTimer = 0f;
+            return;
+        }
+
         bool moving = moveInput != Vector2.zero;
         if (!moving)
         {
