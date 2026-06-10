@@ -41,7 +41,7 @@ public class PlayerStatus : MonoBehaviour
     private bool deathTransformationApplied = false;
 
     private PlayerMovement movement;
-    public bool IsMoving() => movement != null && movement.IsMoving() && CanAct();
+    public bool IsMoving() => movement != null && movement.IsMoving() && (CanAct() || isKnockedOut);
 
     void Start()
     {
@@ -103,7 +103,7 @@ public class PlayerStatus : MonoBehaviour
         knockoutTimer = knockoutDuration;
 
         if (disableControlsWhileKnockedOut)
-            DisableConfiguredComponents();
+            DisableKnockoutBlockedComponents();
 
         OnKnockedOut?.Invoke(this);
     }
@@ -169,6 +169,15 @@ public class PlayerStatus : MonoBehaviour
             for (int i = 0; i < colliders.Length; i++)
                 colliders[i].enabled = false;
         }
+    }
+
+    void DisableKnockoutBlockedComponents()
+    {
+        PlayerInventory inventory = GetComponent<PlayerInventory>();
+        if (inventory != null) inventory.enabled = false;
+
+        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
+        if (waterCannon != null) waterCannon.enabled = false;
     }
 
     void DisableConfiguredComponents()
