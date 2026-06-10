@@ -68,6 +68,7 @@ public class PlayerInventory : MonoBehaviour
 
     bool IsInventoryLocked()
     {
+        if (playerStatus != null && !playerStatus.CanAct()) return true;
         return playerPetrify != null && playerPetrify.IsPetrified();
     }
 
