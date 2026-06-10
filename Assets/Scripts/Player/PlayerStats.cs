@@ -100,6 +100,14 @@ public class PlayerStatus : MonoBehaviour
         return true;
     }
 
+    public bool ForceTransformDeath()
+    {
+        if (isDead || deathTransformationApplied) return false;
+
+        ApplyDeathTransformation();
+        return true;
+    }
+
     public void EnterKnockout()
     {
         if (isDead || deathTransformationApplied || isKnockedOut) return;
