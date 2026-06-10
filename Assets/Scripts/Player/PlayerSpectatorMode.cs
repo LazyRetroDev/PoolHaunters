@@ -21,22 +21,31 @@ public class PlayerSpectatorMode : MonoBehaviour
     private CursorLockMode previousLockState;
     private bool previousCursorVisible;
     private Transform previousParent;
+    private MonoBehaviour[] disabledCameraControllers;
 
     public static PlayerSpectatorMode ActivateFor(PlayerStatus deadPlayer)
     {
-        PlayerSpectatorMode spectator = FindObjectOfType<PlayerSpectatorMode>();
-        if (spectator == null)
-        {
-            GameObject cameraRig = GameObject.Find("Cinemachine Camera");
-            if (cameraRig == null && Camera.main != null)
-                cameraRig = Camera.main.gameObject;
+        GameObject cameraRig = GetSpectatorCameraObject();
+        if (cameraRig == null) return null;
 
-            if (cameraRig == null) return null;
+        PlayerSpectatorMode spectator = cameraRig.GetComponent<PlayerSpectatorMode>();
+        if (spectator == null)
             spectator = cameraRig.AddComponent<PlayerSpectatorMode>();
-        }
 
         spectator.BeginSpectating(deadPlayer);
         return spectator;
+    }
+
+    static GameObject GetSpectatorCameraObject()
+    {
+        if (Camera.main != null)
+            return Camera.main.gameObject;
+
+        GameObject mainCamera = GameObject.Find("Main Camera");
+        if (mainCamera != null)
+            return mainCamera;
+
+        return GameObject.Find("Cinemachine Camera");
     }
 
     void Awake()
@@ -88,6 +97,7 @@ public class PlayerSpectatorMode : MonoBehaviour
         isSpectating = false;
         Cursor.lockState = previousLockState;
         Cursor.visible = previousCursorVisible;
+        RestoreDisabledCameraControllers();
 
         if (detachFromParentOnBegin && previousParent != null)
             transform.SetParent(previousParent, true);
@@ -95,12 +105,13 @@ public class PlayerSpectatorMode : MonoBehaviour
         enabled = false;
     }
 
-    void Update()
+    void LateUpdate()
     {
         if (!isSpectating) return;
 
         UpdateLook();
         UpdateMovement();
+        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
     }
 
     void UpdateLook()
@@ -111,8 +122,6 @@ public class PlayerSpectatorMode : MonoBehaviour
         yaw += lookDelta.x * lookSensitivity;
         pitch -= lookDelta.y * lookSensitivity;
         pitch = Mathf.Clamp(pitch, -85f, 85f);
-
-        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
     }
 
     void UpdateMovement()
@@ -145,20 +154,57 @@ public class PlayerSpectatorMode : MonoBehaviour
     void DisableConflictingCameraControllers()
     {
         MonoBehaviour[] components = GetComponents<MonoBehaviour>();
+        int disabledCount = 0;
+
         for (int i = 0; i < components.Length; i++)
         {
             MonoBehaviour component = components[i];
-            if (component == null || component == this) continue;
+            if (component == null || component == this || !component.enabled) continue;
 
             string typeName = component.GetType().Name;
-            if (typeName == "CinemachinePanTilt" ||
+            if (typeName == "CinemachineBrain" ||
+                typeName == "CinemachinePanTilt" ||
                 typeName == "CinemachineInputAxisController" ||
                 typeName == "CinemachineHardLockToTarget" ||
                 typeName == "CameraWobble")
             {
-                component.enabled = false;
+                disabledCount++;
             }
         }
+
+        disabledCameraControllers = new MonoBehaviour[disabledCount];
+        int index = 0;
+
+        for (int i = 0; i < components.Length; i++)
+        {
+            MonoBehaviour component = components[i];
+            if (component == null || component == this || !component.enabled) continue;
+
+            string typeName = component.GetType().Name;
+            if (typeName == "CinemachineBrain" ||
+                typeName == "CinemachinePanTilt" ||
+                typeName == "CinemachineInputAxisController" ||
+                typeName == "CinemachineHardLockToTarget" ||
+                typeName == "CameraWobble")
+            {
+                disabledCameraControllers[index] = component;
+                component.enabled = false;
+                index++;
+            }
+        }
+    }
+
+    void RestoreDisabledCameraControllers()
+    {
+        if (disabledCameraControllers == null) return;
+
+        for (int i = 0; i < disabledCameraControllers.Length; i++)
+        {
+            if (disabledCameraControllers[i] != null)
+                disabledCameraControllers[i].enabled = true;
+        }
+
+        disabledCameraControllers = null;
     }
 
     float NormalizePitch(float angle)
