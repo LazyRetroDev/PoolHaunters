@@ -21,6 +21,28 @@ public class HUD : MonoBehaviour
     public Color contaminatedWaterColor = new Color(0.35f, 0.9f, 0.25f, 1f);
     public Color chemicallyEnhancedWaterColor = new Color(1f, 0.85f, 0.25f, 1f);
 
+    [Header("Death")]
+    public bool hideWhenPlayerDies = true;
+
+    private Canvas canvas;
+
+    void Awake()
+    {
+        canvas = GetComponent<Canvas>();
+    }
+
+    void OnEnable()
+    {
+        if (playerStatus != null)
+            playerStatus.OnDeath += HandlePlayerDeath;
+    }
+
+    void OnDisable()
+    {
+        if (playerStatus != null)
+            playerStatus.OnDeath -= HandlePlayerDeath;
+    }
+
     void Update()
     {
         if (playerStatus != null && healthBar != null)
@@ -34,6 +56,16 @@ public class HUD : MonoBehaviour
 
         UpdateWaterHUD();
         UpdateInventoryHUD();
+    }
+
+    void HandlePlayerDeath(PlayerStatus deadPlayer)
+    {
+        if (!hideWhenPlayerDies || deadPlayer != playerStatus) return;
+
+        if (canvas != null)
+            canvas.enabled = false;
+        else
+            gameObject.SetActive(false);
     }
 
     void UpdateWaterHUD()
