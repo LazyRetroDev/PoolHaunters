@@ -56,6 +56,12 @@ public class Photographer : MonoBehaviour
     [Range(0f, 1f)] public float playerPhotoPulseIntensity = 0.85f;
     public float playerPhotoPulseDuration = 0.45f;
     [Range(0f, 1f)] public float chaseVignetteIntensity = 0.35f;
+    public float snapshotShakeAmplitude = 0.45f;
+    public float snapshotShakeFrequency = 10f;
+    public float snapshotShakeDuration = 0.18f;
+    public float playerPhotoShakeAmplitude = 0.9f;
+    public float playerPhotoShakeFrequency = 14f;
+    public float playerPhotoShakeDuration = 0.35f;
 
     private NavMeshAgent agent;
     private PlayerStatus playerStatus;
@@ -223,10 +229,12 @@ public class Photographer : MonoBehaviour
             cameraEffects.ClearThreatIntensity();
     }
 
-    void PulseSnapshotCamera(float intensity, float duration)
+    void PulseSnapshotCamera(float intensity, float duration, float shakeAmplitude, float shakeFrequency, float shakeDuration)
     {
-        if (cameraEffects != null)
-            cameraEffects.Pulse(intensity, duration);
+        if (cameraEffects == null) return;
+
+        cameraEffects.Pulse(intensity, duration);
+        cameraEffects.Shake(shakeAmplitude, shakeFrequency, shakeDuration);
     }
 
     void HandleWander()
@@ -292,7 +300,7 @@ public class Photographer : MonoBehaviour
     void TakeSnapshotCone(Vector3 focusPoint)
     {
         photosTaken++;
-        PulseSnapshotCamera(snapshotPulseIntensity, snapshotPulseDuration);
+        PulseSnapshotCamera(snapshotPulseIntensity, snapshotPulseDuration, snapshotShakeAmplitude, snapshotShakeFrequency, snapshotShakeDuration);
 
         PhotoItem photoItem = SpawnPhotoItem(null);
         Vector3 eyePosition = GetEyePosition();
@@ -360,7 +368,7 @@ public class Photographer : MonoBehaviour
     {
         if (player == null) return;
 
-        PulseSnapshotCamera(playerPhotoPulseIntensity, playerPhotoPulseDuration);
+        PulseSnapshotCamera(playerPhotoPulseIntensity, playerPhotoPulseDuration, playerPhotoShakeAmplitude, playerPhotoShakeFrequency, playerPhotoShakeDuration);
 
         PlayerPetrify petrify = player.GetComponent<PlayerPetrify>();
         if (petrify != null)
