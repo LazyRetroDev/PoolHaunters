@@ -13,12 +13,14 @@ public class PlayerSpectatorMode : MonoBehaviour
     public Vector3 startOffset = new Vector3(0f, 2.2f, -3f);
     public bool unlockCursorWhileSpectating = false;
     public bool disableCinemachineControllers = true;
+    public bool detachFromParentOnBegin = true;
 
     private bool isSpectating;
     private float yaw;
     private float pitch;
     private CursorLockMode previousLockState;
     private bool previousCursorVisible;
+    private Transform previousParent;
 
     public static PlayerSpectatorMode ActivateFor(PlayerStatus deadPlayer)
     {
@@ -51,6 +53,13 @@ public class PlayerSpectatorMode : MonoBehaviour
 
         previousLockState = Cursor.lockState;
         previousCursorVisible = Cursor.visible;
+        previousParent = transform.parent;
+
+        if (detachFromParentOnBegin)
+            transform.SetParent(null, true);
+
+        if (disableCinemachineControllers)
+            DisableConflictingCameraControllers();
 
         if (unlockCursorWhileSpectating)
         {
@@ -69,9 +78,6 @@ public class PlayerSpectatorMode : MonoBehaviour
         Vector3 euler = transform.rotation.eulerAngles;
         yaw = euler.y;
         pitch = NormalizePitch(euler.x);
-
-        if (disableCinemachineControllers)
-            DisableConflictingCameraControllers();
     }
 
     public void EndSpectating()
@@ -81,6 +87,10 @@ public class PlayerSpectatorMode : MonoBehaviour
         isSpectating = false;
         Cursor.lockState = previousLockState;
         Cursor.visible = previousCursorVisible;
+
+        if (detachFromParentOnBegin && previousParent != null)
+            transform.SetParent(previousParent, true);
+
         enabled = false;
     }
 
