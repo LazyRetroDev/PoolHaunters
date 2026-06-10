@@ -78,6 +78,7 @@ public class PlayerSpectatorMode : MonoBehaviour
         Vector3 euler = transform.rotation.eulerAngles;
         yaw = euler.y;
         pitch = NormalizePitch(euler.x);
+        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
     }
 
     public void EndSpectating()
@@ -118,13 +119,18 @@ public class PlayerSpectatorMode : MonoBehaviour
     {
         if (Keyboard.current == null) return;
 
-        Vector3 input = Vector3.zero;
-        if (Keyboard.current.wKey.isPressed) input += Vector3.forward;
-        if (Keyboard.current.sKey.isPressed) input += Vector3.back;
-        if (Keyboard.current.dKey.isPressed) input += Vector3.right;
-        if (Keyboard.current.aKey.isPressed) input += Vector3.left;
+        Vector2 input = Vector2.zero;
+        if (Keyboard.current.wKey.isPressed) input.y += 1f;
+        if (Keyboard.current.sKey.isPressed) input.y -= 1f;
+        if (Keyboard.current.dKey.isPressed) input.x += 1f;
+        if (Keyboard.current.aKey.isPressed) input.x -= 1f;
 
-        Vector3 worldMove = transform.TransformDirection(input.normalized) * moveSpeed;
+        input = input.normalized;
+
+        Quaternion yawRotation = Quaternion.Euler(0f, yaw, 0f);
+        Vector3 flatForward = yawRotation * Vector3.forward;
+        Vector3 flatRight = yawRotation * Vector3.right;
+        Vector3 worldMove = (flatForward * input.y + flatRight * input.x) * moveSpeed;
 
         float vertical = 0f;
         if (Keyboard.current.spaceKey.isPressed || Keyboard.current.eKey.isPressed) vertical += 1f;
