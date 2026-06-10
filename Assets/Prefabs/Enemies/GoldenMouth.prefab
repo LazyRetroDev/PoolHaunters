@@ -244,8 +244,16 @@ MonoBehaviour:
   timeToExtinguish: 20
   extinguishRequired: 60
   chemicalWaterCountsAsPure: 1
+  moveWhileWaitingForHelp: 1
+  helpWanderSpeed: 1.75
   fireVisual: {fileID: 8350473905255199748}
   pacifiedVisual: {fileID: 4842795637182544408}
+  combustionVisual: {fileID: 0}
+  combustionDuration: 1.5
+  combustionDamageRadius: 4
+  combustionDamage: 30
+  burstHazardCount: 6
+  burstHazardRadius: 3
   chaseSpeed: 5.5
   wanderSpeed: 2.5
   wanderRadius: 12
@@ -253,10 +261,25 @@ MonoBehaviour:
   attackRange: 1.75
   damagePerAttack: 25
   attackCooldown: 1
-  willOWispPrefab: {fileID: 0}
+  loseInterestDistance: 18
+  willOWispPrefab: {fileID: 5391840916023673374, guid: e788bd971b457ab4b8b475b131044221, type: 3}
   willOWispSpawnOffset: {x: 0, y: 1, z: 0}
-  fireHazardPrefab: {fileID: 0}
-  fireHazardInterval: 1.5
+  transformKnockedOutPlayerImmediately: 1
+  fireHazardPrefab: {fileID: 5391840916023673374, guid: 44feefad4ae6e3e4d88f25155d3ac4a3, type: 3}
+  fireHazardInterval: 3
+  cameraEffects: {fileID: 0}
+  combustionPulseIntensity: 0.9
+  combustionPulseDuration: 0.6
+  aggressiveMinVignette: 0.2
+  aggressiveMaxVignette: 0.75
+  combustionShakeAmplitude: 1.8
+  combustionShakeFrequency: 15
+  combustionShakeDuration: 0.8
+  aggressiveMaxShakeAmplitude: 0.45
+  aggressiveShakeFrequency: 7
+  attackShakeAmplitude: 0.85
+  attackShakeFrequency: 12
+  attackShakeDuration: 0.25
 --- !u!195 &2583407597365233602
 NavMeshAgent:
   m_ObjectHideFlags: 0
