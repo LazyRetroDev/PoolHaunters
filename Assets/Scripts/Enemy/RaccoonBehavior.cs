@@ -638,6 +638,18 @@ public class RaccoonBehavior : MonoBehaviour
         ReactToWater(GetFallbackWaterSource());
     }
 
+    void OnParticleCollision(GameObject other)
+    {
+        if (other == null) return;
+
+        WaterParticleCollisionRelay water = other.GetComponent<WaterParticleCollisionRelay>();
+        if (water == null)
+            water = other.GetComponentInParent<WaterParticleCollisionRelay>();
+
+        if (water != null)
+            ReactToWater(water.transform.position);
+    }
+
     Vector3 GetFallbackWaterSource()
     {
         return player != null ? player.position : transform.position - transform.forward;
