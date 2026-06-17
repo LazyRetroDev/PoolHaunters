@@ -7,6 +7,7 @@ public class RaccoonBehavior : MonoBehaviour
     {
         Wandering,
         InvestigatingNoise,
+        PursuingLooseItem,
         StalkingPlayer,
         FleeingWithItem,
         EatingItem,
@@ -36,12 +37,19 @@ public class RaccoonBehavior : MonoBehaviour
 
     [Header("Stealing")]
     public bool stealItems = true;
+    public bool stealLooseItems = true;
+    public float looseItemSearchRange = 10f;
+    public float looseItemSearchInterval = 0.5f;
+    public LayerMask looseItemMask = ~0;
     public Transform carryPoint;
     public Vector3 carryOffset = new Vector3(0f, 0.55f, 0.45f);
     public float eatItemDuration = 4f;
     public float fleeDistanceAfterSteal = 8f;
     public bool destroyItemAfterEating = false;
     public GameObject droppedItemMarkerPrefab;
+
+    [Header("Water Reaction")]
+    public float waterDropCooldown = 0.25f;
 
     [Header("Harass Attack")]
     public float damage = 5f;
@@ -64,12 +72,15 @@ public class RaccoonBehavior : MonoBehaviour
     private PlayerStatus playerStatus;
     private PlayerInventory playerInventory;
     private Item carriedItem;
+    private Item targetedLooseItem;
     private Vector3 lastNoisePosition;
     private Vector3 fleeTarget;
     private float noiseMemoryTimer;
     private float eatTimer;
     private float nextAttackTime;
     private float trailTimer;
+    private float nextLooseItemSearchTime;
+    private float nextWaterReactionTime;
     private RaccoonState state = RaccoonState.Wandering;
 
     void OnEnable()
@@ -151,6 +162,9 @@ public class RaccoonBehavior : MonoBehaviour
             case RaccoonState.InvestigatingNoise:
                 UpdateInvestigatingNoise();
                 break;
+            case RaccoonState.PursuingLooseItem:
+                UpdatePursuingLooseItem();
+                break;
             case RaccoonState.StalkingPlayer:
                 UpdateStalkingPlayer();
                 break;
@@ -168,6 +182,12 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdateWandering()
     {
+        if (TrySelectLooseItem())
+        {
+            ChangeState(RaccoonState.PursuingLooseItem);
+            return;
+        }
+
         if (CanSeePlayer())
         {
             ChangeState(RaccoonState.StalkingPlayer);
@@ -185,6 +205,12 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdateInvestigatingNoise()
     {
+        if (TrySelectLooseItem())
+        {
+            ChangeState(RaccoonState.PursuingLooseItem);
+            return;
+        }
+
         if (CanSeePlayer())
         {
             ChangeState(RaccoonState.StalkingPlayer);
@@ -194,6 +220,26 @@ public class RaccoonBehavior : MonoBehaviour
         MoveTo(lastNoisePosition, stalkSpeed);
         if (ReachedDestination(lastNoisePosition) || noiseMemoryTimer <= 0f)
             ChangeState(RaccoonState.Wandering);
+    }
+
+    void UpdatePursuingLooseItem()
+    {
+        if (!IsLooseItemAvailable(targetedLooseItem))
+        {
+            targetedLooseItem = null;
+            ChangeState(RaccoonState.Wandering);
+            return;
+        }
+
+        MoveTo(targetedLooseItem.transform.position, stalkSpeed);
+        if (Vector3.Distance(transform.position, targetedLooseItem.transform.position) > stealRange)
+            return;
+
+        carriedItem = targetedLooseItem;
+        targetedLooseItem = null;
+        AttachCarriedItem();
+        ShakeOnSteal();
+        BeginFleeWithItem();
     }
 
     void UpdateStalkingPlayer()
@@ -270,6 +316,7 @@ public class RaccoonBehavior : MonoBehaviour
                 SetWanderDestination();
                 break;
             case RaccoonState.InvestigatingNoise:
+            case RaccoonState.PursuingLooseItem:
             case RaccoonState.StalkingPlayer:
                 SetupAgent(stalkSpeed);
                 break;
@@ -346,6 +393,74 @@ public class RaccoonBehavior : MonoBehaviour
             return hit.collider.GetComponentInParent<PlayerStatus>() == playerStatus;
 
         return false;
+    }
+
+    bool TrySelectLooseItem()
+    {
+        if (!stealItems || !stealLooseItems || carriedItem != null)
+            return false;
+
+        if (targetedLooseItem != null && IsLooseItemAvailable(targetedLooseItem))
+            return true;
+
+        if (Time.time < nextLooseItemSearchTime)
+            return false;
+
+        nextLooseItemSearchTime = Time.time + looseItemSearchInterval;
+        targetedLooseItem = null;
+        float closestSqrDistance = looseItemSearchRange * looseItemSearchRange;
+        Collider[] nearbyColliders = Physics.OverlapSphere(
+            transform.position,
+            looseItemSearchRange,
+            looseItemMask,
+            QueryTriggerInteraction.Collide);
+
+        for (int i = 0; i < nearbyColliders.Length; i++)
+        {
+            Item item = nearbyColliders[i].GetComponentInParent<Item>();
+            if (!IsLooseItemAvailable(item))
+                continue;
+
+            Vector3 direction = item.transform.position - (transform.position + Vector3.up * 0.4f);
+            float sqrDistance = direction.sqrMagnitude;
+            if (sqrDistance >= closestSqrDistance || !HasLineOfSightToLooseItem(item, direction))
+                continue;
+
+            closestSqrDistance = sqrDistance;
+            targetedLooseItem = item;
+        }
+
+        return targetedLooseItem != null;
+    }
+
+    bool IsLooseItemAvailable(Item item)
+    {
+        if (item == null || !item.gameObject.activeInHierarchy || item == carriedItem)
+            return false;
+
+        PlayerInventory inventory = item.GetComponentInParent<PlayerInventory>();
+        if (inventory != null)
+            return false;
+
+        RaccoonBehavior owner = item.GetComponentInParent<RaccoonBehavior>();
+        return owner == null || owner == this;
+    }
+
+    bool HasLineOfSightToLooseItem(Item item, Vector3 direction)
+    {
+        if (direction.sqrMagnitude <= 0.001f)
+            return true;
+
+        if (!Physics.Raycast(
+            transform.position + Vector3.up * 0.4f,
+            direction.normalized,
+            out RaycastHit hit,
+            direction.magnitude,
+            lineOfSightMask,
+            QueryTriggerInteraction.Ignore))
+            return true;
+
+        return hit.collider.GetComponentInParent<Item>() == item;
     }
 
     bool TryStealItem()
@@ -426,6 +541,48 @@ public class RaccoonBehavior : MonoBehaviour
             Instantiate(droppedItemMarkerPrefab, carriedItem.transform.position, Quaternion.identity);
 
         carriedItem = null;
+    }
+
+    public void OnWaterHit()
+    {
+        ReactToWater();
+    }
+
+    public void ReceiveWaterHit()
+    {
+        ReactToWater();
+    }
+
+    public void SprayedWithWater()
+    {
+        ReactToWater();
+    }
+
+    void OnParticleCollision(GameObject other)
+    {
+        ReactToWater();
+    }
+
+    void ReactToWater()
+    {
+        if (Time.time < nextWaterReactionTime)
+            return;
+
+        nextWaterReactionTime = Time.time + waterDropCooldown;
+        targetedLooseItem = null;
+
+        if (carriedItem != null)
+            DropCarriedItemImmediately();
+
+        ChangeState(RaccoonState.Wandering);
+    }
+
+    void DropCarriedItemImmediately()
+    {
+        bool shouldDestroyAfterEating = destroyItemAfterEating;
+        destroyItemAfterEating = false;
+        DropOrDestroyCarriedItem();
+        destroyItemAfterEating = shouldDestroyAfterEating;
     }
 
     void UpdateCarriedItem()
@@ -532,6 +689,8 @@ public class RaccoonBehavior : MonoBehaviour
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, sightRange);
+        Gizmos.color = Color.green;
+        Gizmos.DrawWireSphere(transform.position, looseItemSearchRange);
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, stealRange);
         Gizmos.color = Color.cyan;
