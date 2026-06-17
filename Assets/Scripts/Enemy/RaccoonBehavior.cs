@@ -189,13 +189,22 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdateWandering()
     {
-        if (TrySelectLooseItem())
+        bool canSeePlayer = CanSeePlayer();
+        bool playerHasItem = PlayerHasStealableItem();
+
+        if (canSeePlayer && playerHasItem)
+        {
+            ChangeState(RaccoonState.StalkingPlayer);
+            return;
+        }
+
+        if (!playerHasItem && TrySelectLooseItem())
         {
             ChangeState(RaccoonState.PursuingLooseItem);
             return;
         }
 
-        if (CanSeePlayer())
+        if (canSeePlayer)
         {
             ChangeState(RaccoonState.StalkingPlayer);
             return;
@@ -212,13 +221,22 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdateInvestigatingNoise()
     {
-        if (TrySelectLooseItem())
+        bool canSeePlayer = CanSeePlayer();
+        bool playerHasItem = PlayerHasStealableItem();
+
+        if (canSeePlayer && playerHasItem)
+        {
+            ChangeState(RaccoonState.StalkingPlayer);
+            return;
+        }
+
+        if (!playerHasItem && TrySelectLooseItem())
         {
             ChangeState(RaccoonState.PursuingLooseItem);
             return;
         }
 
-        if (CanSeePlayer())
+        if (canSeePlayer)
         {
             ChangeState(RaccoonState.StalkingPlayer);
             return;
@@ -231,6 +249,13 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdatePursuingLooseItem()
     {
+        if (PlayerHasStealableItem() && CanSeePlayer())
+        {
+            targetedLooseItem = null;
+            ChangeState(RaccoonState.StalkingPlayer);
+            return;
+        }
+
         if (!IsLooseItemAvailable(targetedLooseItem))
         {
             targetedLooseItem = null;
@@ -254,6 +279,12 @@ public class RaccoonBehavior : MonoBehaviour
         if (player == null || playerStatus == null || playerStatus.IsDead())
         {
             ChangeState(RaccoonState.Wandering);
+            return;
+        }
+
+        if (!PlayerHasStealableItem() && TrySelectLooseItem())
+        {
+            ChangeState(RaccoonState.PursuingLooseItem);
             return;
         }
 
@@ -417,6 +448,24 @@ public class RaccoonBehavior : MonoBehaviour
 
         if (Physics.Raycast(eyePosition, directionToPlayer.normalized, out RaycastHit hit, sightRange, lineOfSightMask, QueryTriggerInteraction.Ignore))
             return hit.collider.GetComponentInParent<PlayerStatus>() == playerStatus;
+
+        return false;
+    }
+
+    bool PlayerHasStealableItem()
+    {
+        if (!stealItems || playerInventory == null)
+            return false;
+
+        Item[] slots = playerInventory.GetSlots();
+        if (slots == null)
+            return false;
+
+        for (int i = 0; i < slots.Length; i++)
+        {
+            if (slots[i] != null)
+                return true;
+        }
 
         return false;
     }
