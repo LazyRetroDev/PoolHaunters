@@ -628,15 +628,14 @@ public class RaccoonBehavior : MonoBehaviour
         ReactToWater(GetFallbackWaterSource());
     }
 
+    public void ReceiveWaterHit(Vector3 sourcePosition)
+    {
+        ReactToWater(sourcePosition);
+    }
+
     public void SprayedWithWater()
     {
         ReactToWater(GetFallbackWaterSource());
-    }
-
-    void OnParticleCollision(GameObject other)
-    {
-        Vector3 sourcePosition = other != null ? other.transform.position : GetFallbackWaterSource();
-        ReactToWater(sourcePosition);
     }
 
     Vector3 GetFallbackWaterSource()
