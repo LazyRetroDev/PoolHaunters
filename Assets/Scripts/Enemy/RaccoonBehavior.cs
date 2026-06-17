@@ -10,6 +10,7 @@ public class RaccoonBehavior : MonoBehaviour
         PursuingLooseItem,
         StalkingPlayer,
         FleeingWithItem,
+        FleeingFromWater,
         EatingItem,
         Harassing
     }
@@ -50,6 +51,8 @@ public class RaccoonBehavior : MonoBehaviour
 
     [Header("Water Reaction")]
     public float waterDropCooldown = 0.25f;
+    public float waterFleeDistance = 10f;
+    public float waterFleeDuration = 4f;
 
     [Header("Harass Attack")]
     public float damage = 5f;
@@ -81,6 +84,7 @@ public class RaccoonBehavior : MonoBehaviour
     private float trailTimer;
     private float nextLooseItemSearchTime;
     private float nextWaterReactionTime;
+    private float waterFleeTimer;
     private RaccoonState state = RaccoonState.Wandering;
 
     void OnEnable()
@@ -170,6 +174,9 @@ public class RaccoonBehavior : MonoBehaviour
                 break;
             case RaccoonState.FleeingWithItem:
                 UpdateFleeingWithItem();
+                break;
+            case RaccoonState.FleeingFromWater:
+                UpdateFleeingFromWater();
                 break;
             case RaccoonState.EatingItem:
                 UpdateEatingItem();
@@ -273,6 +280,24 @@ public class RaccoonBehavior : MonoBehaviour
         }
     }
 
+    void UpdateFleeingFromWater()
+    {
+        waterFleeTimer -= Time.deltaTime;
+        if (waterFleeTimer <= 0f)
+        {
+            ChangeState(RaccoonState.Wandering);
+            return;
+        }
+
+        if (ReachedDestination(fleeTarget))
+        {
+            StopAgent();
+            return;
+        }
+
+        MoveTo(fleeTarget, fleeSpeed);
+    }
+
     void UpdateEatingItem()
     {
         StopAgent();
@@ -321,6 +346,7 @@ public class RaccoonBehavior : MonoBehaviour
                 SetupAgent(stalkSpeed);
                 break;
             case RaccoonState.FleeingWithItem:
+            case RaccoonState.FleeingFromWater:
                 SetupAgent(fleeSpeed);
                 break;
         }
@@ -545,25 +571,31 @@ public class RaccoonBehavior : MonoBehaviour
 
     public void OnWaterHit()
     {
-        ReactToWater();
+        ReactToWater(GetFallbackWaterSource());
     }
 
     public void ReceiveWaterHit()
     {
-        ReactToWater();
+        ReactToWater(GetFallbackWaterSource());
     }
 
     public void SprayedWithWater()
     {
-        ReactToWater();
+        ReactToWater(GetFallbackWaterSource());
     }
 
     void OnParticleCollision(GameObject other)
     {
-        ReactToWater();
+        Vector3 sourcePosition = other != null ? other.transform.position : GetFallbackWaterSource();
+        ReactToWater(sourcePosition);
     }
 
-    void ReactToWater()
+    Vector3 GetFallbackWaterSource()
+    {
+        return player != null ? player.position : transform.position - transform.forward;
+    }
+
+    void ReactToWater(Vector3 sourcePosition)
     {
         if (Time.time < nextWaterReactionTime)
             return;
@@ -574,7 +606,24 @@ public class RaccoonBehavior : MonoBehaviour
         if (carriedItem != null)
             DropCarriedItemImmediately();
 
-        ChangeState(RaccoonState.Wandering);
+        BeginWaterFlee(sourcePosition);
+    }
+
+    void BeginWaterFlee(Vector3 sourcePosition)
+    {
+        Vector3 awayFromWater = transform.position - sourcePosition;
+        awayFromWater.y = 0f;
+        if (awayFromWater.sqrMagnitude <= 0.001f)
+            awayFromWater = -transform.forward;
+
+        Vector3 wantedTarget = transform.position + awayFromWater.normalized * waterFleeDistance;
+        fleeTarget = wantedTarget;
+
+        if (NavMesh.SamplePosition(wantedTarget, out NavMeshHit hit, waterFleeDistance, NavMesh.AllAreas))
+            fleeTarget = hit.position;
+
+        waterFleeTimer = waterFleeDuration;
+        ChangeState(RaccoonState.FleeingFromWater);
     }
 
     void DropCarriedItemImmediately()
