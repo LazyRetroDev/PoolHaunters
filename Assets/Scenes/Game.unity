@@ -3447,18 +3447,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1213804705
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1213804701}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8de4e704f7424f35a16e19a436ae497c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WaterParticleCollisionRelay
 --- !u!4 &1213804702
 Transform:
   m_ObjectHideFlags: 0
@@ -8278,6 +8266,22 @@ ParticleSystem:
         m_PostInfinity: 2
         m_RotationOrder: 4
     vectorLabel1_3: W
+--- !u!114 &1213804705
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1213804701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8de4e704f7424f35a16e19a436ae497c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaterParticleCollisionRelay
+  particleHitRadius: 0.35
+  waterReactiveLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!1 &1261140445
 GameObject:
   m_ObjectHideFlags: 0
@@ -11550,6 +11554,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: GoldenMouth
       objectReference: {fileID: 0}
+    - target: {fileID: 1982542807340058056, guid: b6f55c75915fafd489a612548b543150, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5839625849915067037, guid: b6f55c75915fafd489a612548b543150, type: 3}
       propertyPath: m_LocalPosition.x
       value: -1.96
@@ -11687,6 +11695,10 @@ PrefabInstance:
     - target: {fileID: 4415159143221438221, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
       propertyPath: m_Name
       value: TimeCamper
+      objectReference: {fileID: 0}
+    - target: {fileID: 4415159143221438221, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6471610967418084649, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
       propertyPath: m_LocalPosition.x
