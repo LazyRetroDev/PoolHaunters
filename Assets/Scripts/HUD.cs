@@ -43,6 +43,25 @@ public class HUD : MonoBehaviour
             playerStatus.OnDeath -= HandlePlayerDeath;
     }
 
+    public void Bind(PlayerMovement newPlayer, PlayerInventory newInventory, PlayerStatus newPlayerStatus)
+    {
+        if (playerStatus != null)
+            playerStatus.OnDeath -= HandlePlayerDeath;
+
+        player = newPlayer;
+        inventory = newInventory;
+        playerStatus = newPlayerStatus;
+
+        if (canvas == null)
+            canvas = GetComponent<Canvas>();
+
+        if (canvas != null)
+            canvas.enabled = true;
+
+        if (isActiveAndEnabled && playerStatus != null)
+            playerStatus.OnDeath += HandlePlayerDeath;
+    }
+
     void Update()
     {
         if (playerStatus != null && healthBar != null)

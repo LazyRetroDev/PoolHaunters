@@ -1,8 +1,9 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Cinemachine;
+using Unity.Netcode;
 
-public class CameraWobble : MonoBehaviour
+public class CameraWobble : NetworkBehaviour
 {
     public CinemachineCamera vcam;
     public float wobbleAmplitude = 0.5f;
@@ -19,6 +20,7 @@ public class CameraWobble : MonoBehaviour
 
     void Update()
     {
+        if (!IsOwner) return;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
 
         float mouseSpeed = mouseDelta.magnitude;

@@ -1,20 +1,21 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Netcode;
 
-public class PlayerMovement : MonoBehaviour
+public class PlayerMovement : NetworkBehaviour
 {
     [Header("Movement")]
     public float walkSpeed = 5f;
     public float sprintSpeed = 9f;
     public float knockedOutCrawlSpeed = 1.35f;
-    public bool IsMoving() => moveInput != Vector2.zero;
+    public bool IsMoving() => acceptsInput && moveInput != Vector2.zero;
 
     [Header("Stamina")]
     public float maxStamina = 100f;
     public float staminaDrainRate = 20f;
     public float staminaRegenRate = 10f;
     public float staminaRegenDelay = 1.5f;
-    public bool IsSprinting() => CanSprintNow();
+    public bool IsSprinting() => acceptsInput && CanSprintNow();
 
     [Header("Footstep Noise")]
     public float walkNoiseRadius = 4f;
@@ -38,6 +39,23 @@ public class PlayerMovement : MonoBehaviour
     private float staminaDrainMultiplier = 1f;
     private float staminaDrainMultiplierTimer;
     private float footstepTimer;
+    private bool acceptsInput = true;
+    public bool AcceptsInput => acceptsInput;
+
+    public void SetAcceptsInput(bool value)
+    {
+        acceptsInput = value;
+
+        if (!acceptsInput)
+        {
+            moveInput = Vector2.zero;
+            isSprinting = false;
+            footstepTimer = 0f;
+
+            if (footstepAudioSource != null)
+                footstepAudioSource.Stop();
+        }
+    }
 
     void Start()
     {
@@ -52,17 +70,26 @@ public class PlayerMovement : MonoBehaviour
 
     public void OnMove(InputValue value)
     {
+        if (!acceptsInput)
+        {
+            moveInput = Vector2.zero;
+            return;
+        }
+
         moveInput = value.Get<Vector2>();
     }
 
     void Update()
     {
+        if (!acceptsInput) return;
+
         UpdateTimedStaminaMultiplier();
         UpdateFootstepNoise();
     }
 
     void FixedUpdate()
     {
+        if (!acceptsInput) return;
         if (playerStatus != null && playerStatus.IsDead()) return;
         if (playerStatus != null && playerStatus.IsTransformed()) return;
 
@@ -110,6 +137,7 @@ public class PlayerMovement : MonoBehaviour
 
     bool CanSprintNow()
     {
+        if (!acceptsInput) return false;
         if (playerStatus != null && !playerStatus.CanAct()) return false;
         if (playerInput == null) return false;
         return playerInput.actions["Sprint"].IsPressed() && currentStamina > 0f;
