@@ -31,6 +31,14 @@ public class WaterCannon : MonoBehaviour
     public LayerMask cleanMask = ~0;
     public bool debugSprayRay = false;
 
+    [Header("Contamination")]
+    public GameObject contaminatedDirtPrefab;
+    public float contaminatedDirtInitialSize = 0.1f;
+    public float contaminatedDirtGrowthPerWaterChunk = 1f;
+    public float contaminatedDirtWaterPerGrowthChunk = 50f;
+    public float contaminatedDirtSurfaceOffset = 0.01f;
+    public float contaminatedDirtSearchRadius = 0.35f;
+
     [Header("Aiming")]
     public Camera aimCamera;
     public LayerMask aimMask = ~0;
@@ -52,6 +60,7 @@ public class WaterCannon : MonoBehaviour
     private bool hasAppliedVisualQuality;
     private float waterUsageMultiplier = 1f;
     private float waterUsageMultiplierTimer;
+    private DirtSpot dirtTemplate;
 
     void Awake()
     {
@@ -102,6 +111,7 @@ public class WaterCannon : MonoBehaviour
             return;
         }
 
+        WaterQuality sprayedWaterQuality = playerStatus.GetWaterQuality();
         float waterThisFrame = waterUsagePerSecond * waterUsageMultiplier * Time.deltaTime;
         if (!playerStatus.ConsumeWater(waterThisFrame))
         {
@@ -109,9 +119,9 @@ public class WaterCannon : MonoBehaviour
             return;
         }
 
-        float qualityMultiplier = playerStatus.GetWaterCleaningMultiplier();
+        float qualityMultiplier = GetCleaningMultiplierForQuality(sprayedWaterQuality);
         StartSpray();
-        ApplySprayEffects(cleanPowerPerSecond * qualityMultiplier * Time.deltaTime);
+        ApplySprayEffects(sprayedWaterQuality, cleanPowerPerSecond * qualityMultiplier * Time.deltaTime, waterThisFrame);
     }
 
     void LateUpdate()
@@ -148,6 +158,21 @@ public class WaterCannon : MonoBehaviour
         {
             waterUsageMultiplierTimer = 0f;
             waterUsageMultiplier = 1f;
+        }
+    }
+
+    float GetCleaningMultiplierForQuality(WaterQuality waterQuality)
+    {
+        if (playerStatus == null) return 1f;
+
+        switch (waterQuality)
+        {
+            case WaterQuality.Contaminated:
+                return playerStatus.contaminatedCleaningMultiplier;
+            case WaterQuality.ChemicallyEnhanced:
+                return playerStatus.chemicallyEnhancedCleaningMultiplier;
+            default:
+                return 1f;
         }
     }
 
@@ -272,12 +297,15 @@ public class WaterCannon : MonoBehaviour
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, blend);
     }
 
-    void ApplySprayEffects(float cleanAmount)
+    void ApplySprayEffects(WaterQuality waterQuality, float cleanAmount, float waterAmount)
     {
-        if (sprayOrigin == null || cleanAmount <= 0f) return;
+        if (sprayOrigin == null || waterAmount <= 0f) return;
 
         dirtHits.Clear();
         goldenMouthHits.Clear();
+
+        bool handledContaminatedDirt = false;
+        RaycastHit? contaminationSurfaceHit = null;
 
         Ray ray = new Ray(sprayOrigin.position, sprayOrigin.forward);
         RaycastHit[] hits = Physics.SphereCastAll(ray, sprayRadius, sprayDistance, cleanMask, QueryTriggerInteraction.Collide);
@@ -287,8 +315,28 @@ public class WaterCannon : MonoBehaviour
 
         for (int i = 0; i < hits.Length; i++)
         {
+            if (ShouldIgnoreHit(hits[i]))
+                continue;
+
             DirtSpot dirtSpot = hits[i].collider.GetComponentInParent<DirtSpot>();
-            if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
+            if (waterQuality == WaterQuality.Contaminated)
+            {
+                if (dirtSpot != null)
+                {
+                    if (!dirtHits.Contains(dirtSpot))
+                    {
+                        dirtHits.Add(dirtSpot);
+                        dirtSpot.ApplyContaminatedWaterAtWorldPoint(hits[i].point, cleanContactRadius, waterAmount);
+                    }
+
+                    handledContaminatedDirt = true;
+                }
+                else if (!contaminationSurfaceHit.HasValue && IsValidContaminationSurface(hits[i]))
+                {
+                    contaminationSurfaceHit = hits[i];
+                }
+            }
+            else if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
             {
                 dirtHits.Add(dirtSpot);
                 dirtSpot.CleanAtWorldPoint(hits[i].point, cleanContactRadius, cleanAmount);
@@ -298,9 +346,102 @@ public class WaterCannon : MonoBehaviour
             if (goldenMouth != null && !goldenMouthHits.Contains(goldenMouth))
             {
                 goldenMouthHits.Add(goldenMouth);
-                goldenMouth.ApplyWater(playerStatus.GetWaterQuality(), cleanAmount);
+                goldenMouth.ApplyWater(waterQuality, cleanAmount);
             }
         }
+
+        if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
+            CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    bool ShouldIgnoreHit(RaycastHit hit)
+    {
+        if (hit.collider == null) return true;
+        if (ownerRoot != null && hit.collider.transform.IsChildOf(ownerRoot)) return true;
+        return false;
+    }
+
+    bool IsValidContaminationSurface(RaycastHit hit)
+    {
+        if (hit.collider == null || hit.collider.isTrigger) return false;
+        if (ownerRoot != null && hit.collider.transform.IsChildOf(ownerRoot)) return false;
+        if (hit.collider.GetComponentInParent<PlayerStatus>() != null) return false;
+        return true;
+    }
+
+    void CreateOrGrowContaminatedDirt(RaycastHit hit, float waterAmount)
+    {
+        Vector3 contactPoint = hit.point + hit.normal * contaminatedDirtSurfaceOffset;
+        DirtSpot dirtSpot = FindNearbyDirtSpot(contactPoint, contaminatedDirtSearchRadius);
+        if (dirtSpot == null)
+            dirtSpot = SpawnContaminatedDirt(contactPoint, hit.normal);
+
+        if (dirtSpot == null) return;
+
+        dirtSpot.ApplyContaminatedWaterAtWorldPoint(contactPoint, cleanContactRadius, waterAmount);
+    }
+
+    DirtSpot FindNearbyDirtSpot(Vector3 worldPoint, float searchRadius)
+    {
+        Collider[] nearbyColliders = Physics.OverlapSphere(worldPoint, searchRadius, ~0, QueryTriggerInteraction.Collide);
+        DirtSpot nearestDirtSpot = null;
+        float nearestDistance = float.MaxValue;
+
+        for (int i = 0; i < nearbyColliders.Length; i++)
+        {
+            DirtSpot dirtSpot = nearbyColliders[i].GetComponentInParent<DirtSpot>();
+            if (dirtSpot == null) continue;
+
+            float distance = Vector3.Distance(worldPoint, dirtSpot.transform.position);
+            if (distance >= nearestDistance) continue;
+
+            nearestDistance = distance;
+            nearestDirtSpot = dirtSpot;
+        }
+
+        return nearestDirtSpot;
+    }
+
+    DirtSpot SpawnContaminatedDirt(Vector3 position, Vector3 surfaceNormal)
+    {
+        Quaternion rotation = Quaternion.LookRotation(-surfaceNormal);
+        GameObject dirtObject = null;
+
+        if (contaminatedDirtPrefab != null)
+        {
+            dirtObject = Instantiate(contaminatedDirtPrefab, position, rotation);
+        }
+        else if (TryResolveDirtTemplate(out DirtSpot template))
+        {
+            dirtObject = Instantiate(template.gameObject, position, rotation);
+        }
+
+        if (dirtObject == null) return null;
+
+        dirtObject.name = "ContaminatedDirtSpot";
+
+        DirtSpot dirtSpot = dirtObject.GetComponent<DirtSpot>();
+        if (dirtSpot == null) return null;
+
+        dirtSpot.ConfigureGeneratedContaminatedSpot(
+            contaminatedDirtInitialSize,
+            contaminatedDirtGrowthPerWaterChunk,
+            contaminatedDirtWaterPerGrowthChunk);
+
+        return dirtSpot;
+    }
+
+    bool TryResolveDirtTemplate(out DirtSpot template)
+    {
+        if (dirtTemplate != null)
+        {
+            template = dirtTemplate;
+            return true;
+        }
+
+        dirtTemplate = FindObjectOfType<DirtSpot>();
+        template = dirtTemplate;
+        return template != null;
     }
 
     Vector3 GetAimPoint(Ray aimRay)

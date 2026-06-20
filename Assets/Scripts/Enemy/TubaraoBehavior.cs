@@ -7,6 +7,7 @@ public class TubaraoBehavior : MonoBehaviour
     public float velocidadeInvestigacao = 3f;
     public float velocidadePerseguicao = 6.5f;
     public float velocidadeRotacao = 6f;
+    public float distanciaDeDeteccao = 12f;
     public float distanciaParaInvestigar = 1.25f;
 
     [Header("Audio / Som")]
@@ -102,7 +103,21 @@ public class TubaraoBehavior : MonoBehaviour
 
     void UpdateMovement()
     {
-        if (!ouviuSom) return;
+        bool playerDetectado = player != null && Vector3.Distance(transform.position, player.position) <= distanciaDeDeteccao;
+        if (playerDetectado)
+        {
+            perseguindo = true;
+            ouviuSom = true;
+            tempoSemSom = 0f;
+            MoveTo(player.position, velocidadePerseguicao);
+            return;
+        }
+
+        if (!ouviuSom)
+        {
+            StopAgent();
+            return;
+        }
 
         Vector3 destino = perseguindo && player != null ? player.position : ultimoSomPosicao;
         MoveTo(destino, perseguindo ? velocidadePerseguicao : velocidadeInvestigacao);
@@ -167,6 +182,9 @@ public class TubaraoBehavior : MonoBehaviour
 
     void OnDrawGizmosSelected()
     {
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, distanciaDeDeteccao);
+
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, distanciaParaPerseguirDepoisDoSom);
 

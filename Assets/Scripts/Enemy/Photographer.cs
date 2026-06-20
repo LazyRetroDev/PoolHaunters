@@ -84,10 +84,8 @@ public class Photographer : MonoBehaviour
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+        ResolvePlayerReferences();
         ResolveCameraEffects();
-
-        if (player != null)
-            playerStatus = player.GetComponent<PlayerStatus>();
 
         if (agent != null)
         {
@@ -101,6 +99,7 @@ public class Photographer : MonoBehaviour
 
     void Update()
     {
+        ResolvePlayerReferences();
         ResolveCameraEffects();
         bool playerVisible = GetPlayerVisibility();
 
@@ -211,6 +210,19 @@ public class Photographer : MonoBehaviour
         }
     }
 
+    void ResolvePlayerReferences()
+    {
+        if (player == null)
+        {
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null)
+                player = playerObject.transform;
+        }
+
+        if (playerStatus == null && player != null)
+            playerStatus = player.GetComponent<PlayerStatus>();
+    }
+
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
@@ -300,11 +312,15 @@ public class Photographer : MonoBehaviour
     void TakeSnapshotCone(Vector3 focusPoint)
     {
         photosTaken++;
+
+        Vector3 eyePosition = GetEyePosition();
+        Vector3 focusDirection = (focusPoint - eyePosition).normalized;
+        if (TryPhotographPlayerInCone(eyePosition, focusDirection))
+            return;
+
         PulseSnapshotCamera(snapshotPulseIntensity, snapshotPulseDuration, snapshotShakeAmplitude, snapshotShakeFrequency, snapshotShakeDuration);
 
         PhotoItem photoItem = SpawnPhotoItem(null);
-        Vector3 eyePosition = GetEyePosition();
-        Vector3 focusDirection = (focusPoint - eyePosition).normalized;
         List<PhotographerDecal> decals = CreateConeDecals(eyePosition, focusDirection);
 
         if (photoItem != null)
@@ -316,6 +332,47 @@ public class Photographer : MonoBehaviour
         if (agent != null) agent.ResetPath();
         admireTimer = admireTime;
         currentState = State.Admiring;
+    }
+
+    bool TryPhotographPlayerInCone(Vector3 origin, Vector3 forward)
+    {
+        ResolvePlayerReferences();
+        if (player == null) return false;
+
+        Vector3 targetPosition = GetPlayerSnapshotTargetPosition();
+        Vector3 directionToPlayer = targetPosition - origin;
+        float distanceToPlayer = directionToPlayer.magnitude;
+        if (distanceToPlayer <= 0.001f || distanceToPlayer > snapshotDistance) return false;
+
+        Quaternion coneRotation = Quaternion.LookRotation(forward);
+        Vector3 localDirection = Quaternion.Inverse(coneRotation) * directionToPlayer.normalized;
+        if (localDirection.z <= 0f) return false;
+
+        float horizontalAngle = Mathf.Abs(Mathf.Atan2(localDirection.x, localDirection.z) * Mathf.Rad2Deg);
+        float verticalAngle = Mathf.Abs(Mathf.Atan2(localDirection.y, localDirection.z) * Mathf.Rad2Deg);
+        if (horizontalAngle > snapshotConeHorizontalAngle * 0.5f) return false;
+        if (verticalAngle > snapshotConeVerticalAngle * 0.5f) return false;
+
+        if (!Physics.Raycast(origin, directionToPlayer.normalized, out RaycastHit hit, distanceToPlayer, snapshotMask, QueryTriggerInteraction.Ignore))
+            return false;
+
+        if (hit.collider.GetComponentInParent<PlayerStatus>() == null)
+            return false;
+
+        PhotographPlayer();
+        return true;
+    }
+
+    Vector3 GetPlayerSnapshotTargetPosition()
+    {
+        if (player == null)
+            return transform.position;
+
+        Collider playerCollider = player.GetComponent<Collider>();
+        if (playerCollider != null)
+            return playerCollider.bounds.center;
+
+        return player.position + Vector3.up * 0.75f;
     }
 
     List<PhotographerDecal> CreateConeDecals(Vector3 origin, Vector3 forward)
@@ -366,9 +423,13 @@ public class Photographer : MonoBehaviour
 
     void PhotographPlayer()
     {
+        ResolvePlayerReferences();
         if (player == null) return;
 
         PulseSnapshotCamera(playerPhotoPulseIntensity, playerPhotoPulseDuration, playerPhotoShakeAmplitude, playerPhotoShakeFrequency, playerPhotoShakeDuration);
+
+        if (playerStatus != null)
+            playerStatus.ContaminateWater();
 
         PlayerPetrify petrify = player.GetComponent<PlayerPetrify>();
         if (petrify != null)

@@ -34,6 +34,12 @@ public class DirtSpot : MonoBehaviour
     public float dissolveEdgeGlow = 0.6f;
     public float cleanPointMergeDistance = 0.08f;
 
+    [Header("Contamination Growth")]
+    public bool createdByContaminatedWater = false;
+    public float contaminatedGrowthPerWaterChunk = 1f;
+    public float contaminatedWaterPerGrowthChunk = 50f;
+    [SerializeField] private float contaminatedWaterStored;
+
     private Vector3 initialLocalScale;
     private MaterialPropertyBlock propertyBlock;
     private readonly Vector4[] cleanPoints = new Vector4[MaxCleanPoints];
@@ -113,6 +119,23 @@ public class DirtSpot : MonoBehaviour
         cleanedNodes = 0;
     }
 
+    public bool IsPartiallyCleaned()
+    {
+        return currentDirt < maxDirt - 0.001f || currentCleanPercentage > 0.001f || cleanPointCount > 0;
+    }
+
+    public void ConfigureGeneratedContaminatedSpot(float initialSize, float growthPerWaterChunk, float waterPerGrowthChunk)
+    {
+        createdByContaminatedWater = true;
+        contaminatedGrowthPerWaterChunk = Mathf.Max(0f, growthPerWaterChunk);
+        contaminatedWaterPerGrowthChunk = Mathf.Max(0.01f, waterPerGrowthChunk);
+        contaminatedWaterStored = 0f;
+
+        ApplySurfaceScale(Mathf.Max(0.01f, initialSize));
+        ResetDirtyState();
+        UpdateVisualState();
+    }
+
     public void Clean(float amount)
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
@@ -155,6 +178,18 @@ public class DirtSpot : MonoBehaviour
 
         if (areaCleaned) Clean(amount);
         else UpdateVisualState();
+    }
+
+    public void ApplyContaminatedWaterAtWorldPoint(Vector3 worldPoint, float worldRadius, float waterAmount)
+    {
+        if (waterAmount <= 0f || isFadingOut) return;
+
+        bool changed = RestoreAtWorldPoint(worldPoint, worldRadius, waterAmount);
+        if (createdByContaminatedWater)
+            changed |= ApplyContaminatedGrowth(waterAmount);
+
+        if (changed)
+            UpdateVisualState();
     }
 
     public float GetDirtPercent()
@@ -215,6 +250,107 @@ public class DirtSpot : MonoBehaviour
         return true;
     }
 
+    bool RestoreAtWorldPoint(Vector3 worldPoint, float worldRadius, float amount)
+    {
+        if (currentDirt >= maxDirt && currentCleanPercentage <= 0.001f && cleanPointCount == 0)
+            return false;
+
+        Vector3 localPoint = transform.InverseTransformPoint(worldPoint);
+        float localRadius = WorldRadiusToLocalRadius(worldRadius);
+        bool changed = false;
+
+        if (RestorePhysicalArea(localPoint, localRadius))
+            changed = true;
+
+        if (RestoreCleanPoints(localPoint, localRadius))
+            changed = true;
+
+        float restoredDirt = Mathf.Clamp(currentDirt + amount, 0f, maxDirt);
+        if (restoredDirt > currentDirt + 0.001f)
+        {
+            currentDirt = restoredDirt;
+            changed = true;
+        }
+
+        if (usePhysicalAreaCheck && totalNodes > 0)
+            currentDirt = Mathf.Max(currentDirt, maxDirt * (1f - currentCleanPercentage));
+
+        return changed;
+    }
+
+    bool ApplyContaminatedGrowth(float waterAmount)
+    {
+        contaminatedWaterStored += waterAmount;
+
+        float growthDelta = contaminatedGrowthPerWaterChunk * (waterAmount / contaminatedWaterPerGrowthChunk);
+        if (growthDelta <= 0.0001f)
+            return false;
+
+        float nextSize = transform.localScale.x + growthDelta;
+        ApplySurfaceScale(nextSize);
+        ResetDirtyState();
+        return true;
+    }
+
+    bool RestorePhysicalArea(Vector3 localPoint, float localRadius)
+    {
+        if (!usePhysicalAreaCheck || totalNodes == 0 || nodeIsClean == null) return false;
+
+        float sqrRadius = localRadius * localRadius;
+        bool areaUpdated = false;
+
+        for (int i = 0; i < totalNodes; i++)
+        {
+            if (!nodeIsClean[i]) continue;
+            if ((dirtNodes[i] - localPoint).sqrMagnitude > sqrRadius) continue;
+
+            nodeIsClean[i] = false;
+            cleanedNodes = Mathf.Max(0, cleanedNodes - 1);
+            areaUpdated = true;
+        }
+
+        if (!areaUpdated) return false;
+
+        currentCleanPercentage = totalNodes > 0 ? (float)cleanedNodes / totalNodes : 0f;
+        return true;
+    }
+
+    bool RestoreCleanPoints(Vector3 localPoint, float localRadius)
+    {
+        if (!useDissolveShader || !useLocalizedCleaning || cleanPointCount <= 0) return false;
+
+        bool changed = false;
+        float mergeRadius = localRadius + cleanPointMergeDistance;
+        float sqrMergeRadius = mergeRadius * mergeRadius;
+
+        for (int i = cleanPointCount - 1; i >= 0; i--)
+        {
+            Vector3 point = new Vector3(cleanPoints[i].x, cleanPoints[i].y, cleanPoints[i].z);
+            float pointRadius = cleanPoints[i].w;
+            float maxDistance = mergeRadius + pointRadius;
+
+            if ((point - localPoint).sqrMagnitude > Mathf.Max(sqrMergeRadius, maxDistance * maxDistance))
+                continue;
+
+            cleanPointCount--;
+            cleanPoints[i] = cleanPoints[cleanPointCount];
+            cleanPoints[cleanPointCount] = Vector4.zero;
+            changed = true;
+        }
+
+        if (cleanPointCount <= 0)
+        {
+            cleanPointCount = 0;
+            nextCleanPointIndex = 0;
+        }
+        else
+        {
+            nextCleanPointIndex = cleanPointCount % MaxCleanPoints;
+        }
+
+        return changed;
+    }
+
     void CheckPhysicalCleanArea(Vector3 localPoint, float localRadius)
     {
         if (!usePhysicalAreaCheck || totalNodes == 0 || isFadingOut) return;
@@ -265,6 +401,40 @@ public class DirtSpot : MonoBehaviour
         Vector3 scale = transform.lossyScale;
         float dominantScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
         return dominantScale > 0.0001f ? worldRadius / dominantScale : worldRadius;
+    }
+
+    void ApplySurfaceScale(float uniformSurfaceScale)
+    {
+        Vector3 scale = transform.localScale;
+        float clampedScale = Mathf.Max(0.01f, uniformSurfaceScale);
+
+        if (targetCollider is MeshCollider)
+            transform.localScale = new Vector3(clampedScale, clampedScale, scale.z);
+        else
+            transform.localScale = new Vector3(clampedScale, scale.y, clampedScale);
+
+        initialLocalScale = transform.localScale;
+    }
+
+    void ResetDirtyState()
+    {
+        isFadingOut = false;
+        currentDirt = maxDirt;
+        currentCleanPercentage = 0f;
+        cleanPointCount = 0;
+        nextCleanPointIndex = 0;
+        cleanedNodes = 0;
+
+        for (int i = 0; i < MaxCleanPoints; i++)
+            cleanPoints[i] = Vector4.zero;
+
+        GenerateDirtNodes();
+
+        if (targetCollider != null)
+            targetCollider.enabled = true;
+
+        if (targetRenderer != null)
+            targetRenderer.enabled = true;
     }
 
     private IEnumerator FadeOutAndDestroy()
