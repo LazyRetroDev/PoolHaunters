@@ -309,6 +309,7 @@ public class WaterCannon : MonoBehaviour
 
         Ray ray = new Ray(sprayOrigin.position, sprayOrigin.forward);
         RaycastHit[] hits = Physics.SphereCastAll(ray, sprayRadius, sprayDistance, cleanMask, QueryTriggerInteraction.Collide);
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
         if (debugSprayRay)
             Debug.DrawRay(ray.origin, ray.direction * sprayDistance, Color.cyan);

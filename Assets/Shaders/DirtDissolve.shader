@@ -26,7 +26,7 @@ Shader "PoolHaunters/DirtDissolve"
             Name "ForwardLit"
             Tags { "LightMode" = "UniversalForward" }
 
-            Cull Back
+            Cull Off
             ZWrite On
             Blend One Zero
             AlphaToMask Off

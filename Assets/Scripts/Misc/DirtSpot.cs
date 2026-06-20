@@ -34,6 +34,15 @@ public class DirtSpot : MonoBehaviour
     public float dissolveEdgeGlow = 0.6f;
     public float cleanPointMergeDistance = 0.08f;
 
+    [Header("Surface Adhesion")]
+    public bool adhereToSurface = true;
+    public LayerMask adhesionMask = ~0;
+    public float adhesionRadius = 0.12f;
+    public float surfaceOffset = 0.01f;
+    public float fallAcceleration = 18f;
+    public float maxFallSpeed = 10f;
+    public bool followAdheredSurfacePosition = true;
+
     [Header("Contamination Growth")]
     public bool createdByContaminatedWater = false;
     public float contaminatedGrowthPerWaterChunk = 1f;
@@ -55,6 +64,13 @@ public class DirtSpot : MonoBehaviour
     private int totalNodes;
     private int cleanedNodes;
 
+    private readonly RaycastHit[] adhesionRayHits = new RaycastHit[16];
+    private Transform adheredSurface;
+    private Vector3 adheredLocalPosition;
+    private Quaternion adheredLocalRotation = Quaternion.identity;
+    private bool isAdheredToSurface;
+    private float currentFallSpeed;
+
     void Awake()
     {
         if (targetRenderer == null) targetRenderer = GetComponentInChildren<Renderer>();
@@ -66,6 +82,18 @@ public class DirtSpot : MonoBehaviour
 
         GenerateDirtNodes();
         UpdateVisualState();
+    }
+
+    void Start()
+    {
+        if (adhereToSurface)
+            TryAttachToNearbySurface();
+    }
+
+    void Update()
+    {
+        UpdateAdheredSurfacePosition();
+        UpdateSurfaceAdhesion();
     }
 
     void GenerateDirtNodes()
@@ -117,6 +145,174 @@ public class DirtSpot : MonoBehaviour
         nodeIsClean = new bool[dirtNodes.Length];
         totalNodes = dirtNodes.Length;
         cleanedNodes = 0;
+    }
+
+    void UpdateSurfaceAdhesion()
+    {
+        if (!adhereToSurface || isAdheredToSurface || isFadingOut) return;
+        if (TryAttachToNearbySurface()) return;
+
+        currentFallSpeed = Mathf.Min(maxFallSpeed, currentFallSpeed + fallAcceleration * Time.deltaTime);
+        float fallDistance = currentFallSpeed * Time.deltaTime;
+
+        if (TryFindSurfaceBelow(adhesionRadius + fallDistance, out RaycastHit hit))
+        {
+            AttachToSurface(hit.collider, hit.point, hit.normal);
+            return;
+        }
+
+        transform.position += Vector3.down * fallDistance;
+    }
+
+    void UpdateAdheredSurfacePosition()
+    {
+        if (!isAdheredToSurface) return;
+
+        if (adheredSurface == null)
+        {
+            isAdheredToSurface = false;
+            currentFallSpeed = 0f;
+            return;
+        }
+
+        if (!followAdheredSurfacePosition) return;
+
+        transform.SetPositionAndRotation(
+            adheredSurface.TransformPoint(adheredLocalPosition),
+            adheredSurface.rotation * adheredLocalRotation);
+    }
+
+    bool TryAttachToNearbySurface()
+    {
+        if (TryFindSurfaceAround(out Collider surfaceCollider, out Vector3 surfacePoint, out Vector3 surfaceNormal))
+        {
+            AttachToSurface(surfaceCollider, surfacePoint, surfaceNormal);
+            return true;
+        }
+
+        if (TryFindSurfaceBelow(adhesionRadius, out RaycastHit hit))
+        {
+            AttachToSurface(hit.collider, hit.point, hit.normal);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryFindSurfaceAround(out Collider surfaceCollider, out Vector3 surfacePoint, out Vector3 surfaceNormal)
+    {
+        surfaceCollider = null;
+        surfacePoint = transform.position;
+        surfaceNormal = Vector3.up;
+
+        float bestSqrDistance = float.MaxValue;
+        TryCastForSurface(Vector3.down, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(Vector3.up, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(Vector3.left, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(Vector3.right, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(Vector3.forward, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(Vector3.back, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(transform.forward, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(-transform.forward, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(transform.up, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(-transform.up, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(transform.right, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        TryCastForSurface(-transform.right, ref surfaceCollider, ref surfacePoint, ref surfaceNormal, ref bestSqrDistance);
+        return surfaceCollider != null;
+    }
+
+    void TryCastForSurface(Vector3 direction, ref Collider surfaceCollider, ref Vector3 surfacePoint, ref Vector3 surfaceNormal, ref float bestSqrDistance)
+    {
+        if (direction.sqrMagnitude <= 0.0001f) return;
+
+        float radius = Mathf.Max(0.01f, adhesionRadius);
+        float backoff = Mathf.Min(Mathf.Max(0.01f, surfaceOffset + 0.02f), radius);
+        Vector3 normalizedDirection = direction.normalized;
+        Vector3 origin = transform.position - normalizedDirection * backoff;
+        int hitCount = Physics.RaycastNonAlloc(origin, normalizedDirection, adhesionRayHits, radius + backoff, adhesionMask, QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            RaycastHit hit = adhesionRayHits[i];
+            adhesionRayHits[i] = default;
+            if (!IsValidAdhesionCollider(hit.collider)) continue;
+
+            float sqrDistance = (hit.point - transform.position).sqrMagnitude;
+            if (sqrDistance > radius * radius || sqrDistance >= bestSqrDistance) continue;
+
+            surfaceCollider = hit.collider;
+            surfacePoint = hit.point;
+            surfaceNormal = hit.normal;
+            bestSqrDistance = sqrDistance;
+        }
+    }
+
+    bool TryFindSurfaceBelow(float maxDistance, out RaycastHit bestHit)
+    {
+        bestHit = default;
+
+        float liftedStart = Mathf.Min(Mathf.Max(0.01f, adhesionRadius * 0.25f), 0.08f);
+        Vector3 origin = transform.position + Vector3.up * liftedStart;
+        int hitCount = Physics.RaycastNonAlloc(origin, Vector3.down, adhesionRayHits, Mathf.Max(0.01f, maxDistance + liftedStart), adhesionMask, QueryTriggerInteraction.Ignore);
+        float bestDistance = float.MaxValue;
+        bool found = false;
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            RaycastHit hit = adhesionRayHits[i];
+            adhesionRayHits[i] = default;
+            if (!IsValidAdhesionCollider(hit.collider)) continue;
+            if ((hit.point - transform.position).sqrMagnitude > maxDistance * maxDistance) continue;
+            if (hit.distance >= bestDistance) continue;
+
+            bestHit = hit;
+            bestDistance = hit.distance;
+            found = true;
+        }
+
+        return found;
+    }
+
+    bool IsValidAdhesionCollider(Collider candidate)
+    {
+        if (candidate == null || !candidate.enabled) return false;
+        if (candidate.transform == transform || candidate.transform.IsChildOf(transform)) return false;
+        if (targetCollider != null && candidate == targetCollider) return false;
+        if (candidate.CompareTag("Player")) return false;
+        if (candidate.GetComponentInParent<PlayerStatus>() != null) return false;
+        if (candidate.GetComponentInParent<DirtSpot>() != null) return false;
+        return true;
+    }
+
+    void AttachToSurface(Collider surfaceCollider, Vector3 surfacePoint, Vector3 surfaceNormal)
+    {
+        if (!IsValidAdhesionCollider(surfaceCollider)) return;
+
+        surfaceNormal = surfaceNormal.sqrMagnitude > 0.0001f ? surfaceNormal.normalized : Vector3.up;
+        transform.position = surfacePoint + surfaceNormal * Mathf.Max(0f, surfaceOffset);
+        transform.rotation = Quaternion.LookRotation(-surfaceNormal, GetSurfaceUp(surfaceNormal));
+
+        adheredSurface = surfaceCollider.transform;
+        adheredLocalPosition = adheredSurface.InverseTransformPoint(transform.position);
+        adheredLocalRotation = Quaternion.Inverse(adheredSurface.rotation) * transform.rotation;
+        isAdheredToSurface = true;
+        currentFallSpeed = 0f;
+        initialLocalScale = transform.localScale;
+        GenerateDirtNodes();
+        UpdateVisualState();
+    }
+
+    Vector3 GetSurfaceUp(Vector3 surfaceNormal)
+    {
+        Vector3 surfaceUp = Vector3.ProjectOnPlane(Vector3.up, surfaceNormal);
+        if (surfaceUp.sqrMagnitude > 0.0001f)
+            return surfaceUp.normalized;
+
+        surfaceUp = Vector3.ProjectOnPlane(transform.up, surfaceNormal);
+        if (surfaceUp.sqrMagnitude > 0.0001f)
+            return surfaceUp.normalized;
+
+        return Vector3.forward;
     }
 
     public bool IsPartiallyCleaned()

@@ -7,13 +7,11 @@ public class TubaraoBehavior : MonoBehaviour
     public float velocidadeInvestigacao = 3f;
     public float velocidadePerseguicao = 6.5f;
     public float velocidadeRotacao = 6f;
-    public float distanciaDeDeteccao = 12f;
     public float distanciaParaInvestigar = 1.25f;
 
     [Header("Audio / Som")]
     public float multiplicadorAudicao = 1f;
     public float tempoLembrandoSom = 6f;
-    public float distanciaParaPerseguirDepoisDoSom = 4f;
 
     [Header("Ataque")]
     public float distanciaDeAtaque = 1.5f;
@@ -84,9 +82,7 @@ public class TubaraoBehavior : MonoBehaviour
         ultimoSomPosicao = position;
         ouviuSom = true;
         tempoSemSom = 0f;
-
-        if (player != null && source != null && source.CompareTag("Player"))
-            perseguindo = Vector3.Distance(transform.position, player.position) <= distanciaParaPerseguirDepoisDoSom;
+        perseguindo = player != null && source != null && source.CompareTag("Player");
     }
 
     void UpdateMemory()
@@ -103,26 +99,16 @@ public class TubaraoBehavior : MonoBehaviour
 
     void UpdateMovement()
     {
-        bool playerDetectado = player != null && Vector3.Distance(transform.position, player.position) <= distanciaDeDeteccao;
-        if (playerDetectado)
-        {
-            perseguindo = true;
-            ouviuSom = true;
-            tempoSemSom = 0f;
-            MoveTo(player.position, velocidadePerseguicao);
-            return;
-        }
-
         if (!ouviuSom)
         {
             StopAgent();
             return;
         }
 
-        Vector3 destino = perseguindo && player != null ? player.position : ultimoSomPosicao;
+        Vector3 destino = ultimoSomPosicao;
         MoveTo(destino, perseguindo ? velocidadePerseguicao : velocidadeInvestigacao);
 
-        if (!perseguindo && Vector3.Distance(transform.position, ultimoSomPosicao) <= distanciaParaInvestigar)
+        if (Vector3.Distance(transform.position, ultimoSomPosicao) <= distanciaParaInvestigar)
             StopAgent();
     }
 
@@ -160,12 +146,11 @@ public class TubaraoBehavior : MonoBehaviour
     void TryAttack()
     {
         if (player == null || playerStatus == null || Time.time < proximoAtaqueEm) return;
+        if (!perseguindo) return;
         if (Vector3.Distance(transform.position, player.position) > distanciaDeAtaque) return;
 
         playerStatus.TakeDamage(danoPorAtaque);
         proximoAtaqueEm = Time.time + intervaloEntreAtaques;
-        perseguindo = true;
-        ouviuSom = true;
         tempoSemSom = 0f;
     }
 
@@ -182,12 +167,6 @@ public class TubaraoBehavior : MonoBehaviour
 
     void OnDrawGizmosSelected()
     {
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, distanciaDeDeteccao);
-
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, distanciaParaPerseguirDepoisDoSom);
-
         if (ouviuSom)
         {
             Gizmos.color = Color.red;
