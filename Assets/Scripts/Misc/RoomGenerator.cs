@@ -14,11 +14,20 @@ public class RoomGenerator : MonoBehaviour
     [Header("Enemy Setup")]
     public bool spawnTimeCamperAfterStartingRooms = true;
 
+    [Header("Room Resources")]
+    [SerializeField] private RoomResourceSpawner resourceSpawner;
+
     private readonly List<GameObject> spawnedRooms = new List<GameObject>();
     private readonly List<NavMeshSurface> registeredSurfaces = new List<NavMeshSurface>();
     private Transform lastExitPoint;
     private int generatedRoomCount;
     private bool initialEnemySpawned;
+
+    void Awake()
+    {
+        if (resourceSpawner == null)
+            resourceSpawner = GetComponent<RoomResourceSpawner>();
+    }
 
     void Start()
     {
@@ -50,8 +59,13 @@ public class RoomGenerator : MonoBehaviour
         GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
 
         AlignRoomToPreviousExit(room);
+
+        int roomIndex = generatedRoomCount;
         spawnedRooms.Add(room);
         generatedRoomCount++;
+
+        if (resourceSpawner != null)
+            resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
 
         RegisterRoomDoor(room);
         RegisterRoomNavMesh(room);
@@ -139,6 +153,9 @@ public class RoomGenerator : MonoBehaviour
 
             if (surface != null && EnemySpawner.Instance != null)
                 EnemySpawner.Instance.UnregisterSurface(surface);
+
+            if (resourceSpawner != null)
+                resourceSpawner.DespawnResourcesForRoom(room);
 
             if (room != null)
                 Destroy(room);
