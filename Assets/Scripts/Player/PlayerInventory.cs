@@ -77,14 +77,21 @@ public class PlayerInventory : MonoBehaviour
         if (IsInventoryLocked()) return;
 
         WaterItem waterItem = item.GetComponent<WaterItem>();
-        if (waterItem != null && waterItem.useImmediatelyOnPickup && waterItem.TryApply(playerStatus))
+        if (waterItem != null && waterItem.useImmediatelyOnPickup)
         {
+            if (!waterItem.TryApply(playerStatus))
+            {
+                Debug.Log($"Could not use {item.itemName}; the player's water may already be full.");
+                return;
+            }
+
             Debug.Log($"Used {item.itemName} on pickup. Water: {playerStatus.GetCurrentWater():0}/{playerStatus.maxWater:0} ({playerStatus.GetWaterQuality()})");
+
+            // Disable immediately so enemies cannot target it during Destroy's end-of-frame delay.
+            item.gameObject.SetActive(false);
 
             if (waterItem.destroyAfterUse)
                 Destroy(item.gameObject);
-            else
-                item.gameObject.SetActive(false);
 
             return;
         }
