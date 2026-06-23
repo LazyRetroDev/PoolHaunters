@@ -466,14 +466,27 @@ public class WaterCannon : MonoBehaviour
 
     Vector2 GetPointerScreenPosition()
     {
-        Vector2 screenCenter = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+        if (aimCamera == null)
+            return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+
+        bool rendersToTexture = aimCamera.targetTexture != null;
+        Rect cameraRect = aimCamera.pixelRect;
+        Vector2 cameraCenter = rendersToTexture
+            ? new Vector2(aimCamera.pixelWidth * 0.5f, aimCamera.pixelHeight * 0.5f)
+            : cameraRect.center;
 
         if (useScreenCenterWhenCursorLocked && Cursor.lockState == CursorLockMode.Locked)
-            return screenCenter;
+            return cameraCenter;
 
-        if (Mouse.current != null)
-            return Mouse.current.position.ReadValue();
+        if (Mouse.current == null)
+            return cameraCenter;
 
-        return screenCenter;
+        Vector2 mousePosition = Mouse.current.position.ReadValue();
+        if (!rendersToTexture)
+            return mousePosition;
+
+        float normalizedX = Screen.width > 0 ? Mathf.Clamp01(mousePosition.x / Screen.width) : 0.5f;
+        float normalizedY = Screen.height > 0 ? Mathf.Clamp01(mousePosition.y / Screen.height) : 0.5f;
+        return new Vector2(normalizedX * aimCamera.pixelWidth, normalizedY * aimCamera.pixelHeight);
     }
 }
