@@ -7,6 +7,9 @@ public class PlayerInventory : MonoBehaviour
     public float pickupRange = 2.5f;
     public Transform holdPoint;
 
+    [Header("Interaction")]
+    public Camera interactionCamera;
+
     private Item[] slots;
     private int selectedSlot = 0;
     private PlayerStatus playerStatus;
@@ -17,17 +20,27 @@ public class PlayerInventory : MonoBehaviour
         slots = new Item[inventorySize];
         playerStatus = GetComponent<PlayerStatus>();
         playerPetrify = GetComponent<PlayerPetrify>();
+
+        if (interactionCamera == null)
+            interactionCamera = Camera.main;
     }
 
     public void OnInteract(InputValue value)
     {
         if (!value.isPressed || IsInventoryLocked()) return;
 
-        Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
+        Camera cameraToUse = GetInteractionCamera();
+        if (cameraToUse == null)
+        {
+            Debug.LogWarning("Cannot interact because no interaction camera was found.");
+            return;
+        }
+
+        Ray ray = cameraToUse.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         if (Physics.Raycast(ray, out RaycastHit hit, pickupRange))
         {
             Debug.Log("Hit: " + hit.collider.gameObject.name);
-            Item item = hit.collider.GetComponent<Item>();
+            Item item = hit.collider.GetComponentInParent<Item>();
             if (item != null) TryPickup(item);
         }
         else
@@ -64,6 +77,15 @@ public class PlayerInventory : MonoBehaviour
             if (Keyboard.current[Key.Digit1 + i].wasPressedThisFrame)
                 SelectSlot(i);
         }
+    }
+
+    Camera GetInteractionCamera()
+    {
+        if (interactionCamera != null && interactionCamera.isActiveAndEnabled)
+            return interactionCamera;
+
+        interactionCamera = Camera.main;
+        return interactionCamera;
     }
 
     bool IsInventoryLocked()
