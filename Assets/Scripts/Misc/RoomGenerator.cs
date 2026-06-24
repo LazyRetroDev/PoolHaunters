@@ -11,6 +11,10 @@ public class RoomGenerator : MonoBehaviour
     public int roomsToKeep = 5;
     public int seed = 0;
 
+    [Header("Run Seed")]
+    public bool useSelectedRunSeed = true;
+    public bool randomizeSeedWhenNoRunSelected = false;
+
     [Header("Enemy Setup")]
     public bool spawnTimeCamperAfterStartingRooms = true;
 
@@ -31,11 +35,25 @@ public class RoomGenerator : MonoBehaviour
 
     void Start()
     {
+        ResolveRunSeed();
         Random.InitState(seed);
 
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
             GenerateNextRoom();
+    }
+
+    void ResolveRunSeed()
+    {
+        if (useSelectedRunSeed && RegionRunState.HasSelectedRegion)
+        {
+            seed = RegionRunState.RunSeed;
+            Debug.Log($"RoomGenerator using {RegionRunState.RegionName} run seed {seed}.");
+            return;
+        }
+
+        if (randomizeSeedWhenNoRunSelected)
+            seed = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
     }
 
     public void GenerateNextRoomFromDoor(DoorTrigger trigger)
