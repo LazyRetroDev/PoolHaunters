@@ -869,6 +869,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 11503794143c59845bd72ad15fd2be56, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+  startingRegions:
+  - regionName: Museum
+    sceneName: Game
+    weight: 3
+  - regionName: Hospital
+    sceneName: Game 1
+    weight: 3
+  - regionName: Rooms
+    sceneName: Game 2
+    weight: 1
+  randomizeRunSeed: 1
+  fixedRunSeed: 0
 --- !u!4 &621806612
 Transform:
   m_ObjectHideFlags: 0
