@@ -1,3 +1,4 @@
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -463,7 +464,7 @@ public class RaccoonBehavior : MonoBehaviour
 
         for (int i = 0; i < slots.Length; i++)
         {
-            if (slots[i] != null)
+            if (CanStealItem(slots[i]))
                 return true;
         }
 
@@ -513,12 +514,28 @@ public class RaccoonBehavior : MonoBehaviour
         if (item == null || !item.gameObject.activeInHierarchy || item == carriedItem)
             return false;
 
+        if (!CanStealItem(item))
+            return false;
+
         PlayerInventory inventory = item.GetComponentInParent<PlayerInventory>();
         if (inventory != null)
             return false;
 
         RaccoonBehavior owner = item.GetComponentInParent<RaccoonBehavior>();
         return owner == null || owner == this;
+    }
+
+    bool CanStealItem(Item item)
+    {
+        if (item == null)
+            return false;
+
+        NetworkObject networkObject = item.GetComponent<NetworkObject>();
+        if (networkObject == null)
+            return true;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening && networkManager.IsServer;
     }
 
     bool HasLineOfSightToLooseItem(Item item, Vector3 direction)
@@ -550,7 +567,7 @@ public class RaccoonBehavior : MonoBehaviour
         {
             int slotIndex = (startIndex + i) % slots.Length;
             Item item = slots[slotIndex];
-            if (item == null) continue;
+            if (!CanStealItem(item)) continue;
 
             if (!playerInventory.RemoveItem(item, destroyItem: false)) continue;
 
