@@ -45,6 +45,7 @@ public class PlayerStatus : MonoBehaviour
     private bool isKnockedOut = false;
     private bool isDead = false;
     private bool deathTransformationApplied = false;
+    private WaterZone activeWaterZone;
 
     private PlayerMovement movement;
     public bool IsMoving() => movement != null && movement.IsMoving() && (CanAct() || isKnockedOut);
@@ -60,9 +61,23 @@ public class PlayerStatus : MonoBehaviour
     }
 
     public void SetInWater(bool value) => inWater = value;
+    public void SetWaterZone(WaterZone zone)
+    {
+        activeWaterZone = zone;
+        inWater = zone != null;
+    }
+
+    public void ClearWaterZone(WaterZone zone)
+    {
+        if (activeWaterZone != zone) return;
+        activeWaterZone = null;
+        inWater = false;
+    }
+
     public float GetCurrentHealth() => currentHealth;
     public float GetMaxHealth() => maxHealth;
     public float GetCurrentWater() => currentWater;
+    public float GetWaterSpace() => Mathf.Max(0f, maxWater - currentWater);
     public WaterQuality GetWaterQuality() => currentWaterQuality;
     public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
     public float GetWaterPercent() => maxWater > 0f ? currentWater / maxWater : 0f;
@@ -84,7 +99,18 @@ public class PlayerStatus : MonoBehaviour
         }
 
         if (CanAct() && inWater && currentWater < maxWater)
-            AddWater(fillRate * Time.deltaTime, waterFillQuality);
+            FillFromCurrentWaterSource(fillRate * Time.deltaTime);
+    }
+
+    void FillFromCurrentWaterSource(float amount)
+    {
+        if (activeWaterZone != null)
+        {
+            activeWaterZone.TryFillPlayer(this, amount);
+            return;
+        }
+
+        AddWater(amount, waterFillQuality);
     }
 
     public bool TakeDamage(float damage)
