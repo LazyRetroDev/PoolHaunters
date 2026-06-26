@@ -23,6 +23,9 @@ public class RoomGenerator : MonoBehaviour
 
     private readonly List<GameObject> spawnedRooms = new List<GameObject>();
     private readonly List<NavMeshSurface> registeredSurfaces = new List<NavMeshSurface>();
+    private readonly Dictionary<GameObject, int> generatedPrefabCounts =
+        new Dictionary<GameObject, int>();
+
     private Transform lastExitPoint;
     private int generatedRoomCount;
     private bool initialEnemySpawned;
@@ -73,13 +76,20 @@ public class RoomGenerator : MonoBehaviour
         if (maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms)
             return null;
 
-        GameObject roomPrefab = roomPrefabs[Random.Range(0, roomPrefabs.Length)];
+        GameObject roomPrefab = ChooseRoomPrefab();
+        if (roomPrefab == null)
+        {
+            Debug.LogWarning("RoomGenerator has no available room prefab for the current rules.");
+            return null;
+        }
+
         GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
 
         AlignRoomToPreviousExit(room);
 
         int roomIndex = generatedRoomCount;
         spawnedRooms.Add(room);
+        TrackGeneratedPrefab(roomPrefab);
         generatedRoomCount++;
 
         if (resourceSpawner != null)
@@ -88,15 +98,72 @@ public class RoomGenerator : MonoBehaviour
         RegisterRoomDoor(room);
         RegisterRoomNavMesh(room);
 
-        Transform exitPoint = room.transform.Find("DoorPoint_B");
+        Transform exitPoint = GetRoomExitPoint(room);
         if (exitPoint != null)
             lastExitPoint = exitPoint;
         else
-            Debug.LogWarning(room.name + " is missing DoorPoint_B.");
+            Debug.LogWarning(room.name + " is missing an exit point. Add a RoomDefinition exit door or DoorPoint_B.");
 
         TrySpawnInitialTimeCamper();
 
         return room;
+    }
+
+    GameObject ChooseRoomPrefab()
+    {
+        float totalWeight = 0f;
+
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (!CanSpawnRoomPrefab(prefab)) continue;
+            totalWeight += GetRoomPrefabWeight(prefab);
+        }
+
+        if (totalWeight <= 0f)
+            return null;
+
+        float roll = Random.Range(0f, totalWeight);
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (!CanSpawnRoomPrefab(prefab)) continue;
+
+            roll -= GetRoomPrefabWeight(prefab);
+            if (roll <= 0f)
+                return prefab;
+        }
+
+        return null;
+    }
+
+    bool CanSpawnRoomPrefab(GameObject prefab)
+    {
+        if (prefab == null) return false;
+
+        RoomDefinition definition = GetRoomDefinition(prefab);
+        if (definition == null)
+            return true;
+
+        return definition.CanSpawn(GetGeneratedPrefabCount(prefab));
+    }
+
+    float GetRoomPrefabWeight(GameObject prefab)
+    {
+        RoomDefinition definition = GetRoomDefinition(prefab);
+        return definition != null ? definition.EffectiveSpawnWeight : 1f;
+    }
+
+    int GetGeneratedPrefabCount(GameObject prefab)
+    {
+        int count;
+        return prefab != null && generatedPrefabCounts.TryGetValue(prefab, out count) ? count : 0;
+    }
+
+    void TrackGeneratedPrefab(GameObject prefab)
+    {
+        if (prefab == null) return;
+        generatedPrefabCounts[prefab] = GetGeneratedPrefabCount(prefab) + 1;
     }
 
     void TrySpawnInitialTimeCamper()
@@ -114,10 +181,10 @@ public class RoomGenerator : MonoBehaviour
     {
         if (lastExitPoint == null) return;
 
-        Transform entryPoint = room.transform.Find("DoorPoint_A");
+        Transform entryPoint = GetRoomEntrancePoint(room);
         if (entryPoint == null)
         {
-            Debug.LogWarning(room.name + " is missing DoorPoint_A.");
+            Debug.LogWarning(room.name + " is missing an entrance point. Add a RoomDefinition entrance door or DoorPoint_A.");
             return;
         }
 
@@ -131,11 +198,52 @@ public class RoomGenerator : MonoBehaviour
 
     void RegisterRoomDoor(GameObject room)
     {
-        DoorTrigger exitTrigger = room.transform.Find("DoorTrigger_B")?.GetComponent<DoorTrigger>();
+        DoorTrigger exitTrigger = GetRoomExitTrigger(room);
         if (exitTrigger != null)
             exitTrigger.Initialize(this);
         else
-            Debug.LogWarning(room.name + " is missing DoorTrigger_B with DoorTrigger.");
+            Debug.LogWarning(room.name + " is missing an exit DoorTrigger. Add it to RoomDefinition or DoorTrigger_B.");
+    }
+
+    Transform GetRoomEntrancePoint(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        Transform point;
+        if (definition != null && definition.TryGetEntrancePoint(out point))
+            return point;
+
+        return room.transform.Find("DoorPoint_A");
+    }
+
+    Transform GetRoomExitPoint(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        Transform point;
+        if (definition != null && definition.TryGetExitPoint(out point))
+            return point;
+
+        return room.transform.Find("DoorPoint_B");
+    }
+
+    DoorTrigger GetRoomExitTrigger(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        DoorTrigger trigger;
+        if (definition != null && definition.TryGetExitTrigger(out trigger))
+            return trigger;
+
+        return room.transform.Find("DoorTrigger_B")?.GetComponent<DoorTrigger>();
+    }
+
+    RoomDefinition GetRoomDefinition(GameObject room)
+    {
+        if (room == null) return null;
+
+        RoomDefinition definition = room.GetComponent<RoomDefinition>();
+        if (definition == null)
+            definition = room.GetComponentInChildren<RoomDefinition>(true);
+
+        return definition;
     }
 
     void RegisterRoomNavMesh(GameObject room)
