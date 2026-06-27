@@ -4,6 +4,13 @@ using System.Collections.Generic;
 
 public class RoomGenerator : MonoBehaviour
 {
+    class RoomPlacement
+    {
+        public GameObject room;
+        public Vector2Int cell;
+        public Bounds bounds;
+    }
+
     [Header("Rooms")]
     public GameObject[] roomPrefabs;
     public int startingRoomCount = 2;
@@ -31,11 +38,27 @@ public class RoomGenerator : MonoBehaviour
     [Header("Run Progression")]
     [SerializeField] private RoomProgressionController progression;
 
+    [Header("Placement")]
+    public bool useGridOccupancy = true;
+    public bool useBoundsOverlapCheck = true;
+
+    [Min(0f)]
+    public float roomBoundsInset = 0.25f;
+
+    [Min(1)]
+    public int placementAttempts = 8;
+
     private readonly List<GameObject> spawnedRooms = new List<GameObject>();
     private readonly List<NavMeshSurface> registeredSurfaces = new List<NavMeshSurface>();
     private readonly List<RoomConnector> openConnectors = new List<RoomConnector>();
     private readonly Dictionary<GameObject, int> generatedPrefabCounts =
         new Dictionary<GameObject, int>();
+    private readonly Dictionary<GameObject, RoomPlacement> placementsByRoom =
+        new Dictionary<GameObject, RoomPlacement>();
+    private readonly Dictionary<Vector2Int, RoomPlacement> placementsByCell =
+        new Dictionary<Vector2Int, RoomPlacement>();
+    private readonly Dictionary<RoomConnector, Vector2Int> connectorTargetCells =
+        new Dictionary<RoomConnector, Vector2Int>();
 
     private Transform lastExitPoint;
     private int generatedRoomCount;
@@ -109,42 +132,94 @@ public class RoomGenerator : MonoBehaviour
             return null;
         }
 
-        GameObject roomPrefab = ChooseRoomPrefab(expansionConnector);
-        if (roomPrefab == null)
+        Vector2Int targetCell;
+        if (!TryGetRoomTargetCell(expansionConnector, out targetCell))
         {
-            Debug.LogWarning("RoomGenerator has no available room prefab for the current rules.");
+            Debug.LogWarning("RoomGenerator could not calculate a target cell for the selected connector.");
+            CloseBlockedConnector(expansionConnector);
             return null;
         }
 
-        GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
-
-        if (generatedRoomCount > 0 && !AlignRoomToExpansion(room, expansionConnector, expansionPoint))
+        if (IsGridCellOccupied(targetCell))
         {
-            Destroy(room);
+            Debug.LogWarning($"RoomGenerator blocked generation at occupied cell {targetCell}.");
+            CloseBlockedConnector(expansionConnector);
             return null;
         }
 
-        int roomIndex = generatedRoomCount;
-        spawnedRooms.Add(room);
-        TrackGeneratedPrefab(roomPrefab);
-        generatedRoomCount++;
+        List<GameObject> rejectedPrefabs = new List<GameObject>();
+        int attempts = Mathf.Max(1, placementAttempts);
+        bool blockedByPlacement = false;
 
-        if (resourceSpawner != null)
-            resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            GameObject roomPrefab = ChooseRoomPrefab(expansionConnector, rejectedPrefabs);
+            if (roomPrefab == null)
+            {
+                Debug.LogWarning("RoomGenerator has no available room prefab for the current rules.");
+                break;
+            }
 
-        RegisterRoomDoors(room);
-        RegisterRoomNavMesh(room);
-        AddOpenConnectors(room);
-        UpdateLegacyExitPoint(room);
+            GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
 
-        TrySpawnInitialTimeCamper();
+            if (generatedRoomCount > 0 && !AlignRoomToExpansion(room, expansionConnector, expansionPoint))
+            {
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
 
-        return room;
+            RoomPlacement placement;
+            string rejectionReason;
+            if (!CanPlaceRoom(room, targetCell, out placement, out rejectionReason))
+            {
+                Debug.LogWarning($"RoomGenerator rejected {room.name}: {rejectionReason}");
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                blockedByPlacement = true;
+                continue;
+            }
+
+            if (generatedRoomCount > 0 && !FinalizeRoomConnection(room, expansionConnector))
+            {
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            int roomIndex = generatedRoomCount;
+            spawnedRooms.Add(room);
+            RegisterRoomPlacement(placement);
+            TrackGeneratedPrefab(roomPrefab);
+            generatedRoomCount++;
+
+            if (resourceSpawner != null)
+                resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
+
+            RegisterRoomDoors(room);
+            RegisterRoomNavMesh(room);
+            AddOpenConnectors(room);
+            UpdateLegacyExitPoint(room);
+
+            TrySpawnInitialTimeCamper();
+
+            return room;
+        }
+
+        if (blockedByPlacement)
+            CloseBlockedConnector(expansionConnector);
+
+        return null;
     }
 
     GameObject ChooseRoomPrefab(RoomConnector expansionConnector)
     {
-        GameObject prefab = ChooseRoomPrefab(expansionConnector, useProgressionFilter: true);
+        return ChooseRoomPrefab(expansionConnector, null);
+    }
+
+    GameObject ChooseRoomPrefab(RoomConnector expansionConnector, List<GameObject> rejectedPrefabs)
+    {
+        GameObject prefab = ChooseRoomPrefab(expansionConnector, useProgressionFilter: true, rejectedPrefabs);
         if (prefab != null)
             return prefab;
 
@@ -152,19 +227,23 @@ public class RoomGenerator : MonoBehaviour
         {
             Debug.LogWarning(
                 $"RoomGenerator found no room for progression rule '{progression.GetRuleLabel(generatedRoomCount, maxGeneratedRooms)}' at index {generatedRoomCount}. Falling back to any compatible category.");
-            return ChooseRoomPrefab(expansionConnector, useProgressionFilter: false);
+            return ChooseRoomPrefab(expansionConnector, useProgressionFilter: false, rejectedPrefabs);
         }
 
         return null;
     }
 
-    GameObject ChooseRoomPrefab(RoomConnector expansionConnector, bool useProgressionFilter)
+    GameObject ChooseRoomPrefab(
+        RoomConnector expansionConnector,
+        bool useProgressionFilter,
+        List<GameObject> rejectedPrefabs)
     {
         float totalWeight = 0f;
 
         for (int i = 0; i < roomPrefabs.Length; i++)
         {
             GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefab(prefab, useProgressionFilter)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
             totalWeight += GetRoomPrefabWeight(prefab);
@@ -177,6 +256,7 @@ public class RoomGenerator : MonoBehaviour
         for (int i = 0; i < roomPrefabs.Length; i++)
         {
             GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefab(prefab, useProgressionFilter)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
 
@@ -186,6 +266,11 @@ public class RoomGenerator : MonoBehaviour
         }
 
         return null;
+    }
+
+    bool IsPrefabRejected(GameObject prefab, List<GameObject> rejectedPrefabs)
+    {
+        return prefab != null && rejectedPrefabs != null && rejectedPrefabs.Contains(prefab);
     }
 
     RoomConnector GetExpansionConnector(DoorTrigger trigger)
@@ -283,6 +368,278 @@ public class RoomGenerator : MonoBehaviour
         generatedPrefabCounts[prefab] = GetGeneratedPrefabCount(prefab) + 1;
     }
 
+    bool CanPlaceRoom(
+        GameObject room,
+        Vector2Int targetCell,
+        out RoomPlacement placement,
+        out string rejectionReason)
+    {
+        placement = new RoomPlacement
+        {
+            room = room,
+            cell = targetCell,
+            bounds = CalculateRoomBounds(room)
+        };
+        rejectionReason = null;
+
+        if (IsGridCellOccupied(targetCell))
+        {
+            rejectionReason = $"cell {targetCell} is already occupied";
+            return false;
+        }
+
+        GameObject overlappingRoom;
+        if (useBoundsOverlapCheck && IntersectsExistingRoom(placement.bounds, out overlappingRoom))
+        {
+            rejectionReason = overlappingRoom != null
+                ? $"bounds overlap {overlappingRoom.name}"
+                : "bounds overlap another generated room";
+            return false;
+        }
+
+        return true;
+    }
+
+    void RegisterRoomPlacement(RoomPlacement placement)
+    {
+        if (placement == null || placement.room == null) return;
+
+        placementsByRoom[placement.room] = placement;
+        if (useGridOccupancy)
+            placementsByCell[placement.cell] = placement;
+    }
+
+    void UnregisterRoomPlacement(GameObject room)
+    {
+        if (room == null) return;
+
+        RoomPlacement placement;
+        if (!placementsByRoom.TryGetValue(room, out placement))
+            return;
+
+        placementsByRoom.Remove(room);
+
+        RoomPlacement cellPlacement;
+        if (useGridOccupancy &&
+            placementsByCell.TryGetValue(placement.cell, out cellPlacement) &&
+            cellPlacement == placement)
+        {
+            placementsByCell.Remove(placement.cell);
+        }
+    }
+
+    bool TryGetRoomTargetCell(RoomConnector expansionConnector, out Vector2Int targetCell)
+    {
+        if (generatedRoomCount == 0 || expansionConnector == null)
+        {
+            targetCell = Vector2Int.zero;
+            return true;
+        }
+
+        return TryGetConnectorTargetCell(expansionConnector, out targetCell);
+    }
+
+    bool TryGetConnectorTargetCell(RoomConnector connector, out Vector2Int targetCell)
+    {
+        targetCell = Vector2Int.zero;
+        if (connector == null)
+            return false;
+
+        if (connectorTargetCells.TryGetValue(connector, out targetCell))
+            return true;
+
+        RoomPlacement sourcePlacement;
+        if (!TryGetConnectorSourcePlacement(connector, out sourcePlacement))
+            return false;
+
+        Vector2Int step = GetConnectorStep(connector);
+        if (step == Vector2Int.zero)
+            return false;
+
+        targetCell = sourcePlacement.cell + step;
+        connectorTargetCells[connector] = targetCell;
+        return true;
+    }
+
+    bool TryGetConnectorSourcePlacement(RoomConnector connector, out RoomPlacement placement)
+    {
+        placement = null;
+        if (connector == null) return false;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            if (room == null || pair.Value == null) continue;
+            if (connector.transform.IsChildOf(room.transform))
+            {
+                placement = pair.Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    Vector2Int GetConnectorStep(RoomConnector connector)
+    {
+        if (connector == null)
+            return Vector2Int.zero;
+
+        Transform point = connector.Point;
+        Vector3 forward = point != null ? point.forward : Vector3.zero;
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude > 0.0001f)
+        {
+            forward.Normalize();
+            if (Mathf.Abs(forward.x) > Mathf.Abs(forward.z))
+                return new Vector2Int(forward.x >= 0f ? 1 : -1, 0);
+
+            return new Vector2Int(0, forward.z >= 0f ? 1 : -1);
+        }
+
+        return GetDirectionStep(connector.direction);
+    }
+
+    Vector2Int GetDirectionStep(RoomDoorDirection direction)
+    {
+        switch (direction)
+        {
+            case RoomDoorDirection.North:
+                return new Vector2Int(0, 1);
+            case RoomDoorDirection.South:
+                return new Vector2Int(0, -1);
+            case RoomDoorDirection.East:
+                return new Vector2Int(1, 0);
+            case RoomDoorDirection.West:
+                return new Vector2Int(-1, 0);
+            default:
+                return Vector2Int.zero;
+        }
+    }
+
+    bool IsGridCellOccupied(Vector2Int cell)
+    {
+        if (!useGridOccupancy)
+            return false;
+
+        RoomPlacement placement;
+        if (!placementsByCell.TryGetValue(cell, out placement))
+            return false;
+
+        if (placement != null && placement.room != null)
+            return true;
+
+        placementsByCell.Remove(cell);
+        return false;
+    }
+
+    bool IsConnectorTargetCellOccupied(RoomConnector connector)
+    {
+        if (!useGridOccupancy || connector == null || !connector.IsAvailable)
+            return false;
+
+        Vector2Int targetCell;
+        return TryGetConnectorTargetCell(connector, out targetCell) && IsGridCellOccupied(targetCell);
+    }
+
+    Bounds CalculateRoomBounds(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition != null && definition.size.x > 0f && definition.size.y > 0f && definition.size.z > 0f)
+            return definition.GetWorldBounds();
+
+        Bounds bounds;
+        if (TryCalculateChildBounds(room, out bounds))
+            return bounds;
+
+        return new Bounds(room != null ? room.transform.position : Vector3.zero, Vector3.one);
+    }
+
+    bool TryCalculateChildBounds(GameObject room, out Bounds bounds)
+    {
+        bounds = new Bounds(room != null ? room.transform.position : Vector3.zero, Vector3.zero);
+        if (room == null) return false;
+
+        bool hasBounds = false;
+
+        Renderer[] renderers = room.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null) continue;
+
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+                bounds.Encapsulate(renderer.bounds);
+        }
+
+        Collider[] colliders = room.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider collider = colliders[i];
+            if (collider == null) continue;
+
+            if (!hasBounds)
+            {
+                bounds = collider.bounds;
+                hasBounds = true;
+            }
+            else
+                bounds.Encapsulate(collider.bounds);
+        }
+
+        return hasBounds;
+    }
+
+    bool IntersectsExistingRoom(Bounds candidateBounds, out GameObject overlappingRoom)
+    {
+        overlappingRoom = null;
+        Bounds candidate = ShrinkBounds(candidateBounds);
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            RoomPlacement placement = pair.Value;
+            if (placement == null || placement.room == null) continue;
+
+            Bounds existing = ShrinkBounds(placement.bounds);
+            if (!candidate.Intersects(existing)) continue;
+
+            overlappingRoom = placement.room;
+            return true;
+        }
+
+        return false;
+    }
+
+    Bounds ShrinkBounds(Bounds bounds)
+    {
+        if (roomBoundsInset <= 0f)
+            return bounds;
+
+        Vector3 size = bounds.size;
+        float inset = roomBoundsInset * 2f;
+        size.x = Mathf.Max(0f, size.x - inset);
+        size.z = Mathf.Max(0f, size.z - inset);
+
+        return new Bounds(bounds.center, size);
+    }
+
+    void CloseBlockedConnector(RoomConnector connector)
+    {
+        if (connector == null) return;
+
+        openConnectors.Remove(connector);
+        connectorTargetCells.Remove(connector);
+
+        if (connector.IsAvailable)
+            connector.Close();
+    }
+
     void TrySpawnInitialTimeCamper()
     {
         if (initialEnemySpawned) return;
@@ -319,17 +676,19 @@ public class RoomGenerator : MonoBehaviour
         Vector3 offset = expansionPoint.position - entryPoint.position;
         room.transform.position += offset;
 
-        if (expansionConnector != null && entryConnector != null)
-        {
-            if (!ConnectRooms(expansionConnector, entryConnector))
-                return false;
-        }
-        else if (expansionConnector != null)
-        {
-            expansionConnector.Close();
-        }
+        return true;
+    }
 
-        CleanOpenConnectors();
+    bool FinalizeRoomConnection(GameObject room, RoomConnector expansionConnector)
+    {
+        if (expansionConnector == null)
+            return true;
+
+        RoomConnector entryConnector = GetCompatibleEntranceConnector(room, expansionConnector);
+        if (entryConnector != null)
+            return ConnectRooms(expansionConnector, entryConnector);
+
+        CloseBlockedConnector(expansionConnector);
         return true;
     }
 
@@ -346,6 +705,7 @@ public class RoomGenerator : MonoBehaviour
         }
 
         openConnectors.Remove(exitConnector);
+        connectorTargetCells.Remove(exitConnector);
         return true;
     }
 
@@ -452,14 +812,40 @@ public class RoomGenerator : MonoBehaviour
             if (connector == null || !connector.canBeExit || !connector.IsAvailable) continue;
             if (openConnectors.Contains(connector)) continue;
 
+            Vector2Int targetCell;
+            if (!TryGetConnectorTargetCell(connector, out targetCell))
+            {
+                CloseBlockedConnector(connector);
+                continue;
+            }
+
+            if (IsGridCellOccupied(targetCell))
+            {
+                CloseBlockedConnector(connector);
+                continue;
+            }
+
             openConnectors.Add(connector);
         }
     }
 
     void CleanOpenConnectors()
     {
-        openConnectors.RemoveAll(connector =>
-            connector == null || !connector.canBeExit || !connector.IsAvailable);
+        for (int i = openConnectors.Count - 1; i >= 0; i--)
+        {
+            RoomConnector connector = openConnectors[i];
+            if (connector == null || !connector.canBeExit || !connector.IsAvailable)
+            {
+                if (connector != null)
+                    connectorTargetCells.Remove(connector);
+
+                openConnectors.RemoveAt(i);
+                continue;
+            }
+
+            if (IsConnectorTargetCellOccupied(connector))
+                CloseBlockedConnector(connector);
+        }
     }
 
     void RemoveOpenConnectorsForRoom(GameObject room)
@@ -470,8 +856,14 @@ public class RoomGenerator : MonoBehaviour
         if (definition != null && definition.connectors != null)
         {
             for (int i = 0; i < definition.connectors.Length; i++)
-                openConnectors.Remove(definition.connectors[i]);
+            {
+                RoomConnector connector = definition.connectors[i];
+                openConnectors.Remove(connector);
+                connectorTargetCells.Remove(connector);
+            }
         }
+
+        UnregisterRoomPlacement(room);
 
         if (lastExitPoint != null && lastExitPoint.IsChildOf(room.transform))
             lastExitPoint = null;

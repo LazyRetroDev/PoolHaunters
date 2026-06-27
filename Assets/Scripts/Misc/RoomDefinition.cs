@@ -81,6 +81,28 @@ public class RoomDefinition : MonoBehaviour
         return maxInstancesPerRun < 0 || alreadyGenerated < maxInstancesPerRun;
     }
 
+    public Bounds GetWorldBounds()
+    {
+        Vector3 halfSize = size * 0.5f;
+        Vector3[] corners =
+        {
+            boundsCenter + new Vector3(-halfSize.x, -halfSize.y, -halfSize.z),
+            boundsCenter + new Vector3(-halfSize.x, -halfSize.y, halfSize.z),
+            boundsCenter + new Vector3(-halfSize.x, halfSize.y, -halfSize.z),
+            boundsCenter + new Vector3(-halfSize.x, halfSize.y, halfSize.z),
+            boundsCenter + new Vector3(halfSize.x, -halfSize.y, -halfSize.z),
+            boundsCenter + new Vector3(halfSize.x, -halfSize.y, halfSize.z),
+            boundsCenter + new Vector3(halfSize.x, halfSize.y, -halfSize.z),
+            boundsCenter + new Vector3(halfSize.x, halfSize.y, halfSize.z)
+        };
+
+        Bounds worldBounds = new Bounds(transform.TransformPoint(corners[0]), Vector3.zero);
+        for (int i = 1; i < corners.Length; i++)
+            worldBounds.Encapsulate(transform.TransformPoint(corners[i]));
+
+        return worldBounds;
+    }
+
     public bool TryGetEntrancePoint(out Transform point)
     {
         RoomConnector connector;
