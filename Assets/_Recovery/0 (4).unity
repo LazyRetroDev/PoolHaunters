@@ -5219,7 +5219,6 @@ GameObject:
   m_Component:
   - component: {fileID: 2054101547}
   - component: {fileID: 2054101546}
-  - component: {fileID: 2054101549}
   - component: {fileID: 2054101548}
   m_Layer: 0
   m_Name: RoomManager
@@ -5244,18 +5243,14 @@ MonoBehaviour:
   - {fileID: 5518195832547384517, guid: 3f63b3233c932ee4f94d87720ae3398e, type: 3}
   - {fileID: 5518195832547384517, guid: b44a448c86fa7fa479ecde1c4727b573, type: 3}
   - {fileID: 5518195832547384517, guid: e744ed5900fce1b4b8b0bc70b97a2cd7, type: 3}
-  - {fileID: 5518195832547384517, guid: cefd5a759c3680e4bb6508755e1a550b, type: 3}
-  - {fileID: 5518195832547384517, guid: 0334eefc1cfb218499afc13f8bbfb845, type: 3}
-  startingRoomCount: 3
-  maxGeneratedRooms: 25
-  keepGeneratedRoomsForBacktracking: 1
-  roomsToKeep: 0
+  startingRoomCount: 2
+  maxGeneratedRooms: 5
+  roomsToKeep: 5
   seed: 85
   useSelectedRunSeed: 1
   randomizeSeedWhenNoRunSelected: 0
   spawnTimeCamperAfterStartingRooms: 1
   resourceSpawner: {fileID: 2054101548}
-  progression: {fileID: 2054101549}
 --- !u!4 &2054101547
 Transform:
   m_ObjectHideFlags: 0
@@ -5324,43 +5319,6 @@ MonoBehaviour:
   spawnChanceMultiplier: 1
   requireNetworkObjectOnline: 1
   logInvalidNetworkPrefabs: 1
---- !u!114 &2054101549
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2054101545}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e321411a5d7849ebaea2b326fb90b7c8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::RoomProgressionController
-  useProgressionRules: 1
-  allowRoomsWithoutDefinition: 1
-  allowAnyWhenNoRuleMatches: 1
-  fallbackToAnyCategoryWhenNoPrefabMatches: 0
-  rules:
-  - label: Start
-    minimumRoomIndex: 0
-    maximumRoomIndex: 0
-    appliesToFinalRoom: 0
-    allowedCategories: 000000000100000002000000
-  - label: Early Run
-    minimumRoomIndex: 1
-    maximumRoomIndex: 2
-    appliesToFinalRoom: 0
-    allowedCategories: 01000000020000000400000005000000
-  - label: Mid Run
-    minimumRoomIndex: 3
-    maximumRoomIndex: -1
-    appliesToFinalRoom: 0
-    allowedCategories: 0100000002000000030000000400000005000000
-  - label: Final
-    minimumRoomIndex: 0
-    maximumRoomIndex: -1
-    appliesToFinalRoom: 1
-    allowedCategories: 06000000
 --- !u!1 &2057633103
 GameObject:
   m_ObjectHideFlags: 0

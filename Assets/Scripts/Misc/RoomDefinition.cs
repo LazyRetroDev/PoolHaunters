@@ -53,7 +53,10 @@ public class RoomDefinition : MonoBehaviour
     public Vector3 size = new Vector3(10f, 5f, 10f);
     public Vector3 boundsCenter = Vector3.zero;
 
-    [Header("Doors")]
+    [Header("Connectors")]
+    public RoomConnector[] connectors = new RoomConnector[0];
+
+    [Header("Legacy Doors")]
     public RoomDoorDefinition[] doors = new RoomDoorDefinition[0];
 
     public string DisplayName
@@ -66,6 +69,11 @@ public class RoomDefinition : MonoBehaviour
         get { return Mathf.Max(0f, spawnWeight); }
     }
 
+    public bool HasConnectorDefinitions
+    {
+        get { return HasAnyConnector(); }
+    }
+
     public bool CanSpawn(int alreadyGenerated)
     {
         if (EffectiveSpawnWeight <= 0f) return false;
@@ -75,6 +83,19 @@ public class RoomDefinition : MonoBehaviour
 
     public bool TryGetEntrancePoint(out Transform point)
     {
+        RoomConnector connector;
+        if (TryGetEntranceConnector(out connector))
+        {
+            point = connector.Point;
+            return point != null;
+        }
+
+        if (HasConnectorDefinitions)
+        {
+            point = null;
+            return false;
+        }
+
         RoomDoorDefinition door = FindDoor(candidate => candidate.canBeEntrance && candidate.point != null);
         point = door != null ? door.point : null;
         return point != null;
@@ -82,6 +103,19 @@ public class RoomDefinition : MonoBehaviour
 
     public bool TryGetExitPoint(out Transform point)
     {
+        RoomConnector connector;
+        if (TryGetExitConnector(out connector))
+        {
+            point = connector.Point;
+            return point != null;
+        }
+
+        if (HasConnectorDefinitions)
+        {
+            point = null;
+            return false;
+        }
+
         RoomDoorDefinition door = FindDoor(candidate => candidate.canBeExit && candidate.point != null);
         point = door != null ? door.point : null;
         return point != null;
@@ -89,9 +123,73 @@ public class RoomDefinition : MonoBehaviour
 
     public bool TryGetExitTrigger(out DoorTrigger trigger)
     {
+        RoomConnector connector;
+        if (TryGetExitConnector(out connector) && connector.Trigger != null)
+        {
+            trigger = connector.Trigger;
+            return true;
+        }
+
+        if (HasConnectorDefinitions)
+        {
+            trigger = null;
+            return false;
+        }
+
         RoomDoorDefinition door = FindDoor(candidate => candidate.canBeExit && candidate.trigger != null);
         trigger = door != null ? door.trigger : null;
         return trigger != null;
+    }
+
+    public bool TryGetEntranceConnector(out RoomConnector connector)
+    {
+        connector = FindConnector(candidate => candidate.canBeEntrance && candidate.IsAvailable);
+        return connector != null;
+    }
+
+    public bool TryGetEntranceConnector(RoomConnector source, out RoomConnector connector)
+    {
+        connector = FindConnector(candidate => source != null && source.CanConnectTo(candidate));
+        return connector != null;
+    }
+
+    public bool TryGetExitConnector(out RoomConnector connector)
+    {
+        connector = FindConnector(candidate => candidate.canBeExit && candidate.IsAvailable);
+        return connector != null;
+    }
+
+    public RoomConnector FindConnector(Predicate<RoomConnector> predicate)
+    {
+        if (connectors == null || predicate == null) return null;
+
+        for (int i = 0; i < connectors.Length; i++)
+        {
+            RoomConnector connector = connectors[i];
+            if (connector != null && predicate(connector))
+                return connector;
+        }
+
+        return null;
+    }
+
+    bool HasAnyConnector()
+    {
+        if (connectors == null) return false;
+
+        for (int i = 0; i < connectors.Length; i++)
+        {
+            if (connectors[i] != null)
+                return true;
+        }
+
+        return false;
+    }
+
+    [ContextMenu("Refresh Connectors")]
+    public void RefreshConnectors()
+    {
+        connectors = GetComponentsInChildren<RoomConnector>(true);
     }
 
     RoomDoorDefinition FindDoor(Predicate<RoomDoorDefinition> predicate)
@@ -111,6 +209,7 @@ public class RoomDefinition : MonoBehaviour
     void Reset()
     {
         roomName = gameObject.name;
+        RefreshConnectors();
 
         Transform entryPoint = transform.Find("DoorPoint_A");
         Transform exitPoint = transform.Find("DoorPoint_B");
@@ -160,6 +259,21 @@ public class RoomDefinition : MonoBehaviour
         Gizmos.color = new Color(0f, 0.7f, 1f, 0.9f);
         Gizmos.DrawWireCube(boundsCenter, size);
         Gizmos.matrix = previousMatrix;
+
+        if (connectors != null && connectors.Length > 0)
+        {
+            for (int i = 0; i < connectors.Length; i++)
+            {
+                RoomConnector connector = connectors[i];
+                if (connector == null) continue;
+
+                Gizmos.color = connector.canBeExit ? Color.green : Color.cyan;
+                Gizmos.DrawRay(connector.Point.position, connector.Point.forward * 1.25f);
+                Gizmos.DrawWireSphere(connector.Point.position, 0.25f);
+            }
+
+            return;
+        }
 
         if (doors == null) return;
 
