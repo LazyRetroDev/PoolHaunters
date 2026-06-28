@@ -48,6 +48,18 @@ public class RoomGenerator : MonoBehaviour
     [Min(1)]
     public int placementAttempts = 8;
 
+    [Header("NavMesh Links")]
+    public bool createNavMeshLinksBetweenRooms = true;
+
+    [Min(0.1f)]
+    public float navMeshLinkWidth = 2f;
+
+    [Min(0f)]
+    public float navMeshLinkWorldHeight = 0.75f;
+
+    [Min(0.1f)]
+    public float navMeshLinkHalfLength = 2f;
+
     private readonly List<GameObject> spawnedRooms = new List<GameObject>();
     private readonly List<NavMeshSurface> registeredSurfaces = new List<NavMeshSurface>();
     private readonly List<RoomConnector> openConnectors = new List<RoomConnector>();
@@ -59,10 +71,14 @@ public class RoomGenerator : MonoBehaviour
         new Dictionary<Vector2Int, RoomPlacement>();
     private readonly Dictionary<RoomConnector, Vector2Int> connectorTargetCells =
         new Dictionary<RoomConnector, Vector2Int>();
+    private readonly Dictionary<RoomConnector, NavMeshLink> navMeshLinksByConnector =
+        new Dictionary<RoomConnector, NavMeshLink>();
 
+    private Transform navMeshLinkRoot;
     private Transform lastExitPoint;
     private int generatedRoomCount;
     private bool initialEnemySpawned;
+    private bool mapConsolidated;
 
     void Awake()
     {
@@ -109,6 +125,9 @@ public class RoomGenerator : MonoBehaviour
 
     GameObject GenerateNextRoom(DoorTrigger trigger)
     {
+        if (mapConsolidated)
+            return null;
+
         if (roomPrefabs == null || roomPrefabs.Length == 0)
         {
             Debug.LogWarning("RoomGenerator has no room prefabs assigned.");
@@ -116,7 +135,10 @@ public class RoomGenerator : MonoBehaviour
         }
 
         if (maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms)
+        {
+            ConsolidateGeneratedMap();
             return null;
+        }
 
         RoomConnector expansionConnector = generatedRoomCount > 0
             ? GetExpansionConnector(trigger)
@@ -202,6 +224,9 @@ public class RoomGenerator : MonoBehaviour
             UpdateLegacyExitPoint(room);
 
             TrySpawnInitialTimeCamper();
+
+            if (ShouldConsolidateAfterRoom(room))
+                ConsolidateGeneratedMap();
 
             return room;
         }
@@ -640,6 +665,43 @@ public class RoomGenerator : MonoBehaviour
             connector.Close();
     }
 
+    bool ShouldConsolidateAfterRoom(GameObject room)
+    {
+        return IsFinalRoom(room) ||
+            maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms;
+    }
+
+    void ConsolidateGeneratedMap()
+    {
+        if (mapConsolidated)
+            return;
+
+        CleanOpenConnectors();
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject room = spawnedRooms[i];
+            RoomDefinition definition = GetRoomDefinition(room);
+            if (definition == null || definition.connectors == null) continue;
+
+            for (int j = 0; j < definition.connectors.Length; j++)
+            {
+                RoomConnector connector = definition.connectors[j];
+                if (connector == null) continue;
+
+                if (connector.IsAvailable)
+                    CloseBlockedConnector(connector);
+                else
+                    connectorTargetCells.Remove(connector);
+            }
+        }
+
+        openConnectors.Clear();
+        connectorTargetCells.Clear();
+        lastExitPoint = null;
+        mapConsolidated = true;
+    }
+
     void TrySpawnInitialTimeCamper()
     {
         if (initialEnemySpawned) return;
@@ -706,7 +768,78 @@ public class RoomGenerator : MonoBehaviour
 
         openConnectors.Remove(exitConnector);
         connectorTargetCells.Remove(exitConnector);
+        CreateNavMeshLink(exitConnector, entryConnector);
         return true;
+    }
+
+    void CreateNavMeshLink(RoomConnector first, RoomConnector second)
+    {
+        if (!createNavMeshLinksBetweenRooms) return;
+        if (first == null || second == null) return;
+        if (navMeshLinksByConnector.ContainsKey(first) ||
+            navMeshLinksByConnector.ContainsKey(second))
+        {
+            return;
+        }
+
+        Transform firstPoint = first.Point;
+        Transform secondPoint = second.Point;
+        if (firstPoint == null || secondPoint == null)
+            return;
+
+        Transform root = GetNavMeshLinkRoot();
+        Vector3 firstWorld = firstPoint.position;
+        Vector3 secondWorld = secondPoint.position;
+        Vector3 centerWorld = (firstWorld + secondWorld) * 0.5f;
+        centerWorld.y = navMeshLinkWorldHeight;
+
+        Vector3 linkDirection = secondWorld - firstWorld;
+        linkDirection.y = 0f;
+        if (linkDirection.sqrMagnitude <= 0.0001f)
+        {
+            linkDirection = firstPoint.forward;
+            linkDirection.y = 0f;
+        }
+        if (linkDirection.sqrMagnitude <= 0.0001f)
+            linkDirection = Vector3.forward;
+
+        GameObject linkObject = new GameObject(
+            $"NavMeshLink_{first.name}_to_{second.name}");
+        linkObject.transform.SetParent(root, worldPositionStays: false);
+        linkObject.transform.position = centerWorld;
+        linkObject.transform.rotation = Quaternion.LookRotation(
+            linkDirection.normalized,
+            Vector3.up);
+
+        NavMeshLink link = linkObject.AddComponent<NavMeshLink>();
+        link.agentTypeID = 0;
+        link.area = 0;
+        link.costModifier = -1f;
+        link.width = navMeshLinkWidth;
+        link.autoUpdate = true;
+        link.bidirectional = true;
+        link.activated = true;
+        link.startTransform = null;
+        link.endTransform = null;
+        link.startPoint = new Vector3(0f, 0f, -navMeshLinkHalfLength);
+        link.endPoint = new Vector3(0f, 0f, navMeshLinkHalfLength);
+
+        navMeshLinksByConnector[first] = link;
+        navMeshLinksByConnector[second] = link;
+    }
+
+    Transform GetNavMeshLinkRoot()
+    {
+        if (navMeshLinkRoot != null)
+            return navMeshLinkRoot;
+
+        GameObject root = new GameObject("Generated NavMesh Links");
+        root.transform.SetParent(transform, worldPositionStays: false);
+        root.transform.localPosition = Vector3.zero;
+        root.transform.localRotation = Quaternion.identity;
+        root.transform.localScale = Vector3.one;
+        navMeshLinkRoot = root.transform;
+        return navMeshLinkRoot;
     }
 
     void RegisterRoomDoors(GameObject room)
@@ -860,6 +993,7 @@ public class RoomGenerator : MonoBehaviour
                 RoomConnector connector = definition.connectors[i];
                 openConnectors.Remove(connector);
                 connectorTargetCells.Remove(connector);
+                RemoveNavMeshLink(connector);
             }
         }
 
@@ -867,6 +1001,28 @@ public class RoomGenerator : MonoBehaviour
 
         if (lastExitPoint != null && lastExitPoint.IsChildOf(room.transform))
             lastExitPoint = null;
+    }
+
+    void RemoveNavMeshLink(RoomConnector connector)
+    {
+        if (connector == null) return;
+
+        NavMeshLink link;
+        if (!navMeshLinksByConnector.TryGetValue(connector, out link))
+            return;
+
+        List<RoomConnector> linkedConnectors = new List<RoomConnector>();
+        foreach (KeyValuePair<RoomConnector, NavMeshLink> pair in navMeshLinksByConnector)
+        {
+            if (pair.Value == link)
+                linkedConnectors.Add(pair.Key);
+        }
+
+        for (int i = 0; i < linkedConnectors.Count; i++)
+            navMeshLinksByConnector.Remove(linkedConnectors[i]);
+
+        if (link != null)
+            Destroy(link.gameObject);
     }
 
     void UpdateLegacyExitPoint(GameObject room)
