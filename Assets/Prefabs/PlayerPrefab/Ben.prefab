@@ -507,6 +507,39 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!1 &5320912573018567741
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7620439176708316678}
+  m_Layer: 0
+  m_Name: CrouchRig
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7620439176708316678
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5320912573018567741}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 5164988989540843083}
+  - {fileID: 9141679602063570182}
+  m_Father: {fileID: 4164331239684833583}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5876010552818259310
 GameObject:
   m_ObjectHideFlags: 0
@@ -550,8 +583,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 5164988989540843083}
-  - {fileID: 9141679602063570182}
+  - {fileID: 7620439176708316678}
   - {fileID: 3862910919865987079}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -677,6 +709,7 @@ MonoBehaviour:
   inventorySize: 4
   pickupRange: 2.5
   holdPoint: {fileID: 9141679602063570182}
+  interactionCamera: {fileID: 0}
 --- !u!114 &-2216630742045660749
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -718,18 +751,32 @@ MonoBehaviour:
   walkSpeed: 5
   sprintSpeed: 9
   knockedOutCrawlSpeed: 1.35
+  jumpVelocity: 5.5
+  groundCheckRadius: 0.4
+  groundCheckDistance: 0.12
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  crouchSpeed: 2.5
+  crouchColliderHeight: 1.2
+  crouchView: {fileID: 0}
+  crouchViewOffset: 0.65
+  crouchTransitionSpeed: 10
   maxStamina: 100
   staminaDrainRate: 20
   staminaRegenRate: 10
   staminaRegenDelay: 1.5
   walkNoiseRadius: 4
   sprintNoiseRadius: 10
+  crouchNoiseRadius: 1.5
   walkStepInterval: 0.55
   sprintStepInterval: 0.32
+  crouchStepInterval: 0.8
   footstepAudioSource: {fileID: 3142785203711475369}
   walkFootstepClip: {fileID: 8300000, guid: db6f12d406ecbfb448c8d93dfd66e8bc, type: 3}
   sprintFootstepClip: {fileID: 8300000, guid: 83804f60148847540a44aa72f32c83f6, type: 3}
   footstepVolume: 0.75
+  crouchFootstepVolumeMultiplier: 0.45
 --- !u!114 &4854312114818106225
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -904,6 +951,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9d1e77e46c64d8e9b7f8d6cfbcfc101, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NetworkPlayerSetup
+  ShowTopMostFoldoutHeaderGroup: 1
   bindHudOnOwner: 1
   makeRemoteRigidbodyKinematic: 1
   disableRemotePlayerInput: 1
@@ -1167,13 +1215,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7834389552324939600}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.5, z: 0.213}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.5, z: 0.21300003}
   m_LocalScale: {x: 0.6869, y: 0.14296432, z: 0.7276106}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1273706754025834592}
-  m_Father: {fileID: 4164331239684833583}
+  m_Father: {fileID: 7620439176708316678}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!33 &4666752080719840141
 MeshFilter:
@@ -1279,7 +1327,7 @@ Transform:
   m_GameObject: {fileID: 7969586672308504942}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.393, y: 0.21151999, z: 0.496}
+  m_LocalPosition: {x: 0.39299998, y: 0.21151999, z: 0.49600002}
   m_LocalScale: {x: 0.2, y: 0.2, z: 0.2}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -1287,7 +1335,7 @@ Transform:
   - {fileID: 5145417583841494130}
   - {fileID: 5666291393103104687}
   - {fileID: 1631720706253967266}
-  m_Father: {fileID: 4164331239684833583}
+  m_Father: {fileID: 7620439176708316678}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &8111625908986316300
 MonoBehaviour:
