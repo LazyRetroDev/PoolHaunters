@@ -127,7 +127,10 @@ public class PlayerMovement : NetworkBehaviour
 
     public void OnCrouch(InputValue value)
     {
-        crouchRequested = acceptsInput && value.isPressed;
+        if (!acceptsInput || !value.isPressed)
+            return;
+
+        crouchRequested = !crouchRequested;
     }
 
     public void OnJump(InputValue value)
