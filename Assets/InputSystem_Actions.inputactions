@@ -95,6 +95,15 @@
                     "processors": "",
                     "interactions": "Press",
                     "initialStateCheck": false
+                },
+                {
+                    "name": "Throw",
+                    "type": "Button",
+                    "id": "bf8d21bc-6dd1-4c32-8120-4bef9beeb2ca",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "Press",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -491,6 +500,28 @@
                     "processors": "",
                     "groups": "",
                     "action": "Use",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "b2c5aa59-50ab-45ee-a211-b2194cbca238",
+                    "path": "<Keyboard>/g",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Throw",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f6ec01ce-1637-43c9-804d-54554b377b60",
+                    "path": "<Gamepad>/rightShoulder",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Throw",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }
