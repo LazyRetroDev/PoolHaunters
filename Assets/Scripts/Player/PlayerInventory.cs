@@ -10,6 +10,11 @@ public class PlayerInventory : MonoBehaviour
     [Header("Interaction")]
     public Camera interactionCamera;
 
+    [Header("Throwing")]
+    public float throwForce = 8f;
+    public float throwUpwardForce = 1.5f;
+    public float throwSpawnDistance = 1f;
+
     private Item[] slots;
     private int selectedSlot = 0;
     private PlayerStatus playerStatus;
@@ -53,6 +58,12 @@ public class PlayerInventory : MonoBehaviour
     {
         if (!value.isPressed || IsInventoryLocked()) return;
         UseSelectedItem();
+    }
+
+    public void OnThrow(InputValue value)
+    {
+        if (!value.isPressed || IsInventoryLocked()) return;
+        ThrowSelectedItem();
     }
 
     public void OnPrevious(InputValue value)
@@ -160,6 +171,52 @@ public class PlayerInventory : MonoBehaviour
         Debug.Log($"Used {item.itemName}.");
         if (usableItem.consumeOnUse)
             RemoveItem(item, destroyItem: true);
+    }
+
+    void ThrowSelectedItem()
+    {
+        if (slots == null || selectedSlot < 0 || selectedSlot >= slots.Length)
+            return;
+
+        Item item = slots[selectedSlot];
+        if (item == null)
+        {
+            Debug.Log("No item selected to throw.");
+            return;
+        }
+
+        Camera cameraToUse = GetInteractionCamera();
+        Transform throwOrigin = holdPoint != null
+            ? holdPoint
+            : cameraToUse != null ? cameraToUse.transform : transform;
+        Vector3 throwDirection = cameraToUse != null
+            ? cameraToUse.transform.forward
+            : transform.forward;
+        Vector3 spawnPosition = throwOrigin.position +
+            throwDirection.normalized * throwSpawnDistance;
+
+        slots[selectedSlot] = null;
+        item.transform.position = spawnPosition;
+        item.gameObject.SetActive(true);
+
+        Collider[] colliders = item.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+            colliders[i].enabled = true;
+
+        Rigidbody itemBody = item.GetComponent<Rigidbody>();
+        if (itemBody == null)
+            itemBody = item.gameObject.AddComponent<Rigidbody>();
+
+        itemBody.isKinematic = false;
+        itemBody.useGravity = true;
+        itemBody.linearVelocity = Vector3.zero;
+        itemBody.angularVelocity = Vector3.zero;
+        itemBody.AddForce(
+            throwDirection.normalized * throwForce +
+            Vector3.up * throwUpwardForce,
+            ForceMode.VelocityChange);
+
+        Debug.Log($"Threw {item.itemName} from slot {selectedSlot + 1}.");
     }
 
     public bool RemoveItem(Item item, bool destroyItem)
