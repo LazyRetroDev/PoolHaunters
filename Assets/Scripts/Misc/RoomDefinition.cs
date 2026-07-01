@@ -49,6 +49,14 @@ public class RoomDefinition : MonoBehaviour
 
     public bool canRepeat = true;
 
+    [Min(0)]
+    [Tooltip("The earliest generated-room index where this prefab may appear. The starting room is index 0.")]
+    public int minimumRoomIndex;
+
+    [Min(0)]
+    [Tooltip("How many other rooms must appear before this same prefab can repeat.")]
+    public int minimumRoomsBetweenRepeats;
+
     [Header("Layout")]
     public Vector3 size = new Vector3(10f, 5f, 10f);
     public Vector3 boundsCenter = Vector3.zero;
@@ -74,11 +82,22 @@ public class RoomDefinition : MonoBehaviour
         get { return HasAnyConnector(); }
     }
 
-    public bool CanSpawn(int alreadyGenerated)
+    public bool CanSpawn(
+        int alreadyGenerated,
+        int roomIndex,
+        int roomsSinceLastInstance)
     {
         if (EffectiveSpawnWeight <= 0f) return false;
+        if (roomIndex < minimumRoomIndex) return false;
         if (!canRepeat && alreadyGenerated > 0) return false;
-        return maxInstancesPerRun < 0 || alreadyGenerated < maxInstancesPerRun;
+        if (alreadyGenerated > 0 &&
+            roomsSinceLastInstance <= minimumRoomsBetweenRepeats)
+        {
+            return false;
+        }
+
+        return maxInstancesPerRun < 0 ||
+            alreadyGenerated < maxInstancesPerRun;
     }
 
     public Bounds GetWorldBounds()
@@ -268,6 +287,10 @@ public class RoomDefinition : MonoBehaviour
             roomName = gameObject.name;
 
         spawnWeight = Mathf.Max(0f, spawnWeight);
+        minimumRoomIndex = Mathf.Max(0, minimumRoomIndex);
+        minimumRoomsBetweenRepeats = Mathf.Max(
+            0,
+            minimumRoomsBetweenRepeats);
         size = new Vector3(
             Mathf.Max(0f, size.x),
             Mathf.Max(0f, size.y),
