@@ -710,6 +710,9 @@ MonoBehaviour:
   pickupRange: 2.5
   holdPoint: {fileID: 9141679602063570182}
   interactionCamera: {fileID: 0}
+  throwForce: 8
+  throwUpwardForce: 1.5
+  throwSpawnDistance: 1
 --- !u!114 &-2216630742045660749
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -751,7 +754,7 @@ MonoBehaviour:
   walkSpeed: 5
   sprintSpeed: 9
   knockedOutCrawlSpeed: 1.35
-  jumpVelocity: 5.5
+  jumpVelocity: 3.5
   groundCheckRadius: 0.4
   groundCheckDistance: 0.12
   groundLayers:

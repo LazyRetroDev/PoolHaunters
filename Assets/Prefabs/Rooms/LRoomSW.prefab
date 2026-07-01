@@ -698,6 +698,8 @@ MonoBehaviour:
   spawnWeight: 2
   maxInstancesPerRun: -1
   canRepeat: 1
+  minimumRoomIndex: 0
+  minimumRoomsBetweenRepeats: 0
   size: {x: 45, y: 8, z: 45}
   boundsCenter: {x: 0, y: 3.5, z: 0}
   connectors:

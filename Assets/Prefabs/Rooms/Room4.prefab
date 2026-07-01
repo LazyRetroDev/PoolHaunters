@@ -1103,6 +1103,8 @@ MonoBehaviour:
   spawnWeight: 1
   maxInstancesPerRun: 3
   canRepeat: 0
+  minimumRoomIndex: 0
+  minimumRoomsBetweenRepeats: 0
   size: {x: 50, y: 10, z: 45}
   boundsCenter: {x: 0.47, y: 3, z: -5.83}
   connectors:
@@ -1576,7 +1578,7 @@ Transform:
   m_GameObject: {fileID: 8667863957574595950}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: -4.0299997, y: 0, z: -12.660004}
+  m_LocalPosition: {x: -4.0299997, y: 0.45, z: -12.660004}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
