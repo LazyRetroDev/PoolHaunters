@@ -21,9 +21,31 @@ public class MainMenu : MonoBehaviour
     public bool randomizeRunSeed = true;
     public int fixedRunSeed = 0;
 
+    [Header("Lobby")]
+    public bool useLobbyMenuMockup = true;
+
     public void StartGame()
     {
-        RegionSceneEntry selectedRegion = ChooseStartingRegion();
+        if (useLobbyMenuMockup)
+        {
+            LobbyMenuMockup.Show(this);
+            return;
+        }
+
+        BeginGame(null);
+    }
+
+    public void StartGameFromLobby(string requestedRegion)
+    {
+        BeginGame(requestedRegion);
+    }
+
+    void BeginGame(string requestedRegion)
+    {
+        RegionSceneEntry selectedRegion = FindRegion(requestedRegion);
+        if (selectedRegion == null)
+            selectedRegion = ChooseStartingRegion();
+
         int runSeed = randomizeRunSeed ? UnityEngine.Random.Range(int.MinValue, int.MaxValue) : fixedRunSeed;
 
         if (selectedRegion == null || string.IsNullOrWhiteSpace(selectedRegion.sceneName))
@@ -35,6 +57,30 @@ public class MainMenu : MonoBehaviour
 
         RegionRunState.SelectRegion(selectedRegion.regionName, selectedRegion.sceneName, runSeed);
         SceneManager.LoadScene(selectedRegion.sceneName);
+    }
+
+    RegionSceneEntry FindRegion(string requestedRegion)
+    {
+        if (string.IsNullOrWhiteSpace(requestedRegion) ||
+            requestedRegion.Equals("Random", StringComparison.OrdinalIgnoreCase) ||
+            startingRegions == null)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < startingRegions.Length; i++)
+        {
+            RegionSceneEntry entry = startingRegions[i];
+            if (entry != null &&
+                entry.regionName.Equals(
+                    requestedRegion,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return entry;
+            }
+        }
+
+        return null;
     }
 
     RegionSceneEntry ChooseStartingRegion()
