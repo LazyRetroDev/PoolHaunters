@@ -809,9 +809,8 @@ public class RoomGenerator : MonoBehaviour
 
         Physics.SyncTransforms();
 
-        Vector3 center = (exitPoint.position + entryPoint.position) * 0.5f;
-        Vector3 up = exitPoint.up;
-        center += up * (doorwayClearanceHeight * 0.5f);
+        Vector3 center =
+            (exitPoint.position + entryPoint.position) * 0.5f;
 
         Vector3 halfExtents = new Vector3(
             doorwayClearanceWidth * 0.5f,
