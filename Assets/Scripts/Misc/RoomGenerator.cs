@@ -48,6 +48,20 @@ public class RoomGenerator : MonoBehaviour
     [Min(1)]
     public int placementAttempts = 8;
 
+    [Header("Doorway Validation")]
+    public bool validateConnectedDoorwayClearance = true;
+
+    [Min(0.1f)]
+    public float doorwayClearanceWidth = 1.2f;
+
+    [Min(0.1f)]
+    public float doorwayClearanceHeight = 4.5f;
+
+    [Min(0.1f)]
+    public float doorwayClearanceDepth = 2f;
+
+    public LayerMask doorwayBlockingLayers = ~0;
+
     [Header("NavMesh Links")]
     public bool createNavMeshLinksBetweenRooms = true;
 
@@ -188,6 +202,16 @@ public class RoomGenerator : MonoBehaviour
 
             if (generatedRoomCount > 0 && !AlignRoomToExpansion(room, expansionConnector, expansionPoint))
             {
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            if (generatedRoomCount > 0 &&
+                !HasClearConnectedDoorway(room, expansionConnector))
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator rejected {room.name}: connected doorway is blocked by room geometry.");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
                 continue;
@@ -759,6 +783,72 @@ public class RoomGenerator : MonoBehaviour
 
         Vector3 offset = expansionPoint.position - entryPoint.position;
         room.transform.position += offset;
+
+        return true;
+    }
+
+    bool HasClearConnectedDoorway(
+        GameObject room,
+        RoomConnector expansionConnector)
+    {
+        if (!validateConnectedDoorwayClearance)
+            return true;
+        if (room == null || expansionConnector == null)
+            return true;
+
+        RoomConnector entryConnector = GetCompatibleEntranceConnector(
+            room,
+            expansionConnector);
+        if (entryConnector == null)
+            return false;
+
+        Transform exitPoint = expansionConnector.Point;
+        Transform entryPoint = entryConnector.Point;
+        if (exitPoint == null || entryPoint == null)
+            return false;
+
+        Physics.SyncTransforms();
+
+        Vector3 center = (exitPoint.position + entryPoint.position) * 0.5f;
+        Vector3 up = exitPoint.up;
+        center += up * (doorwayClearanceHeight * 0.5f);
+
+        Vector3 halfExtents = new Vector3(
+            doorwayClearanceWidth * 0.5f,
+            doorwayClearanceHeight * 0.5f,
+            doorwayClearanceDepth * 0.5f);
+
+        Collider[] overlaps = Physics.OverlapBox(
+            center,
+            halfExtents,
+            exitPoint.rotation,
+            doorwayBlockingLayers,
+            QueryTriggerInteraction.Ignore);
+
+        RoomDefinition sourceDefinition =
+            expansionConnector.GetComponentInParent<RoomDefinition>();
+        Transform sourceRoom = sourceDefinition != null
+            ? sourceDefinition.transform
+            : null;
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            Collider blocker = overlaps[i];
+            if (blocker == null)
+                continue;
+
+            Transform blockerTransform = blocker.transform;
+            bool belongsToNewRoom =
+                blockerTransform.IsChildOf(room.transform);
+            bool belongsToSourceRoom =
+                sourceRoom != null &&
+                blockerTransform.IsChildOf(sourceRoom);
+
+            if (!belongsToNewRoom && !belongsToSourceRoom)
+                continue;
+
+            return false;
+        }
 
         return true;
     }
