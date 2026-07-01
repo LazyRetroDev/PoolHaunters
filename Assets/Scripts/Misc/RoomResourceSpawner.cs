@@ -39,6 +39,26 @@ public class RoomResourceSpawner : MonoBehaviour
     [Range(0f, 2f)]
     public float spawnChanceMultiplier = 1f;
 
+    [Header("Missing Spawn Point Fallback")]
+    public bool useFallbackSpawnPoints = true;
+
+    [Min(1)]
+    public int fallbackAttemptsPerRoom = 2;
+
+    [Range(0f, 1f)]
+    public float fallbackSpawnChance = 0.65f;
+
+    public RoomResourceCategory fallbackAllowedCategories =
+        RoomResourceCategory.All;
+
+    [Min(0f)]
+    public float fallbackEdgePadding = 1.25f;
+
+    [Min(0f)]
+    public float fallbackFloorOffset = 0.08f;
+
+    public LayerMask fallbackGroundLayers = ~0;
+
     [Header("Multiplayer")]
     [Tooltip("During a network session, resource prefabs must have a NetworkObject and be registered with NetworkManager.")]
     public bool requireNetworkObjectOnline = true;
@@ -56,11 +76,25 @@ public class RoomResourceSpawner : MonoBehaviour
         RoomResourceSpawnPoint[] spawnPoints =
             room.GetComponentsInChildren<RoomResourceSpawnPoint>(true);
 
-        if (spawnPoints == null || spawnPoints.Length == 0)
-            return;
-
-        System.Random random = new System.Random(CreateRoomSeed(runSeed, roomIndex));
+        System.Random random = new System.Random(
+            CreateRoomSeed(runSeed, roomIndex));
         List<GameObject> spawnedResources = new List<GameObject>();
+
+        if (spawnPoints == null || spawnPoints.Length == 0)
+        {
+            if (useFallbackSpawnPoints)
+            {
+                SpawnFallbackResources(
+                    room,
+                    roomIndex,
+                    random,
+                    spawnedResources);
+            }
+
+            if (spawnedResources.Count > 0)
+                resourcesByRoom[room] = spawnedResources;
+            return;
+        }
 
         for (int i = 0; i < spawnPoints.Length; i++)
         {
@@ -97,8 +131,151 @@ public class RoomResourceSpawner : MonoBehaviour
         resourcesByRoom.Remove(room);
     }
 
+    void SpawnFallbackResources(
+        GameObject room,
+        int roomIndex,
+        System.Random random,
+        List<GameObject> spawnedResources)
+    {
+        RoomDefinition definition = room.GetComponent<RoomDefinition>();
+        if (definition == null)
+            definition = room.GetComponentInChildren<RoomDefinition>(true);
+
+        if (definition == null)
+        {
+            Debug.LogWarning(
+                room.name +
+                " has no resource spawn points or RoomDefinition for fallback placement.");
+            return;
+        }
+
+        int attempts = Mathf.Max(1, fallbackAttemptsPerRoom);
+        for (int i = 0; i < attempts; i++)
+        {
+            if (random.NextDouble() > fallbackSpawnChance *
+                spawnChanceMultiplier)
+            {
+                continue;
+            }
+
+            ResourceEntry selected = ChooseResource(
+                fallbackAllowedCategories,
+                roomIndex,
+                random);
+            if (selected == null)
+                continue;
+
+            Vector3 position;
+            Quaternion rotation;
+            if (!TryGetFallbackSpawnPose(
+                definition,
+                random,
+                out position,
+                out rotation))
+            {
+                continue;
+            }
+
+            GameObject instance = SpawnResource(
+                selected,
+                position,
+                rotation);
+            if (instance != null)
+                spawnedResources.Add(instance);
+        }
+    }
+
+    bool TryGetFallbackSpawnPose(
+        RoomDefinition definition,
+        System.Random random,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        Vector3 size = definition.size;
+        float halfX = Mathf.Max(0f, size.x * 0.5f - fallbackEdgePadding);
+        float halfZ = Mathf.Max(0f, size.z * 0.5f - fallbackEdgePadding);
+        float localX = Mathf.Lerp(
+            -halfX,
+            halfX,
+            (float)random.NextDouble());
+        float localZ = Mathf.Lerp(
+            -halfZ,
+            halfZ,
+            (float)random.NextDouble());
+
+        Vector3 localTop = definition.boundsCenter +
+            new Vector3(localX, size.y * 0.5f + 1f, localZ);
+        Vector3 rayOrigin = definition.transform.TransformPoint(localTop);
+        Vector3 down = -definition.transform.up;
+        float rayDistance = Mathf.Max(3f, size.y + 3f);
+        RaycastHit[] hits = Physics.RaycastAll(
+            rayOrigin,
+            down,
+            rayDistance,
+            fallbackGroundLayers,
+            QueryTriggerInteraction.Ignore);
+
+        bool foundFloor = false;
+        RaycastHit floorHit = new RaycastHit();
+        float lowestHeight = float.PositiveInfinity;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (hit.collider == null ||
+                !hit.collider.transform.IsChildOf(definition.transform))
+            {
+                continue;
+            }
+
+            if (Vector3.Dot(hit.normal, definition.transform.up) < 0.5f)
+                continue;
+
+            float height = Vector3.Dot(
+                hit.point,
+                definition.transform.up);
+            if (height >= lowestHeight)
+                continue;
+
+            lowestHeight = height;
+            floorHit = hit;
+            foundFloor = true;
+        }
+
+        if (foundFloor)
+        {
+            position = floorHit.point +
+                definition.transform.up * fallbackFloorOffset;
+        }
+        else
+        {
+            Vector3 localFloor = definition.boundsCenter +
+                new Vector3(
+                    localX,
+                    -size.y * 0.5f + fallbackFloorOffset,
+                    localZ);
+            position = definition.transform.TransformPoint(localFloor);
+        }
+
+        float yaw = (float)random.NextDouble() * 360f;
+        rotation = Quaternion.AngleAxis(yaw, definition.transform.up) *
+            definition.transform.rotation;
+        return true;
+    }
+
     ResourceEntry ChooseResource(
         RoomResourceSpawnPoint point,
+        int roomIndex,
+        System.Random random)
+    {
+        return ChooseResource(
+            point.allowedCategories,
+            roomIndex,
+            random);
+    }
+
+    ResourceEntry ChooseResource(
+        RoomResourceCategory allowedCategories,
         int roomIndex,
         System.Random random)
     {
@@ -110,7 +287,7 @@ public class RoomResourceSpawner : MonoBehaviour
         {
             ResourceEntry entry = resources[i];
             if (entry == null || !entry.IsAvailableForRoom(roomIndex)) continue;
-            if (!point.Allows(entry.category)) continue;
+            if (!AllowsCategory(allowedCategories, entry.category)) continue;
             totalWeight += entry.weight;
         }
 
@@ -122,7 +299,7 @@ public class RoomResourceSpawner : MonoBehaviour
         {
             ResourceEntry entry = resources[i];
             if (entry == null || !entry.IsAvailableForRoom(roomIndex)) continue;
-            if (!point.Allows(entry.category)) continue;
+            if (!AllowsCategory(allowedCategories, entry.category)) continue;
 
             roll -= entry.weight;
             if (roll <= 0d)
@@ -130,6 +307,14 @@ public class RoomResourceSpawner : MonoBehaviour
         }
 
         return null;
+    }
+
+    bool AllowsCategory(
+        RoomResourceCategory allowedCategories,
+        RoomResourceCategory category)
+    {
+        return category != RoomResourceCategory.None &&
+            (allowedCategories & category) != RoomResourceCategory.None;
     }
 
     GameObject SpawnResource(ResourceEntry entry, Vector3 position, Quaternion rotation)
