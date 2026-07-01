@@ -65,6 +65,8 @@ public class RoomGenerator : MonoBehaviour
     private readonly List<RoomConnector> openConnectors = new List<RoomConnector>();
     private readonly Dictionary<GameObject, int> generatedPrefabCounts =
         new Dictionary<GameObject, int>();
+    private readonly Dictionary<GameObject, int> lastGeneratedPrefabIndices =
+        new Dictionary<GameObject, int>();
     private readonly Dictionary<GameObject, RoomPlacement> placementsByRoom =
         new Dictionary<GameObject, RoomPlacement>();
     private readonly Dictionary<Vector2Int, RoomPlacement> placementsByCell =
@@ -212,7 +214,7 @@ public class RoomGenerator : MonoBehaviour
             int roomIndex = generatedRoomCount;
             spawnedRooms.Add(room);
             RegisterRoomPlacement(placement);
-            TrackGeneratedPrefab(roomPrefab);
+            TrackGeneratedPrefab(roomPrefab, roomIndex);
             generatedRoomCount++;
 
             if (resourceSpawner != null)
@@ -367,8 +369,13 @@ public class RoomGenerator : MonoBehaviour
                 progression.AllowsRoom(null, generatedRoomCount, maxGeneratedRooms);
         }
 
-        if (!definition.CanSpawn(GetGeneratedPrefabCount(prefab)))
+        if (!definition.CanSpawn(
+            GetGeneratedPrefabCount(prefab),
+            generatedRoomCount,
+            GetRoomsSinceLastInstance(prefab)))
+        {
             return false;
+        }
 
         return progression == null ||
             !useProgressionFilter ||
@@ -387,10 +394,25 @@ public class RoomGenerator : MonoBehaviour
         return prefab != null && generatedPrefabCounts.TryGetValue(prefab, out count) ? count : 0;
     }
 
-    void TrackGeneratedPrefab(GameObject prefab)
+    int GetRoomsSinceLastInstance(GameObject prefab)
+    {
+        int lastIndex;
+        if (prefab == null ||
+            !lastGeneratedPrefabIndices.TryGetValue(prefab, out lastIndex))
+        {
+            return int.MaxValue;
+        }
+
+        return generatedRoomCount - lastIndex - 1;
+    }
+
+    void TrackGeneratedPrefab(GameObject prefab, int roomIndex)
     {
         if (prefab == null) return;
-        generatedPrefabCounts[prefab] = GetGeneratedPrefabCount(prefab) + 1;
+
+        generatedPrefabCounts[prefab] =
+            GetGeneratedPrefabCount(prefab) + 1;
+        lastGeneratedPrefabIndices[prefab] = roomIndex;
     }
 
     bool CanPlaceRoom(
