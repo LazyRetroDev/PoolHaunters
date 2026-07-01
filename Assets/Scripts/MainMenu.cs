@@ -72,7 +72,8 @@ public class MainMenu : MonoBehaviour
         {
             RegionSceneEntry entry = startingRegions[i];
             if (entry != null &&
-                entry.regionName.Equals(
+                string.Equals(
+                    entry.regionName,
                     requestedRegion,
                     StringComparison.OrdinalIgnoreCase))
             {
