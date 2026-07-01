@@ -91,7 +91,7 @@ public class RoomDefinition : MonoBehaviour
         if (roomIndex < minimumRoomIndex) return false;
         if (!canRepeat && alreadyGenerated > 0) return false;
         if (alreadyGenerated > 0 &&
-            roomsSinceLastInstance <= minimumRoomsBetweenRepeats)
+            roomsSinceLastInstance < minimumRoomsBetweenRepeats)
         {
             return false;
         }
