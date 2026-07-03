@@ -1,5 +1,6 @@
 using UnityEngine;
 using Unity.AI.Navigation;
+using System.Collections;
 using System.Collections.Generic;
 
 public class RoomGenerator : MonoBehaviour
@@ -11,10 +12,40 @@ public class RoomGenerator : MonoBehaviour
         public Bounds bounds;
     }
 
+    enum RoomGenerationRole
+    {
+        Any,
+        BranchMiddle,
+        BranchFinal
+    }
+
     [Header("Rooms")]
     public GameObject[] roomPrefabs;
     public int startingRoomCount = 2;
     public int maxGeneratedRooms = 0;
+
+    [Header("Full Map Generation")]
+    public bool generateFullMapOnStart;
+
+    [Min(1)]
+    public int minimumBranchCount = 3;
+
+    [Min(1)]
+    public int maximumBranchCount = 4;
+
+    [Min(1)]
+    [Tooltip("Total rooms generated per branch, including the final room.")]
+    public int minimumRoomsPerBranch = 3;
+
+    [Min(1)]
+    [Tooltip("Total rooms generated per branch, including the final room.")]
+    public int maximumRoomsPerBranch = 6;
+
+    [Min(1)]
+    public int branchGenerationAttempts = 8;
+
+    [Tooltip("Forces early branch rooms to leave extra exits until the minimum branch count is guaranteed.")]
+    public bool guaranteeMinimumBranchCount = true;
 
     [Tooltip("Keep enabled while the player can walk back through already generated rooms.")]
     public bool keepGeneratedRoomsForBacktracking = true;
@@ -95,6 +126,7 @@ public class RoomGenerator : MonoBehaviour
     private int generatedRoomCount;
     private bool initialEnemySpawned;
     private bool mapConsolidated;
+    private bool isGeneratingFullMap;
 
     void Awake()
     {
@@ -109,6 +141,12 @@ public class RoomGenerator : MonoBehaviour
     {
         ResolveRunSeed();
         Random.InitState(seed);
+
+        if (generateFullMapOnStart)
+        {
+            GenerateFullMap();
+            return;
+        }
 
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
@@ -150,7 +188,9 @@ public class RoomGenerator : MonoBehaviour
             return null;
         }
 
-        if (maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms)
+        if (!isGeneratingFullMap &&
+            maxGeneratedRooms > 0 &&
+            generatedRoomCount >= maxGeneratedRooms)
         {
             ConsolidateGeneratedMap();
             return null;
@@ -235,25 +275,277 @@ public class RoomGenerator : MonoBehaviour
                 continue;
             }
 
-            int roomIndex = generatedRoomCount;
-            spawnedRooms.Add(room);
-            RegisterRoomPlacement(placement);
-            TrackGeneratedPrefab(roomPrefab, roomIndex);
-            generatedRoomCount++;
-
-            if (resourceSpawner != null)
-                resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
-
-            RegisterRoomDoors(room);
-            RegisterRoomNavMesh(room);
-            AddOpenConnectors(room);
-            UpdateLegacyExitPoint(room);
-
-            TrySpawnInitialTimeCamper();
+            CompleteRoomGeneration(room, roomPrefab, placement);
 
             if (ShouldConsolidateAfterRoom(room))
                 ConsolidateGeneratedMap();
 
+            return room;
+        }
+
+        if (blockedByPlacement)
+            CloseBlockedConnector(expansionConnector);
+
+        return null;
+    }
+
+    void CompleteRoomGeneration(GameObject room, GameObject roomPrefab, RoomPlacement placement)
+    {
+        int roomIndex = generatedRoomCount;
+        spawnedRooms.Add(room);
+        RegisterRoomPlacement(placement);
+        TrackGeneratedPrefab(roomPrefab, roomIndex);
+        generatedRoomCount++;
+
+        if (resourceSpawner != null)
+            resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
+
+        RegisterRoomDoors(room);
+        RegisterRoomNavMesh(room);
+        AddOpenConnectors(room);
+        UpdateLegacyExitPoint(room);
+
+        TrySpawnInitialTimeCamper();
+    }
+
+    void GenerateFullMap()
+    {
+        if (roomPrefabs == null || roomPrefabs.Length == 0)
+        {
+            Debug.LogWarning("RoomGenerator has no room prefabs assigned.");
+            return;
+        }
+
+        isGeneratingFullMap = true;
+
+        try
+        {
+            GameObject startRoom = GenerateNextRoom();
+            if (startRoom == null)
+                return;
+
+            int requiredBranchCount = Mathf.Max(1, minimumBranchCount);
+            int branchCount = Mathf.Max(
+                requiredBranchCount,
+                GetRandomConfiguredValue(
+                    minimumBranchCount,
+                    maximumBranchCount));
+            int completedBranches = 0;
+            int branchBuildAttempts = 0;
+            int maxBranchBuildAttempts = Mathf.Max(branchCount, requiredBranchCount) * 2;
+
+            while (completedBranches < branchCount &&
+                branchBuildAttempts < maxBranchBuildAttempts)
+            {
+                branchBuildAttempts++;
+
+                RoomConnector branchStart = ChooseBestOpenConnector();
+                if (branchStart == null)
+                {
+                    Debug.LogWarning(
+                        $"RoomGenerator stopped full map generation after {completedBranches} branches because no open connector was available.");
+                    break;
+                }
+
+                int branchRoomCount = GetRandomConfiguredValue(
+                    minimumRoomsPerBranch,
+                    maximumRoomsPerBranch);
+                int futureBranchStartsNeeded = guaranteeMinimumBranchCount
+                    ? Mathf.Max(0, requiredBranchCount - completedBranches - 1)
+                    : 0;
+
+                if (GenerateBranch(
+                    branchStart,
+                    branchRoomCount,
+                    futureBranchStartsNeeded))
+                {
+                    completedBranches++;
+                }
+            }
+
+            ConsolidateGeneratedMap();
+
+            if (completedBranches < requiredBranchCount)
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator completed {completedBranches}/{requiredBranchCount} required branches. Add more multi-exit compatible room prefabs or increase branch length to guarantee the minimum.");
+            }
+
+            Debug.Log(
+                $"RoomGenerator generated full map with {generatedRoomCount} rooms and {completedBranches}/{branchCount} completed branches.");
+        }
+        finally
+        {
+            isGeneratingFullMap = false;
+        }
+    }
+
+    int GetRandomConfiguredValue(int firstValue, int secondValue)
+    {
+        int minValue = Mathf.Max(1, Mathf.Min(firstValue, secondValue));
+        int maxValue = Mathf.Max(minValue, Mathf.Max(firstValue, secondValue));
+
+        return Random.Range(minValue, maxValue + 1);
+    }
+
+    bool GenerateBranch(
+        RoomConnector branchStart,
+        int roomCount,
+        int futureBranchStartsNeeded)
+    {
+        RoomConnector currentConnector = branchStart;
+        int roomsToGenerate = Mathf.Max(1, roomCount);
+
+        for (int i = 0; i < roomsToGenerate; i++)
+        {
+            bool finalStep = i == roomsToGenerate - 1;
+            RoomGenerationRole role = finalStep
+                ? RoomGenerationRole.BranchFinal
+                : RoomGenerationRole.BranchMiddle;
+            int minimumOpenExits = 0;
+
+            if (!finalStep)
+            {
+                minimumOpenExits = 1;
+
+                if (futureBranchStartsNeeded > 0)
+                {
+                    int availableFutureStarts =
+                        CountViableOpenConnectors(currentConnector);
+                    if (availableFutureStarts < futureBranchStartsNeeded)
+                        minimumOpenExits = 2;
+                }
+            }
+
+            RoomConnector nextConnector;
+            GameObject generatedRoom = GenerateRoomFromConnector(
+                currentConnector,
+                role,
+                requireContinuation: !finalStep,
+                minimumOpenExits: minimumOpenExits,
+                out nextConnector);
+
+            if (generatedRoom == null)
+            {
+                CloseBlockedConnector(currentConnector);
+                return false;
+            }
+
+            currentConnector = nextConnector;
+        }
+
+        return true;
+    }
+
+    GameObject GenerateRoomFromConnector(
+        RoomConnector expansionConnector,
+        RoomGenerationRole role,
+        bool requireContinuation,
+        int minimumOpenExits,
+        out RoomConnector continuationConnector)
+    {
+        continuationConnector = null;
+
+        if (mapConsolidated)
+            return null;
+
+        if (expansionConnector == null || !expansionConnector.IsAvailable)
+            return null;
+
+        Transform expansionPoint = expansionConnector.Point;
+        if (expansionPoint == null)
+        {
+            CloseBlockedConnector(expansionConnector);
+            return null;
+        }
+
+        Vector2Int targetCell;
+        if (!TryGetRoomTargetCell(expansionConnector, out targetCell))
+        {
+            CloseBlockedConnector(expansionConnector);
+            return null;
+        }
+
+        if (IsGridCellOccupied(targetCell))
+        {
+            CloseBlockedConnector(expansionConnector);
+            return null;
+        }
+
+        List<GameObject> rejectedPrefabs = new List<GameObject>();
+        int attempts = Mathf.Max(1, branchGenerationAttempts);
+        bool blockedByPlacement = false;
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            GameObject roomPrefab = ChooseRoomPrefabForRole(
+                expansionConnector,
+                rejectedPrefabs,
+                role);
+
+            if (roomPrefab == null)
+                break;
+
+            GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
+
+            if (!AlignRoomToExpansion(room, expansionConnector, expansionPoint))
+            {
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            if (!HasClearConnectedDoorway(room, expansionConnector))
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator rejected {room.name}: connected doorway is blocked by room geometry.");
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            RoomPlacement placement;
+            string rejectionReason;
+            if (!CanPlaceRoom(room, targetCell, out placement, out rejectionReason))
+            {
+                Debug.LogWarning($"RoomGenerator rejected {room.name}: {rejectionReason}");
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                blockedByPlacement = true;
+                continue;
+            }
+
+            RoomConnector entryConnector = GetCompatibleEntranceConnector(
+                room,
+                expansionConnector);
+            RoomConnector selectedContinuation = null;
+            int openExitCount = 0;
+
+            if (requireContinuation &&
+                !TryGetBestContinuationConnector(
+                    room,
+                    placement,
+                    entryConnector,
+                    Mathf.Max(1, minimumOpenExits),
+                    out selectedContinuation,
+                    out openExitCount))
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator rejected {room.name}: only {openExitCount} free exit(s), but {Mathf.Max(1, minimumOpenExits)} are needed to keep the branch plan valid.");
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            if (!FinalizeRoomConnection(room, expansionConnector))
+            {
+                Destroy(room);
+                rejectedPrefabs.Add(roomPrefab);
+                continue;
+            }
+
+            CompleteRoomGeneration(room, roomPrefab, placement);
+            continuationConnector = selectedContinuation;
             return room;
         }
 
@@ -319,6 +611,90 @@ public class RoomGenerator : MonoBehaviour
         return null;
     }
 
+    GameObject ChooseRoomPrefabForRole(
+        RoomConnector expansionConnector,
+        List<GameObject> rejectedPrefabs,
+        RoomGenerationRole role)
+    {
+        float totalWeight = 0f;
+
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
+            if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
+            totalWeight += GetRoomPrefabWeight(prefab);
+        }
+
+        if (totalWeight <= 0f)
+            return null;
+
+        float roll = Random.Range(0f, totalWeight);
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
+            if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
+
+            roll -= GetRoomPrefabWeight(prefab);
+            if (roll <= 0f)
+                return prefab;
+        }
+
+        return null;
+    }
+
+    bool CanSpawnRoomPrefabForRole(GameObject prefab, RoomGenerationRole role)
+    {
+        if (role == RoomGenerationRole.Any)
+            return CanSpawnRoomPrefab(prefab, useProgressionFilter: true);
+
+        if (prefab == null)
+            return false;
+
+        RoomDefinition definition = GetRoomDefinition(prefab);
+        if (definition == null)
+            return false;
+
+        if (!definition.CanSpawn(
+            GetGeneratedPrefabCount(prefab),
+            generatedRoomCount,
+            GetRoomsSinceLastInstance(prefab)))
+        {
+            return false;
+        }
+
+        switch (role)
+        {
+            case RoomGenerationRole.BranchFinal:
+                return definition.category == RoomCategory.Final;
+
+            case RoomGenerationRole.BranchMiddle:
+                return definition.category != RoomCategory.Final &&
+                    HasExitConnector(definition);
+
+            default:
+                return true;
+        }
+    }
+
+    bool HasExitConnector(RoomDefinition definition)
+    {
+        if (definition == null || definition.connectors == null)
+            return false;
+
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector != null && connector.canBeExit)
+                return true;
+        }
+
+        return false;
+    }
+
     bool IsPrefabRejected(GameObject prefab, List<GameObject> rejectedPrefabs)
     {
         return prefab != null && rejectedPrefabs != null && rejectedPrefabs.Contains(prefab);
@@ -352,6 +728,40 @@ public class RoomGenerator : MonoBehaviour
         return openConnectors[Random.Range(0, openConnectors.Count)];
     }
 
+    RoomConnector ChooseBestOpenConnector()
+    {
+        CleanOpenConnectors();
+
+        RoomConnector bestConnector = null;
+        int bestScore = int.MinValue;
+
+        for (int i = 0; i < openConnectors.Count; i++)
+        {
+            RoomConnector connector = openConnectors[i];
+            if (connector == null || !connector.IsAvailable)
+                continue;
+
+            Vector2Int targetCell;
+            if (!TryGetConnectorTargetCell(connector, out targetCell))
+                continue;
+
+            if (IsGridCellOccupied(targetCell))
+                continue;
+
+            int score = CountFreeNeighborCells(targetCell);
+            bool beatsCurrent = bestConnector == null || score > bestScore;
+            bool breaksTie = score == bestScore && Random.value < 0.5f;
+
+            if (beatsCurrent || breaksTie)
+            {
+                bestConnector = connector;
+                bestScore = score;
+            }
+        }
+
+        return bestConnector;
+    }
+
     RoomConnector FindOpenConnectorForTrigger(DoorTrigger trigger)
     {
         if (trigger == null) return null;
@@ -379,6 +789,96 @@ public class RoomGenerator : MonoBehaviour
         }
 
         return prefab.transform.Find("DoorPoint_A") != null;
+    }
+
+    bool TryGetBestContinuationConnector(
+        GameObject room,
+        RoomPlacement placement,
+        RoomConnector excludedConnector,
+        int minimumOpenExitCount,
+        out RoomConnector continuationConnector,
+        out int openExitCount)
+    {
+        continuationConnector = null;
+        openExitCount = 0;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null || placement == null)
+            return false;
+
+        int bestScore = int.MinValue;
+
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector == null || connector == excludedConnector)
+                continue;
+            if (!connector.canBeExit || !connector.IsAvailable)
+                continue;
+
+            Vector2Int step = GetConnectorStep(connector);
+            if (step == Vector2Int.zero)
+                continue;
+
+            Vector2Int targetCell = placement.cell + step;
+            if (IsGridCellOccupied(targetCell))
+                continue;
+
+            openExitCount++;
+
+            int score = CountFreeNeighborCells(targetCell);
+            bool beatsCurrent =
+                continuationConnector == null ||
+                score > bestScore;
+            bool breaksTie = score == bestScore && Random.value < 0.5f;
+
+            if (beatsCurrent || breaksTie)
+            {
+                continuationConnector = connector;
+                bestScore = score;
+            }
+        }
+
+        return continuationConnector != null &&
+            openExitCount >= Mathf.Max(1, minimumOpenExitCount);
+    }
+
+    int CountViableOpenConnectors(RoomConnector excludedConnector)
+    {
+        CleanOpenConnectors();
+
+        int count = 0;
+        for (int i = 0; i < openConnectors.Count; i++)
+        {
+            RoomConnector connector = openConnectors[i];
+            if (connector == null || connector == excludedConnector)
+                continue;
+            if (!connector.IsAvailable)
+                continue;
+
+            Vector2Int targetCell;
+            if (!TryGetConnectorTargetCell(connector, out targetCell))
+                continue;
+
+            if (IsGridCellOccupied(targetCell))
+                continue;
+
+            count++;
+        }
+
+        return count;
+    }
+
+    int CountFreeNeighborCells(Vector2Int cell)
+    {
+        int count = 0;
+
+        if (!IsGridCellOccupied(cell + Vector2Int.up)) count++;
+        if (!IsGridCellOccupied(cell + Vector2Int.down)) count++;
+        if (!IsGridCellOccupied(cell + Vector2Int.left)) count++;
+        if (!IsGridCellOccupied(cell + Vector2Int.right)) count++;
+
+        return count;
     }
 
     bool CanSpawnRoomPrefab(GameObject prefab, bool useProgressionFilter)
@@ -713,6 +1213,9 @@ public class RoomGenerator : MonoBehaviour
 
     bool ShouldConsolidateAfterRoom(GameObject room)
     {
+        if (isGeneratingFullMap)
+            return false;
+
         return IsFinalRoom(room) ||
             maxGeneratedRooms > 0 && generatedRoomCount >= maxGeneratedRooms;
     }
@@ -879,7 +1382,6 @@ public class RoomGenerator : MonoBehaviour
 
         openConnectors.Remove(exitConnector);
         connectorTargetCells.Remove(exitConnector);
-        CreateNavMeshLink(exitConnector, entryConnector);
         return true;
     }
 
@@ -1176,8 +1678,82 @@ public class RoomGenerator : MonoBehaviour
             return;
         }
 
+        Physics.SyncTransforms();
         registeredSurfaces.Add(surface);
         EnemySpawner.Instance.RegisterSurface(surface, buildNow: true);
+        CreateNavMeshLinksForRoom(room);
+        RefreshNavMeshLinksForRoom(room);
+        StartCoroutine(RefreshNavMeshLinksForRoomAfterNavMeshUpdate(room));
+    }
+
+    void CreateNavMeshLinksForRoom(GameObject room)
+    {
+        if (!createNavMeshLinksBetweenRooms || room == null)
+            return;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null)
+            return;
+
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector == null || connector.ConnectedTo == null)
+                continue;
+
+            CreateNavMeshLink(connector, connector.ConnectedTo);
+        }
+    }
+
+    void RefreshNavMeshLinksForRoom(GameObject room)
+    {
+        if (!createNavMeshLinksBetweenRooms || room == null)
+            return;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null)
+            return;
+
+        List<NavMeshLink> refreshedLinks = new List<NavMeshLink>();
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector == null) continue;
+
+            NavMeshLink link;
+            if (!navMeshLinksByConnector.TryGetValue(connector, out link))
+                continue;
+            if (link == null || refreshedLinks.Contains(link))
+                continue;
+
+            ForceRefreshNavMeshLink(link);
+            refreshedLinks.Add(link);
+        }
+    }
+
+    IEnumerator RefreshNavMeshLinksForRoomAfterNavMeshUpdate(GameObject room)
+    {
+        yield return null;
+        RefreshNavMeshLinksForRoom(room);
+
+        yield return null;
+        RefreshNavMeshLinksForRoom(room);
+    }
+
+    void ForceRefreshNavMeshLink(NavMeshLink link)
+    {
+        if (link == null)
+            return;
+
+        link.UpdateLink();
+
+        Transform linkTransform = link.transform;
+        Vector3 originalPosition = linkTransform.position;
+        linkTransform.position = originalPosition + Vector3.up * 0.001f;
+        link.UpdateLink();
+
+        linkTransform.position = originalPosition;
+        link.UpdateLink();
     }
 
     void CullOldRooms()

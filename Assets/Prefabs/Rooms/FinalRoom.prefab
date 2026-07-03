@@ -417,9 +417,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomDefinition
   roomName: DefaultRoom
   category: 6
-  spawnWeight: 1
+  spawnWeight: 3
   maxInstancesPerRun: 3
   canRepeat: 0
+  minimumRoomIndex: 0
+  minimumRoomsBetweenRepeats: 0
   size: {x: 45, y: 8, z: 45}
   boundsCenter: {x: 0, y: 3.5, z: 0}
   connectors:

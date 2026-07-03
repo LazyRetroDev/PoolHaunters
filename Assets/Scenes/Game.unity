@@ -5930,11 +5930,18 @@ MonoBehaviour:
   - {fileID: 3378611166528902296, guid: 8f51da85525f1a142bc0ca6d9d6a1a55, type: 3}
   - {fileID: 3378611166528902296, guid: 5f9b88c71e5343941a1a5069769acf00, type: 3}
   - {fileID: 3378611166528902296, guid: 20f7c2250cdda38468ef0662bca58c1f, type: 3}
-  startingRoomCount: 3
+  startingRoomCount: 2
   maxGeneratedRooms: 25
+  generateFullMapOnStart: 1
+  minimumBranchCount: 4
+  maximumBranchCount: 6
+  minimumRoomsPerBranch: 8
+  maximumRoomsPerBranch: 12
+  branchGenerationAttempts: 200
+  guaranteeMinimumBranchCount: 1
   keepGeneratedRoomsForBacktracking: 1
   roomsToKeep: 0
-  seed: 85
+  seed: 0
   useSelectedRunSeed: 0
   randomizeSeedWhenNoRunSelected: 1
   spawnTimeCamperAfterStartingRooms: 1
@@ -5943,7 +5950,7 @@ MonoBehaviour:
   useGridOccupancy: 1
   useBoundsOverlapCheck: 1
   roomBoundsInset: 0.25
-  placementAttempts: 8
+  placementAttempts: 100
   validateConnectedDoorwayClearance: 1
   doorwayClearanceWidth: 1.2
   doorwayClearanceHeight: 4.5
@@ -5953,7 +5960,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   createNavMeshLinksBetweenRooms: 1
   navMeshLinkWidth: 2
-  navMeshLinkWorldHeight: 0.5
+  navMeshLinkWorldHeight: 0.57
   navMeshLinkHalfLength: 2
 --- !u!4 &2054101547
 Transform:
@@ -6058,15 +6065,15 @@ MonoBehaviour:
     minimumRoomIndex: 1
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
-    allowedCategories: 01000000020000000400000005000000
+    allowedCategories: 010000000200000004000000
   - label: Mid Run
     minimumRoomIndex: 3
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
-    allowedCategories: 0100000002000000030000000400000005000000
+    allowedCategories: 01000000020000000300000004000000
   - label: Final
-    minimumRoomIndex: 0
-    maximumRoomIndex: -1
+    minimumRoomIndex: 1
+    maximumRoomIndex: 3
     appliesToFinalRoom: 1
     allowedCategories: 06000000
 --- !u!1 &2057633103
