@@ -5933,12 +5933,17 @@ MonoBehaviour:
   startingRoomCount: 2
   maxGeneratedRooms: 25
   generateFullMapOnStart: 1
-  minimumBranchCount: 4
-  maximumBranchCount: 6
-  minimumRoomsPerBranch: 8
-  maximumRoomsPerBranch: 12
-  branchGenerationAttempts: 200
+  minimumBranchCount: 2
+  maximumBranchCount: 4
+  minimumRoomsPerBranch: 4
+  maximumRoomsPerBranch: 8
+  branchGenerationAttempts: 50
   guaranteeMinimumBranchCount: 1
+  allowRepeatingFinalRoomsForBranches: 1
+  validateFullMapAfterGeneration: 1
+  fullMapGenerationAttempts: 20
+  validateClosedDoorObjects: 1
+  validateConnectedNavMeshLinks: 1
   keepGeneratedRoomsForBacktracking: 1
   roomsToKeep: 0
   seed: 0
@@ -5950,7 +5955,7 @@ MonoBehaviour:
   useGridOccupancy: 1
   useBoundsOverlapCheck: 1
   roomBoundsInset: 0.25
-  placementAttempts: 100
+  placementAttempts: 50
   validateConnectedDoorwayClearance: 1
   doorwayClearanceWidth: 1.2
   doorwayClearanceHeight: 4.5
@@ -6033,7 +6038,7 @@ MonoBehaviour:
   fallbackSpawnChance: 0.65
   fallbackAllowedCategories: -1
   fallbackEdgePadding: 1.25
-  fallbackFloorOffset: 2
+  fallbackFloorOffset: 1
   fallbackGroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -6062,18 +6067,18 @@ MonoBehaviour:
     appliesToFinalRoom: 0
     allowedCategories: 00000000
   - label: Early Run
-    minimumRoomIndex: 1
+    minimumRoomIndex: 0
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
     allowedCategories: 010000000200000004000000
   - label: Mid Run
-    minimumRoomIndex: 3
+    minimumRoomIndex: 0
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
     allowedCategories: 01000000020000000300000004000000
   - label: Final
-    minimumRoomIndex: 1
-    maximumRoomIndex: 3
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
     appliesToFinalRoom: 1
     allowedCategories: 06000000
 --- !u!1 &2057633103

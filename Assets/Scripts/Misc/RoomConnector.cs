@@ -10,6 +10,8 @@ public enum RoomConnectorState
 [DisallowMultipleComponent]
 public class RoomConnector : MonoBehaviour
 {
+    const string ClosedDoorChildName = "ClosedDoor";
+
     [Header("Identity")]
     public string id = "Connector";
 
@@ -25,6 +27,7 @@ public class RoomConnector : MonoBehaviour
 
     [SerializeField] private RoomConnectorState state = RoomConnectorState.Open;
     [SerializeField] private RoomConnector connectedTo;
+    [SerializeField] private GameObject closedDoor;
 
     public RoomConnectorState State
     {
@@ -59,6 +62,7 @@ public class RoomConnector : MonoBehaviour
 
     void Awake()
     {
+        CacheClosedDoor();
         ResetRuntimeState();
     }
 
@@ -66,6 +70,7 @@ public class RoomConnector : MonoBehaviour
     {
         connectedTo = null;
         state = startsOpen ? RoomConnectorState.Open : RoomConnectorState.Closed;
+        ApplyClosedDoorState();
     }
 
     public bool CanConnectTo(RoomConnector other)
@@ -89,6 +94,9 @@ public class RoomConnector : MonoBehaviour
 
         other.connectedTo = this;
         other.state = RoomConnectorState.Connected;
+
+        ApplyClosedDoorState();
+        other.ApplyClosedDoorState();
         return true;
     }
 
@@ -96,12 +104,33 @@ public class RoomConnector : MonoBehaviour
     {
         connectedTo = null;
         state = RoomConnectorState.Open;
+        ApplyClosedDoorState();
     }
 
     public void Close()
     {
         connectedTo = null;
         state = RoomConnectorState.Closed;
+        ApplyClosedDoorState();
+    }
+
+    void CacheClosedDoor()
+    {
+        if (closedDoor != null)
+            return;
+
+        Transform closedDoorTransform = transform.Find(ClosedDoorChildName);
+        if (closedDoorTransform != null)
+            closedDoor = closedDoorTransform.gameObject;
+    }
+
+    void ApplyClosedDoorState()
+    {
+        CacheClosedDoor();
+        if (closedDoor == null)
+            return;
+
+        closedDoor.SetActive(state == RoomConnectorState.Closed);
     }
 
     bool DirectionsAreCompatible(RoomDoorDirection first, RoomDoorDirection second)
@@ -120,6 +149,7 @@ public class RoomConnector : MonoBehaviour
     {
         id = gameObject.name;
         trigger = GetComponent<DoorTrigger>();
+        CacheClosedDoor();
         ResetRuntimeState();
     }
 
@@ -131,8 +161,12 @@ public class RoomConnector : MonoBehaviour
         if (trigger == null)
             trigger = GetComponent<DoorTrigger>();
 
+        CacheClosedDoor();
+
         if (!Application.isPlaying)
             state = startsOpen ? RoomConnectorState.Open : RoomConnectorState.Closed;
+
+        ApplyClosedDoorState();
     }
 
     void OnDrawGizmos()
