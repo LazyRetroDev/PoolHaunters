@@ -66,7 +66,6 @@ public class EnemySpawner : MonoBehaviour
     void ConfigureSurfaceForRuntimeRoom(NavMeshSurface surface)
     {
         surface.collectObjects = CollectObjects.Children;
-        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
     }
 
     public void SpawnTimeCamper(bool isClone = false)

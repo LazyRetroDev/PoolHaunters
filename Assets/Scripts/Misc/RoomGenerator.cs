@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.AI.Navigation;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 
 public class RoomGenerator : MonoBehaviour
 {
@@ -39,6 +40,42 @@ public class RoomGenerator : MonoBehaviour
         public int branchBuildAttempts;
     }
 
+    class BranchGenerationReport
+    {
+        public int branchNumber;
+        public int requestedRoomCount;
+        public int generatedRoomCount;
+        public int futureBranchStartsNeeded;
+        public bool completed;
+        public string startConnectorName;
+        public string finalRoomName;
+        public string failureReason;
+        public readonly List<string> rooms = new List<string>();
+    }
+
+    class FullMapGenerationReport
+    {
+        public int attemptNumber;
+        public int totalAttempts;
+        public int seed;
+        public int requiredBranchCount;
+        public int requestedBranchCount;
+        public int completedBranchCount;
+        public int branchBuildAttempts;
+        public int generatedRoomCount;
+        public int finalRoomCount;
+        public int closedConnectorCount;
+        public int connectedConnectorPairCount;
+        public int navMeshLinkCount;
+        public bool accepted;
+        public string startRoomName;
+        public string validationSummary;
+        public readonly List<BranchGenerationReport> branches =
+            new List<BranchGenerationReport>();
+        public readonly Dictionary<string, int> rejectionCounts =
+            new Dictionary<string, int>();
+    }
+
     class MapValidationResult
     {
         private readonly List<string> failures = new List<string>();
@@ -69,6 +106,10 @@ public class RoomGenerator : MonoBehaviour
         BranchMiddle,
         BranchFinal
     }
+
+    [Header("Generation Profile")]
+    [SerializeField] private RoomGenerationProfile generationProfile;
+    [SerializeField] private bool applyGenerationProfileOnAwake = true;
 
     [Header("Rooms")]
     public GameObject[] roomPrefabs;
@@ -110,6 +151,15 @@ public class RoomGenerator : MonoBehaviour
     public bool validateClosedDoorObjects = true;
     public bool validateConnectedNavMeshLinks = true;
 
+    [Header("Generation Debug")]
+    public bool logGenerationReport = true;
+    public bool logRejectedFullMapAttempts = true;
+    public bool renameGeneratedRoomsForDebug = true;
+    public bool drawGeneratedMapGizmos = true;
+
+    [TextArea(8, 30)]
+    [SerializeField] private string lastGenerationReport;
+
     [Tooltip("Keep enabled while the player can walk back through already generated rooms.")]
     public bool keepGeneratedRoomsForBacktracking = true;
 
@@ -125,6 +175,7 @@ public class RoomGenerator : MonoBehaviour
 
     [Header("Enemy Setup")]
     public bool spawnTimeCamperAfterStartingRooms = true;
+    [SerializeField] private RoomEnemySpawner enemySpawner;
 
     [Header("Room Resources")]
     [SerializeField] private RoomResourceSpawner resourceSpawner;
@@ -153,6 +204,13 @@ public class RoomGenerator : MonoBehaviour
 
     [Min(0.1f)]
     public float doorwayClearanceDepth = 2f;
+
+    public bool ignoreFloorLevelDoorwayBlockers = true;
+
+    [Min(0f)]
+    public float doorwayFloorBlockerTolerance = 0.1f;
+
+    public LayerMask doorwayIgnoredLayers = 1 << 7;
 
     public LayerMask doorwayBlockingLayers = ~0;
 
@@ -190,14 +248,100 @@ public class RoomGenerator : MonoBehaviour
     private bool initialEnemySpawned;
     private bool mapConsolidated;
     private bool isGeneratingFullMap;
+    private FullMapGenerationReport currentGenerationReport;
+    private FullMapGenerationReport lastCompletedGenerationReport;
+    private BranchGenerationReport currentBranchReport;
 
     void Awake()
     {
         if (resourceSpawner == null)
             resourceSpawner = GetComponent<RoomResourceSpawner>();
 
+        if (enemySpawner == null)
+            enemySpawner = GetComponent<RoomEnemySpawner>();
+
         if (progression == null)
             progression = GetComponent<RoomProgressionController>();
+
+        if (applyGenerationProfileOnAwake)
+            ApplyGenerationProfile();
+    }
+
+    [ContextMenu("Apply Generation Profile")]
+    public void ApplyGenerationProfile()
+    {
+        if (generationProfile == null)
+            return;
+
+        ApplyGenerationProfile(generationProfile);
+    }
+
+    public void ApplyGenerationProfile(RoomGenerationProfile profile)
+    {
+        if (profile == null)
+            return;
+
+        if (profile.overrideRoomPrefabs)
+            roomPrefabs = profile.roomPrefabs;
+
+        startingRoomCount = profile.startingRoomCount;
+        maxGeneratedRooms = profile.maxGeneratedRooms;
+
+        generateFullMapOnStart = profile.generateFullMapOnStart;
+        minimumBranchCount = profile.minimumBranchCount;
+        maximumBranchCount = profile.maximumBranchCount;
+        minimumRoomsPerBranch = profile.minimumRoomsPerBranch;
+        maximumRoomsPerBranch = profile.maximumRoomsPerBranch;
+        branchGenerationAttempts = profile.branchGenerationAttempts;
+        guaranteeMinimumBranchCount = profile.guaranteeMinimumBranchCount;
+        allowRepeatingFinalRoomsForBranches =
+            profile.allowRepeatingFinalRoomsForBranches;
+
+        validateFullMapAfterGeneration = profile.validateFullMapAfterGeneration;
+        fullMapGenerationAttempts = profile.fullMapGenerationAttempts;
+        validateClosedDoorObjects = profile.validateClosedDoorObjects;
+        validateConnectedNavMeshLinks = profile.validateConnectedNavMeshLinks;
+
+        keepGeneratedRoomsForBacktracking =
+            profile.keepGeneratedRoomsForBacktracking;
+        roomsToKeep = profile.roomsToKeep;
+
+        if (profile.overrideSeed)
+            seed = profile.seed;
+
+        useSelectedRunSeed = profile.useSelectedRunSeed;
+        randomizeSeedWhenNoRunSelected = profile.randomizeSeedWhenNoRunSelected;
+
+        spawnTimeCamperAfterStartingRooms =
+            profile.spawnTimeCamperAfterStartingRooms;
+
+        profile.ApplyProgressionTo(progression);
+
+        useGridOccupancy = profile.useGridOccupancy;
+        useBoundsOverlapCheck = profile.useBoundsOverlapCheck;
+        roomBoundsInset = profile.roomBoundsInset;
+        placementAttempts = profile.placementAttempts;
+
+        validateConnectedDoorwayClearance =
+            profile.validateConnectedDoorwayClearance;
+        doorwayClearanceWidth = profile.doorwayClearanceWidth;
+        doorwayClearanceHeight = profile.doorwayClearanceHeight;
+        doorwayClearanceDepth = profile.doorwayClearanceDepth;
+        ignoreFloorLevelDoorwayBlockers =
+            profile.ignoreFloorLevelDoorwayBlockers;
+        doorwayFloorBlockerTolerance = profile.doorwayFloorBlockerTolerance;
+        doorwayIgnoredLayers = profile.doorwayIgnoredLayers;
+        doorwayBlockingLayers = profile.doorwayBlockingLayers;
+
+        createNavMeshLinksBetweenRooms = profile.createNavMeshLinksBetweenRooms;
+        navMeshLinkWidth = profile.navMeshLinkWidth;
+        navMeshLinkWorldHeight = profile.navMeshLinkWorldHeight;
+        navMeshLinkHalfLength = profile.navMeshLinkHalfLength;
+
+        logGenerationReport = profile.logGenerationReport;
+        logRejectedFullMapAttempts = profile.logRejectedFullMapAttempts;
+        renameGeneratedRoomsForDebug = profile.renameGeneratedRoomsForDebug;
+        drawGeneratedMapGizmos = profile.drawGeneratedMapGizmos;
     }
 
     void Start()
@@ -243,10 +387,14 @@ public class RoomGenerator : MonoBehaviour
     GameObject GenerateNextRoom(DoorTrigger trigger)
     {
         if (mapConsolidated)
+        {
+            RecordGenerationRejection("Map is already consolidated.");
             return null;
+        }
 
         if (roomPrefabs == null || roomPrefabs.Length == 0)
         {
+            RecordGenerationRejection("No room prefabs assigned.");
             Debug.LogWarning("RoomGenerator has no room prefabs assigned.");
             return null;
         }
@@ -269,6 +417,7 @@ public class RoomGenerator : MonoBehaviour
 
         if (generatedRoomCount > 0 && expansionPoint == null)
         {
+            RecordGenerationRejection("No open connector available to expand from.");
             Debug.LogWarning("RoomGenerator has no open connector available to expand from.");
             return null;
         }
@@ -276,6 +425,7 @@ public class RoomGenerator : MonoBehaviour
         Vector2Int targetCell;
         if (!TryGetRoomTargetCell(expansionConnector, out targetCell))
         {
+            RecordGenerationRejection("Could not calculate target cell for selected connector.");
             Debug.LogWarning("RoomGenerator could not calculate a target cell for the selected connector.");
             CloseBlockedConnector(expansionConnector);
             return null;
@@ -283,6 +433,7 @@ public class RoomGenerator : MonoBehaviour
 
         if (IsGridCellOccupied(targetCell))
         {
+            RecordGenerationRejection($"Selected connector target cell {targetCell} is occupied.");
             Debug.LogWarning($"RoomGenerator blocked generation at occupied cell {targetCell}.");
             CloseBlockedConnector(expansionConnector);
             return null;
@@ -297,6 +448,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject roomPrefab = ChooseRoomPrefab(expansionConnector, rejectedPrefabs);
             if (roomPrefab == null)
             {
+                RecordGenerationRejection("No available room prefab for current rules.");
                 Debug.LogWarning("RoomGenerator has no available room prefab for the current rules.");
                 break;
             }
@@ -305,6 +457,7 @@ public class RoomGenerator : MonoBehaviour
 
             if (generatedRoomCount > 0 && !AlignRoomToExpansion(room, expansionConnector, expansionPoint))
             {
+                RecordGenerationRejection($"{roomPrefab.name} could not align to selected connector.");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
                 continue;
@@ -313,6 +466,7 @@ public class RoomGenerator : MonoBehaviour
             if (generatedRoomCount > 0 &&
                 !HasClearConnectedDoorway(room, expansionConnector))
             {
+                RecordGenerationRejection($"{roomPrefab.name} connected doorway is blocked.");
                 Debug.LogWarning(
                     $"RoomGenerator rejected {room.name}: connected doorway is blocked by room geometry.");
                 Destroy(room);
@@ -324,6 +478,7 @@ public class RoomGenerator : MonoBehaviour
             string rejectionReason;
             if (!CanPlaceRoom(room, targetCell, out placement, out rejectionReason))
             {
+                RecordGenerationRejection(rejectionReason);
                 Debug.LogWarning($"RoomGenerator rejected {room.name}: {rejectionReason}");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
@@ -333,6 +488,7 @@ public class RoomGenerator : MonoBehaviour
 
             if (generatedRoomCount > 0 && !FinalizeRoomConnection(room, expansionConnector))
             {
+                RecordGenerationRejection($"{roomPrefab.name} could not finalize connector link.");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
                 continue;
@@ -359,12 +515,16 @@ public class RoomGenerator : MonoBehaviour
         RegisterRoomPlacement(placement);
         TrackGeneratedPrefab(roomPrefab, roomIndex);
         generatedRoomCount++;
+        RecordGeneratedRoom(room, roomPrefab, placement, roomIndex);
 
         if (resourceSpawner != null)
             resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
 
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
+        if (enemySpawner != null)
+            enemySpawner.SpawnEnemiesForRoom(room, roomIndex, seed);
+
         AddOpenConnectors(room);
         UpdateLegacyExitPoint(room);
 
@@ -380,6 +540,9 @@ public class RoomGenerator : MonoBehaviour
             return;
         }
 
+        lastGenerationReport = string.Empty;
+        lastCompletedGenerationReport = null;
+
         int baseSeed = seed;
         int attempts = validateFullMapAfterGeneration
             ? Mathf.Max(1, fullMapGenerationAttempts)
@@ -393,6 +556,7 @@ public class RoomGenerator : MonoBehaviour
 
             seed = GetFullMapAttemptSeed(baseSeed, attempt);
             Random.InitState(seed);
+            BeginFullMapGenerationReport(attempt + 1, attempts, seed);
 
             FullMapGenerationStats stats;
             isGeneratingFullMap = true;
@@ -407,8 +571,10 @@ public class RoomGenerator : MonoBehaviour
 
             ConsolidateGeneratedMap();
             lastValidation = ValidateGeneratedMap(stats);
+            bool accepted = !validateFullMapAfterGeneration || lastValidation.IsValid;
+            FinishFullMapGenerationReport(stats, lastValidation, accepted);
 
-            if (!validateFullMapAfterGeneration || lastValidation.IsValid)
+            if (accepted)
             {
                 if (attempt > 0)
                 {
@@ -416,16 +582,25 @@ public class RoomGenerator : MonoBehaviour
                         $"RoomGenerator accepted full map attempt {attempt + 1}/{attempts} with seed {seed}.");
                 }
 
+                if (logGenerationReport && !string.IsNullOrWhiteSpace(lastGenerationReport))
+                    Debug.Log(lastGenerationReport);
+
                 TrySpawnInitialTimeCamper();
                 return;
             }
 
-            Debug.LogWarning(
-                $"RoomGenerator rejected full map attempt {attempt + 1}/{attempts} with seed {seed}: {lastValidation.GetSummary()}");
+            if (logRejectedFullMapAttempts)
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator rejected full map attempt {attempt + 1}/{attempts} with seed {seed}: {lastValidation.GetSummary()}");
+            }
         }
 
         Debug.LogError(
             $"RoomGenerator could not produce a valid full map after {attempts} attempt(s). Keeping last generated map for inspection. Last validation: {(lastValidation != null ? lastValidation.GetSummary() : "no validation result")}");
+
+        if (logGenerationReport && !string.IsNullOrWhiteSpace(lastGenerationReport))
+            Debug.Log(lastGenerationReport);
     }
 
     FullMapGenerationStats GenerateFullMapAttempt()
@@ -439,11 +614,14 @@ public class RoomGenerator : MonoBehaviour
         if (startRoom == null)
             return stats;
 
+        RecordStartRoom(startRoom);
+
         stats.requestedBranchCount = Mathf.Max(
             stats.requiredBranchCount,
             GetRandomConfiguredValue(
                 minimumBranchCount,
                 maximumBranchCount));
+        RecordFullMapGenerationPlan(stats);
 
         int maxBranchBuildAttempts = Mathf.Max(
             Mathf.Max(stats.requestedBranchCount, stats.requiredBranchCount) * 2,
@@ -457,6 +635,7 @@ public class RoomGenerator : MonoBehaviour
             RoomConnector branchStart = ChooseBestOpenConnector();
             if (branchStart == null)
             {
+                RecordGenerationRejection("No open connector available for next branch.");
                 Debug.LogWarning(
                     $"RoomGenerator stopped full map generation after {stats.completedBranchCount} branches because no open connector was available.");
                 break;
@@ -471,10 +650,21 @@ public class RoomGenerator : MonoBehaviour
                     stats.requiredBranchCount - stats.completedBranchCount - 1)
                 : 0;
 
-            if (GenerateBranch(
+            BeginBranchGenerationReport(
+                stats.branchBuildAttempts,
                 branchStart,
                 branchRoomCount,
-                futureBranchStartsNeeded))
+                futureBranchStartsNeeded);
+
+            bool branchCompleted = GenerateBranch(
+                branchStart,
+                branchRoomCount,
+                futureBranchStartsNeeded);
+            FinishBranchGenerationReport(
+                branchCompleted,
+                branchCompleted ? null : "Branch could not reach a final room.");
+
+            if (branchCompleted)
             {
                 stats.completedBranchCount++;
             }
@@ -492,6 +682,312 @@ public class RoomGenerator : MonoBehaviour
         {
             return baseSeed + attemptIndex * 73856093;
         }
+    }
+
+    void BeginFullMapGenerationReport(int attemptNumber, int totalAttempts, int attemptSeed)
+    {
+        currentGenerationReport = new FullMapGenerationReport
+        {
+            attemptNumber = attemptNumber,
+            totalAttempts = totalAttempts,
+            seed = attemptSeed
+        };
+        currentBranchReport = null;
+    }
+
+    void RecordFullMapGenerationPlan(FullMapGenerationStats stats)
+    {
+        if (currentGenerationReport == null || stats == null)
+            return;
+
+        currentGenerationReport.requiredBranchCount = stats.requiredBranchCount;
+        currentGenerationReport.requestedBranchCount = stats.requestedBranchCount;
+    }
+
+    void RecordStartRoom(GameObject room)
+    {
+        if (currentGenerationReport == null || room == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(currentGenerationReport.startRoomName))
+            currentGenerationReport.startRoomName = room.name;
+    }
+
+    void BeginBranchGenerationReport(
+        int branchNumber,
+        RoomConnector branchStart,
+        int requestedRoomCount,
+        int futureBranchStartsNeeded)
+    {
+        if (currentGenerationReport == null)
+            return;
+
+        currentBranchReport = new BranchGenerationReport
+        {
+            branchNumber = branchNumber,
+            requestedRoomCount = requestedRoomCount,
+            futureBranchStartsNeeded = futureBranchStartsNeeded,
+            startConnectorName = GetConnectorDebugName(branchStart)
+        };
+
+        currentGenerationReport.branches.Add(currentBranchReport);
+    }
+
+    void FinishBranchGenerationReport(bool completed, string failureReason)
+    {
+        if (currentBranchReport == null)
+            return;
+
+        currentBranchReport.completed = completed;
+        if (!completed)
+        {
+            currentBranchReport.failureReason =
+                string.IsNullOrWhiteSpace(failureReason)
+                    ? "Branch generation failed."
+                    : failureReason;
+            RecordGenerationRejection(currentBranchReport.failureReason);
+        }
+
+        currentBranchReport = null;
+    }
+
+    void RecordGeneratedRoom(
+        GameObject room,
+        GameObject roomPrefab,
+        RoomPlacement placement,
+        int roomIndex)
+    {
+        if (currentGenerationReport == null || room == null)
+            return;
+
+        if (renameGeneratedRoomsForDebug)
+            room.name = GetGeneratedRoomDebugName(roomPrefab, placement, roomIndex);
+
+        string roomLine = GetGeneratedRoomReportLine(room, placement);
+
+        if (currentBranchReport == null)
+        {
+            currentGenerationReport.startRoomName = roomLine;
+            return;
+        }
+
+        currentBranchReport.generatedRoomCount++;
+        currentBranchReport.rooms.Add(roomLine);
+
+        if (IsFinalRoom(room))
+            currentBranchReport.finalRoomName = room.name;
+    }
+
+    void FinishFullMapGenerationReport(
+        FullMapGenerationStats stats,
+        MapValidationResult validation,
+        bool accepted)
+    {
+        if (currentGenerationReport == null)
+            return;
+
+        currentGenerationReport.accepted = accepted;
+        currentGenerationReport.validationSummary =
+            validation != null ? validation.GetSummary() : "no validation result";
+
+        if (stats != null)
+        {
+            currentGenerationReport.requiredBranchCount = stats.requiredBranchCount;
+            currentGenerationReport.requestedBranchCount = stats.requestedBranchCount;
+            currentGenerationReport.completedBranchCount = stats.completedBranchCount;
+            currentGenerationReport.branchBuildAttempts = stats.branchBuildAttempts;
+        }
+
+        currentGenerationReport.generatedRoomCount = spawnedRooms.Count;
+        currentGenerationReport.finalRoomCount = CountFinalRooms();
+        currentGenerationReport.closedConnectorCount = CountClosedConnectors();
+        currentGenerationReport.connectedConnectorPairCount = CountConnectedConnectorPairs();
+        currentGenerationReport.navMeshLinkCount = CountGeneratedNavMeshLinks();
+
+        lastCompletedGenerationReport = currentGenerationReport;
+        lastGenerationReport = BuildFullMapGenerationReport(currentGenerationReport);
+        currentGenerationReport = null;
+        currentBranchReport = null;
+    }
+
+    void RecordGenerationRejection(string reason)
+    {
+        if (currentGenerationReport == null || string.IsNullOrWhiteSpace(reason))
+            return;
+
+        int count;
+        currentGenerationReport.rejectionCounts.TryGetValue(reason, out count);
+        currentGenerationReport.rejectionCounts[reason] = count + 1;
+    }
+
+    string BuildFullMapGenerationReport(FullMapGenerationReport report)
+    {
+        if (report == null)
+            return string.Empty;
+
+        StringBuilder builder = new StringBuilder(2048);
+        builder.AppendLine("RoomGenerator Full Map Report");
+        builder.AppendLine($"Status: {(report.accepted ? "Accepted" : "Rejected")}");
+        builder.AppendLine($"Attempt: {report.attemptNumber}/{report.totalAttempts}");
+        builder.AppendLine($"Seed: {report.seed}");
+        builder.AppendLine(
+            $"Branches: {report.completedBranchCount}/{report.requestedBranchCount} completed, {report.requiredBranchCount} required");
+        builder.AppendLine($"Branch build attempts: {report.branchBuildAttempts}");
+        builder.AppendLine(
+            $"Rooms: {report.generatedRoomCount} total, {report.finalRoomCount} final");
+        builder.AppendLine(
+            $"Connectors: {report.connectedConnectorPairCount} connected pair(s), {report.closedConnectorCount} closed");
+        builder.AppendLine($"NavMeshLinks: {report.navMeshLinkCount}");
+        builder.AppendLine($"Validation: {report.validationSummary}");
+
+        if (!string.IsNullOrWhiteSpace(report.startRoomName))
+            builder.AppendLine($"Start: {report.startRoomName}");
+
+        if (report.branches.Count > 0)
+        {
+            builder.AppendLine("Branches:");
+            for (int i = 0; i < report.branches.Count; i++)
+                AppendBranchReport(builder, report.branches[i]);
+        }
+
+        if (report.rejectionCounts.Count > 0)
+        {
+            builder.AppendLine("Rejections:");
+            foreach (KeyValuePair<string, int> pair in report.rejectionCounts)
+                builder.AppendLine($"- {pair.Value}x {pair.Key}");
+        }
+
+        return builder.ToString();
+    }
+
+    void AppendBranchReport(StringBuilder builder, BranchGenerationReport branch)
+    {
+        if (branch == null)
+            return;
+
+        string status = branch.completed ? "OK" : "FAILED";
+        builder.AppendLine(
+            $"- Branch {branch.branchNumber:00}: {status}, rooms {branch.generatedRoomCount}/{branch.requestedRoomCount}, start {branch.startConnectorName}");
+
+        if (branch.futureBranchStartsNeeded > 0)
+            builder.AppendLine($"  future branch starts needed: {branch.futureBranchStartsNeeded}");
+
+        if (!string.IsNullOrWhiteSpace(branch.finalRoomName))
+            builder.AppendLine($"  final: {branch.finalRoomName}");
+
+        if (!string.IsNullOrWhiteSpace(branch.failureReason))
+            builder.AppendLine($"  reason: {branch.failureReason}");
+
+        for (int i = 0; i < branch.rooms.Count; i++)
+            builder.AppendLine($"  - {branch.rooms[i]}");
+    }
+
+    string GetGeneratedRoomDebugName(
+        GameObject roomPrefab,
+        RoomPlacement placement,
+        int roomIndex)
+    {
+        string prefabName = roomPrefab != null ? roomPrefab.name : "Room";
+        string cellName = placement != null
+            ? $"Cell_{placement.cell.x}_{placement.cell.y}"
+            : "Cell_unknown";
+
+        if (currentBranchReport != null)
+        {
+            int branchRoomNumber = currentBranchReport.generatedRoomCount + 1;
+            return
+                $"Branch_{currentBranchReport.branchNumber:00}_Room_{branchRoomNumber:00}_{prefabName}_{cellName}";
+        }
+
+        return $"Start_Room_{roomIndex:00}_{prefabName}_{cellName}";
+    }
+
+    string GetGeneratedRoomReportLine(GameObject room, RoomPlacement placement)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        string category = definition != null ? definition.category.ToString() : "Unknown";
+        string cell = placement != null ? placement.cell.ToString() : "unknown cell";
+        return $"{room.name} [{category}] cell {cell}";
+    }
+
+    string GetConnectorDebugName(RoomConnector connector)
+    {
+        if (connector == null)
+            return "none";
+
+        RoomDefinition definition = connector.GetComponentInParent<RoomDefinition>();
+        string roomName = definition != null ? definition.gameObject.name : connector.gameObject.name;
+        return $"{roomName}/{connector.name}";
+    }
+
+    int CountClosedConnectors()
+    {
+        int count = 0;
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            RoomDefinition definition = GetRoomDefinition(spawnedRooms[i]);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int j = 0; j < definition.connectors.Length; j++)
+            {
+                RoomConnector connector = definition.connectors[j];
+                if (connector != null && connector.State == RoomConnectorState.Closed)
+                    count++;
+            }
+        }
+
+        return count;
+    }
+
+    int CountConnectedConnectorPairs()
+    {
+        int count = 0;
+        List<RoomConnector> checkedConnectors = new List<RoomConnector>();
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            RoomDefinition definition = GetRoomDefinition(spawnedRooms[i]);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int j = 0; j < definition.connectors.Length; j++)
+            {
+                RoomConnector connector = definition.connectors[j];
+                if (connector == null ||
+                    connector.State != RoomConnectorState.Connected ||
+                    checkedConnectors.Contains(connector))
+                {
+                    continue;
+                }
+
+                checkedConnectors.Add(connector);
+                if (connector.ConnectedTo != null)
+                    checkedConnectors.Add(connector.ConnectedTo);
+
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    int CountGeneratedNavMeshLinks()
+    {
+        int count = 0;
+        List<NavMeshLink> checkedLinks = new List<NavMeshLink>();
+
+        foreach (KeyValuePair<RoomConnector, NavMeshLink> pair in navMeshLinksByConnector)
+        {
+            NavMeshLink link = pair.Value;
+            if (link == null || checkedLinks.Contains(link))
+                continue;
+
+            checkedLinks.Add(link);
+            count++;
+        }
+
+        return count;
     }
 
     MapValidationResult ValidateGeneratedMap(FullMapGenerationStats stats)
@@ -765,6 +1261,12 @@ public class RoomGenerator : MonoBehaviour
                 resourceSpawner.DespawnResourcesForRoom(spawnedRooms[i]);
         }
 
+        if (enemySpawner != null)
+        {
+            for (int i = 0; i < spawnedRooms.Count; i++)
+                enemySpawner.DespawnEnemiesForRoom(spawnedRooms[i]);
+        }
+
         if (navMeshLinkRoot != null)
         {
             DestroyGeneratedObject(navMeshLinkRoot.gameObject);
@@ -883,6 +1385,9 @@ public class RoomGenerator : MonoBehaviour
             if (resourceSpawner != null)
                 resourceSpawner.DespawnResourcesForRoom(room);
 
+            if (enemySpawner != null)
+                enemySpawner.DespawnEnemiesForRoom(room);
+
             DestroyGeneratedObject(room);
             spawnedRooms.RemoveAt(i);
         }
@@ -993,14 +1498,21 @@ public class RoomGenerator : MonoBehaviour
         continuationConnector = null;
 
         if (mapConsolidated)
+        {
+            RecordGenerationRejection("Map is already consolidated.");
             return null;
+        }
 
         if (expansionConnector == null || !expansionConnector.IsAvailable)
+        {
+            RecordGenerationRejection("Expansion connector is missing or unavailable.");
             return null;
+        }
 
         Transform expansionPoint = expansionConnector.Point;
         if (expansionPoint == null)
         {
+            RecordGenerationRejection("Expansion connector has no point.");
             CloseBlockedConnector(expansionConnector);
             return null;
         }
@@ -1008,12 +1520,14 @@ public class RoomGenerator : MonoBehaviour
         Vector2Int targetCell;
         if (!TryGetRoomTargetCell(expansionConnector, out targetCell))
         {
+            RecordGenerationRejection("Could not calculate target cell.");
             CloseBlockedConnector(expansionConnector);
             return null;
         }
 
         if (IsGridCellOccupied(targetCell))
         {
+            RecordGenerationRejection($"Target cell {targetCell} is already occupied.");
             CloseBlockedConnector(expansionConnector);
             return null;
         }
@@ -1030,12 +1544,16 @@ public class RoomGenerator : MonoBehaviour
                 role);
 
             if (roomPrefab == null)
+            {
+                RecordGenerationRejection($"No compatible prefab for role {role}.");
                 break;
+            }
 
             GameObject room = Instantiate(roomPrefab, Vector3.zero, Quaternion.identity);
 
             if (!AlignRoomToExpansion(room, expansionConnector, expansionPoint))
             {
+                RecordGenerationRejection($"{roomPrefab.name} could not align to connector.");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
                 continue;
@@ -1043,6 +1561,7 @@ public class RoomGenerator : MonoBehaviour
 
             if (!HasClearConnectedDoorway(room, expansionConnector))
             {
+                RecordGenerationRejection($"{roomPrefab.name} connected doorway is blocked.");
                 Debug.LogWarning(
                     $"RoomGenerator rejected {room.name}: connected doorway is blocked by room geometry.");
                 Destroy(room);
@@ -1054,6 +1573,7 @@ public class RoomGenerator : MonoBehaviour
             string rejectionReason;
             if (!CanPlaceRoom(room, targetCell, out placement, out rejectionReason))
             {
+                RecordGenerationRejection(rejectionReason);
                 Debug.LogWarning($"RoomGenerator rejected {room.name}: {rejectionReason}");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
@@ -1076,6 +1596,8 @@ public class RoomGenerator : MonoBehaviour
                     out selectedContinuation,
                     out openExitCount))
             {
+                RecordGenerationRejection(
+                    $"{roomPrefab.name} has only {openExitCount} free exit(s), needs {Mathf.Max(1, minimumOpenExits)}.");
                 Debug.LogWarning(
                     $"RoomGenerator rejected {room.name}: only {openExitCount} free exit(s), but {Mathf.Max(1, minimumOpenExits)} are needed to keep the branch plan valid.");
                 Destroy(room);
@@ -1085,6 +1607,7 @@ public class RoomGenerator : MonoBehaviour
 
             if (!FinalizeRoomConnection(room, expansionConnector))
             {
+                RecordGenerationRejection($"{roomPrefab.name} could not finalize connector link.");
                 Destroy(room);
                 rejectedPrefabs.Add(roomPrefab);
                 continue;
@@ -1912,10 +2435,54 @@ public class RoomGenerator : MonoBehaviour
             if (!belongsToNewRoom && !belongsToSourceRoom)
                 continue;
 
+            if (IsDoorwayIgnoredLayer(blocker.gameObject.layer))
+                continue;
+
+            if (ShouldIgnoreFloorLevelDoorwayBlocker(
+                blocker,
+                exitPoint,
+                entryPoint))
+            {
+                continue;
+            }
+
+            RecordGenerationRejection(
+                $"Doorway blocked by collider {GetColliderDebugName(blocker)}.");
             return false;
         }
 
         return true;
+    }
+
+    bool IsDoorwayIgnoredLayer(int layer)
+    {
+        return (doorwayIgnoredLayers.value & (1 << layer)) != 0;
+    }
+
+    bool ShouldIgnoreFloorLevelDoorwayBlocker(
+        Collider blocker,
+        Transform exitPoint,
+        Transform entryPoint)
+    {
+        if (!ignoreFloorLevelDoorwayBlockers || blocker == null)
+            return false;
+        if (exitPoint == null || entryPoint == null)
+            return false;
+
+        float doorwayBaseY = Mathf.Min(
+            exitPoint.position.y,
+            entryPoint.position.y);
+
+        return blocker.bounds.max.y <=
+            doorwayBaseY + doorwayFloorBlockerTolerance;
+    }
+
+    string GetColliderDebugName(Collider collider)
+    {
+        if (collider == null)
+            return "missing collider";
+
+        return collider.gameObject.name;
     }
 
     bool FinalizeRoomConnection(GameObject room, RoomConnector expansionConnector)
@@ -2233,7 +2800,7 @@ public class RoomGenerator : MonoBehaviour
 
         NavMeshSurface surface = room.GetComponent<NavMeshSurface>();
         if (surface == null)
-            surface = room.GetComponentInChildren<NavMeshSurface>();
+            surface = room.GetComponentInChildren<NavMeshSurface>(true);
 
         if (surface == null)
         {
@@ -2241,6 +2808,7 @@ public class RoomGenerator : MonoBehaviour
             return;
         }
 
+        surface.enabled = true;
         Physics.SyncTransforms();
         registeredSurfaces.Add(surface);
         EnemySpawner.Instance.RegisterSurface(surface, buildNow: true);
@@ -2319,6 +2887,91 @@ public class RoomGenerator : MonoBehaviour
         link.UpdateLink();
     }
 
+    void OnDrawGizmosSelected()
+    {
+        if (!drawGeneratedMapGizmos)
+            return;
+
+        DrawGeneratedRoomBoundsGizmos();
+        DrawConnectedConnectorGizmos();
+    }
+
+    void DrawGeneratedRoomBoundsGizmos()
+    {
+        if (placementsByRoom == null)
+            return;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            RoomPlacement placement = pair.Value;
+            if (placement == null || placement.room == null)
+                continue;
+
+            Gizmos.color = GetRoomBoundsGizmoColor(placement.room);
+            Gizmos.DrawWireCube(placement.bounds.center, placement.bounds.size);
+        }
+    }
+
+    void DrawConnectedConnectorGizmos()
+    {
+        if (spawnedRooms == null)
+            return;
+
+        List<RoomConnector> drawnConnectors = new List<RoomConnector>();
+        Gizmos.color = new Color(0.25f, 0.9f, 1f, 0.9f);
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            RoomDefinition definition = GetRoomDefinition(spawnedRooms[i]);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int j = 0; j < definition.connectors.Length; j++)
+            {
+                RoomConnector connector = definition.connectors[j];
+                if (connector == null ||
+                    connector.State != RoomConnectorState.Connected ||
+                    connector.ConnectedTo == null ||
+                    drawnConnectors.Contains(connector))
+                {
+                    continue;
+                }
+
+                drawnConnectors.Add(connector);
+                drawnConnectors.Add(connector.ConnectedTo);
+                Gizmos.DrawLine(
+                    connector.Point.position,
+                    connector.ConnectedTo.Point.position);
+            }
+        }
+    }
+
+    Color GetRoomBoundsGizmoColor(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null)
+            return Color.white;
+
+        switch (definition.category)
+        {
+            case RoomCategory.SubmarineSpawn:
+                return new Color(0.2f, 1f, 0.45f, 0.9f);
+
+            case RoomCategory.Final:
+                return new Color(1f, 0.25f, 0.25f, 0.9f);
+
+            case RoomCategory.Special:
+                return new Color(1f, 0.8f, 0.2f, 0.9f);
+
+            case RoomCategory.Water:
+            case RoomCategory.Pool:
+                return new Color(0.15f, 0.55f, 1f, 0.9f);
+
+            default:
+                return new Color(0.7f, 0.9f, 1f, 0.9f);
+        }
+    }
+
     void CullOldRooms()
     {
         if (keepGeneratedRoomsForBacktracking) return;
@@ -2332,13 +2985,16 @@ public class RoomGenerator : MonoBehaviour
 
             NavMeshSurface surface = room != null ? room.GetComponent<NavMeshSurface>() : null;
             if (surface == null && room != null)
-                surface = room.GetComponentInChildren<NavMeshSurface>();
+                surface = room.GetComponentInChildren<NavMeshSurface>(true);
 
             if (surface != null && EnemySpawner.Instance != null)
                 EnemySpawner.Instance.UnregisterSurface(surface);
 
             if (resourceSpawner != null)
                 resourceSpawner.DespawnResourcesForRoom(room);
+
+            if (enemySpawner != null)
+                enemySpawner.DespawnEnemiesForRoom(room);
 
             if (room != null)
                 Destroy(room);

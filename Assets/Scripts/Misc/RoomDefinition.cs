@@ -57,6 +57,9 @@ public class RoomDefinition : MonoBehaviour
     [Tooltip("How many other rooms must appear before this same prefab can repeat.")]
     public int minimumRoomsBetweenRepeats;
 
+    [Header("Content")]
+    public RoomContentProfile contentProfile;
+
     [Header("Layout")]
     public Vector3 size = new Vector3(10f, 5f, 10f);
     public Vector3 boundsCenter = Vector3.zero;

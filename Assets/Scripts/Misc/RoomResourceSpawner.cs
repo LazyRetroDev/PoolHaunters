@@ -6,6 +6,31 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class RoomResourceSpawner : MonoBehaviour
 {
+    struct ResourceSelection
+    {
+        public string label;
+        public GameObject prefab;
+        public RoomResourceCategory category;
+
+        public ResourceSelection(ResourceEntry entry)
+        {
+            label = entry != null ? entry.label : string.Empty;
+            prefab = entry != null ? entry.prefab : null;
+            category = entry != null
+                ? entry.category
+                : RoomResourceCategory.None;
+        }
+
+        public ResourceSelection(RoomContentProfile.ResourceEntry entry)
+        {
+            label = entry != null ? entry.label : string.Empty;
+            prefab = entry != null ? entry.prefab : null;
+            category = entry != null
+                ? entry.category
+                : RoomResourceCategory.None;
+        }
+    }
+
     [Serializable]
     public class ResourceEntry
     {
@@ -59,6 +84,22 @@ public class RoomResourceSpawner : MonoBehaviour
 
     public LayerMask fallbackGroundLayers = ~0;
 
+    [Header("Ground Placement")]
+    public bool snapSpawnedResourcesToGround = true;
+
+    [Min(0f)]
+    public float groundSnapRaycastHeight = 2f;
+
+    [Min(0.1f)]
+    public float groundSnapRaycastDistance = 8f;
+
+    [Min(0f)]
+    public float groundContactOffset = 0.02f;
+
+    public LayerMask groundSnapLayers = ~0;
+
+    public bool requireGroundInSameRoom = true;
+
     [Header("Multiplayer")]
     [Tooltip("During a network session, resource prefabs must have a NetworkObject and be registered with NetworkManager.")]
     public bool requireNetworkObjectOnline = true;
@@ -73,12 +114,17 @@ public class RoomResourceSpawner : MonoBehaviour
     {
         if (room == null || !CanSpawnAuthoritatively()) return;
 
+        RoomDefinition definition = GetRoomDefinition(room);
+        RoomContentProfile contentProfile =
+            definition != null ? definition.contentProfile : null;
         RoomResourceSpawnPoint[] spawnPoints =
             room.GetComponentsInChildren<RoomResourceSpawnPoint>(true);
 
         System.Random random = new System.Random(
             CreateRoomSeed(runSeed, roomIndex));
         List<GameObject> spawnedResources = new List<GameObject>();
+        float effectiveSpawnChanceMultiplier =
+            GetEffectiveSpawnChanceMultiplier(contentProfile);
 
         if (spawnPoints == null || spawnPoints.Length == 0)
         {
@@ -86,8 +132,11 @@ public class RoomResourceSpawner : MonoBehaviour
             {
                 SpawnFallbackResources(
                     room,
+                    definition,
+                    contentProfile,
                     roomIndex,
                     random,
+                    effectiveSpawnChanceMultiplier,
                     spawnedResources);
             }
 
@@ -101,14 +150,23 @@ public class RoomResourceSpawner : MonoBehaviour
             RoomResourceSpawnPoint point = spawnPoints[i];
             if (point == null) continue;
 
-            float chance = Mathf.Clamp01(point.spawnChance * spawnChanceMultiplier);
+            float chance = Mathf.Clamp01(
+                point.spawnChance * effectiveSpawnChanceMultiplier);
             if (random.NextDouble() > chance) continue;
 
-            ResourceEntry selected = ChooseResource(point, roomIndex, random);
-            if (selected == null) continue;
+            ResourceSelection selected;
+            if (!TryChooseResource(
+                contentProfile,
+                point.allowedCategories,
+                roomIndex,
+                random,
+                out selected))
+            {
+                continue;
+            }
 
             point.GetSpawnPose(out Vector3 position, out Quaternion rotation);
-            GameObject instance = SpawnResource(selected, position, rotation);
+            GameObject instance = SpawnResource(selected, position, rotation, room);
             if (instance != null)
                 spawnedResources.Add(instance);
         }
@@ -133,14 +191,13 @@ public class RoomResourceSpawner : MonoBehaviour
 
     void SpawnFallbackResources(
         GameObject room,
+        RoomDefinition definition,
+        RoomContentProfile contentProfile,
         int roomIndex,
         System.Random random,
+        float effectiveSpawnChanceMultiplier,
         List<GameObject> spawnedResources)
     {
-        RoomDefinition definition = room.GetComponent<RoomDefinition>();
-        if (definition == null)
-            definition = room.GetComponentInChildren<RoomDefinition>(true);
-
         if (definition == null)
         {
             Debug.LogWarning(
@@ -153,17 +210,21 @@ public class RoomResourceSpawner : MonoBehaviour
         for (int i = 0; i < attempts; i++)
         {
             if (random.NextDouble() > fallbackSpawnChance *
-                spawnChanceMultiplier)
+                effectiveSpawnChanceMultiplier)
             {
                 continue;
             }
 
-            ResourceEntry selected = ChooseResource(
+            ResourceSelection selected;
+            if (!TryChooseResource(
+                contentProfile,
                 fallbackAllowedCategories,
                 roomIndex,
-                random);
-            if (selected == null)
+                random,
+                out selected))
+            {
                 continue;
+            }
 
             Vector3 position;
             Quaternion rotation;
@@ -179,7 +240,8 @@ public class RoomResourceSpawner : MonoBehaviour
             GameObject instance = SpawnResource(
                 selected,
                 position,
-                rotation);
+                rotation,
+                room);
             if (instance != null)
                 spawnedResources.Add(instance);
         }
@@ -263,24 +325,55 @@ public class RoomResourceSpawner : MonoBehaviour
         return true;
     }
 
-    ResourceEntry ChooseResource(
-        RoomResourceSpawnPoint point,
-        int roomIndex,
-        System.Random random)
-    {
-        return ChooseResource(
-            point.allowedCategories,
-            roomIndex,
-            random);
-    }
-
-    ResourceEntry ChooseResource(
+    bool TryChooseResource(
+        RoomContentProfile contentProfile,
         RoomResourceCategory allowedCategories,
         int roomIndex,
-        System.Random random)
+        System.Random random,
+        out ResourceSelection selected)
     {
+        selected = new ResourceSelection();
+
+        if (contentProfile != null && contentProfile.HasResourceTable)
+        {
+            RoomContentProfile.ResourceEntry contentEntry;
+            if (contentProfile.TryChooseResource(
+                allowedCategories,
+                roomIndex,
+                random,
+                out contentEntry))
+            {
+                selected = new ResourceSelection(contentEntry);
+                return selected.prefab != null;
+            }
+
+            return false;
+        }
+
+        ResourceEntry resourceEntry;
+        if (TryChooseGlobalResource(
+            allowedCategories,
+            roomIndex,
+            random,
+            out resourceEntry))
+        {
+            selected = new ResourceSelection(resourceEntry);
+            return selected.prefab != null;
+        }
+
+        return false;
+    }
+
+    bool TryChooseGlobalResource(
+        RoomResourceCategory allowedCategories,
+        int roomIndex,
+        System.Random random,
+        out ResourceEntry selected)
+    {
+        selected = null;
+
         if (resources == null || resources.Length == 0)
-            return null;
+            return false;
 
         float totalWeight = 0f;
         for (int i = 0; i < resources.Length; i++)
@@ -292,7 +385,7 @@ public class RoomResourceSpawner : MonoBehaviour
         }
 
         if (totalWeight <= 0f)
-            return null;
+            return false;
 
         double roll = random.NextDouble() * totalWeight;
         for (int i = 0; i < resources.Length; i++)
@@ -303,10 +396,13 @@ public class RoomResourceSpawner : MonoBehaviour
 
             roll -= entry.weight;
             if (roll <= 0d)
-                return entry;
+            {
+                selected = entry;
+                return true;
+            }
         }
 
-        return null;
+        return false;
     }
 
     bool AllowsCategory(
@@ -317,9 +413,18 @@ public class RoomResourceSpawner : MonoBehaviour
             (allowedCategories & category) != RoomResourceCategory.None;
     }
 
-    GameObject SpawnResource(ResourceEntry entry, Vector3 position, Quaternion rotation)
+    GameObject SpawnResource(
+        ResourceSelection selection,
+        Vector3 position,
+        Quaternion rotation,
+        GameObject room)
     {
-        GameObject instance = Instantiate(entry.prefab, position, rotation);
+        if (selection.prefab == null)
+            return null;
+
+        GameObject instance = Instantiate(selection.prefab, position, rotation);
+        SnapResourceToGround(instance, room);
+
         NetworkManager networkManager = NetworkManager.Singleton;
         bool online = networkManager != null && networkManager.IsListening;
 
@@ -337,9 +442,9 @@ public class RoomResourceSpawner : MonoBehaviour
         {
             if (logInvalidNetworkPrefabs)
             {
-                string resourceName = string.IsNullOrWhiteSpace(entry.label)
-                    ? entry.prefab.name
-                    : entry.label;
+                string resourceName = string.IsNullOrWhiteSpace(selection.label)
+                    ? selection.prefab.name
+                    : selection.label;
 
                 Debug.LogWarning(
                     $"Room resource '{resourceName}' needs a NetworkObject and NetworkManager registration for multiplayer spawning.");
@@ -350,6 +455,202 @@ public class RoomResourceSpawner : MonoBehaviour
         }
 
         return instance;
+    }
+
+    RoomDefinition GetRoomDefinition(GameObject room)
+    {
+        if (room == null)
+            return null;
+
+        RoomDefinition definition = room.GetComponent<RoomDefinition>();
+        if (definition == null)
+            definition = room.GetComponentInChildren<RoomDefinition>(true);
+
+        return definition;
+    }
+
+    float GetEffectiveSpawnChanceMultiplier(RoomContentProfile contentProfile)
+    {
+        float contentMultiplier =
+            contentProfile != null ? contentProfile.spawnChanceMultiplier : 1f;
+        return spawnChanceMultiplier * Mathf.Max(0f, contentMultiplier);
+    }
+
+    void SnapResourceToGround(GameObject instance, GameObject room)
+    {
+        if (!snapSpawnedResourcesToGround || instance == null)
+            return;
+
+        Transform roomTransform = room != null ? room.transform : null;
+        Vector3 up = roomTransform != null ? roomTransform.up : Vector3.up;
+        Vector3 down = -up;
+
+        Bounds bounds;
+        bool hasBounds = TryGetResourceBounds(instance, out bounds);
+        Vector3 boundsCenter = hasBounds
+            ? bounds.center
+            : instance.transform.position;
+        Vector3 rayOrigin = boundsCenter + up * groundSnapRaycastHeight;
+        float rayDistance = groundSnapRaycastHeight + groundSnapRaycastDistance;
+
+        RaycastHit groundHit;
+        if (!TryFindGroundBelow(
+            instance,
+            roomTransform,
+            rayOrigin,
+            down,
+            rayDistance,
+            out groundHit))
+        {
+            return;
+        }
+
+        float bottom = hasBounds
+            ? GetMinProjection(bounds, up)
+            : Vector3.Dot(instance.transform.position, up);
+        float target = Vector3.Dot(groundHit.point, up) + groundContactOffset;
+        instance.transform.position += up * (target - bottom);
+    }
+
+    bool TryFindGroundBelow(
+        GameObject instance,
+        Transform roomTransform,
+        Vector3 rayOrigin,
+        Vector3 down,
+        float rayDistance,
+        out RaycastHit groundHit)
+    {
+        RaycastHit[] hits = Physics.RaycastAll(
+            rayOrigin,
+            down,
+            Mathf.Max(0.1f, rayDistance),
+            groundSnapLayers,
+            QueryTriggerInteraction.Ignore);
+
+        bool foundGround = false;
+        float closestDistance = float.PositiveInfinity;
+        groundHit = new RaycastHit();
+        Vector3 up = -down;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (hit.collider == null)
+                continue;
+
+            if (hit.collider.transform.IsChildOf(instance.transform))
+                continue;
+
+            if (requireGroundInSameRoom &&
+                roomTransform != null &&
+                !hit.collider.transform.IsChildOf(roomTransform))
+            {
+                continue;
+            }
+
+            if (Vector3.Dot(hit.normal, up) < 0.5f)
+                continue;
+
+            if (hit.distance >= closestDistance)
+                continue;
+
+            closestDistance = hit.distance;
+            groundHit = hit;
+            foundGround = true;
+        }
+
+        return foundGround;
+    }
+
+    bool TryGetResourceBounds(GameObject instance, out Bounds bounds)
+    {
+        bounds = new Bounds(
+            instance != null ? instance.transform.position : Vector3.zero,
+            Vector3.zero);
+
+        if (instance == null)
+            return false;
+
+        bool hasBounds = TryGetColliderBounds(instance, out bounds);
+        if (hasBounds)
+            return true;
+
+        return TryGetRendererBounds(instance, out bounds);
+    }
+
+    bool TryGetColliderBounds(GameObject instance, out Bounds bounds)
+    {
+        bounds = new Bounds(instance.transform.position, Vector3.zero);
+        Collider[] colliders = instance.GetComponentsInChildren<Collider>(true);
+        bool hasBounds = false;
+
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider collider = colliders[i];
+            if (collider == null || !collider.enabled || collider.isTrigger)
+                continue;
+
+            if (!hasBounds)
+            {
+                bounds = collider.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(collider.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    bool TryGetRendererBounds(GameObject instance, out Bounds bounds)
+    {
+        bounds = new Bounds(instance.transform.position, Vector3.zero);
+        Renderer[] renderers = instance.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled)
+                continue;
+
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    float GetMinProjection(Bounds bounds, Vector3 axis)
+    {
+        Vector3 center = bounds.center;
+        Vector3 extents = bounds.extents;
+        float min = float.PositiveInfinity;
+
+        for (int x = -1; x <= 1; x += 2)
+        {
+            for (int y = -1; y <= 1; y += 2)
+            {
+                for (int z = -1; z <= 1; z += 2)
+                {
+                    Vector3 corner = center + Vector3.Scale(
+                        extents,
+                        new Vector3(x, y, z));
+                    min = Mathf.Min(min, Vector3.Dot(corner, axis));
+                }
+            }
+        }
+
+        return min;
     }
 
     void DespawnResource(GameObject instance)

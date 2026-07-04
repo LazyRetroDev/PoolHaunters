@@ -1,0 +1,78 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9a7f35d95d1d4a5fb04d898c967fb3fd, type: 3}
+  m_Name: DefRoomContent
+  m_EditorClassIdentifier: Assembly-CSharp::RoomContentProfile
+  resources:
+  - label: CleanWater
+    prefab: {fileID: 3689828614117006729, guid: 6d965871edc25f54b80c5ada8228f850, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: DirtyWater
+    prefab: {fileID: 4154743514192057534, guid: 8c2ea5db02f53fb4589218031e84eb94, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Filter
+    prefab: {fileID: 7313615461998116812, guid: 3cb548606dcc56943bef9536773cf2f4, type: 3}
+    category: 1
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: WaterB
+    prefab: {fileID: 8944565614996342611, guid: d28614011a823e14a86c2fac777ad277, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Coob
+    prefab: {fileID: 7313615461998116812, guid: f2a8486c57c4a8f47b96f0cdf2f65a6d, type: 3}
+    category: 1
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Cooler
+    prefab: {fileID: 3822121108961349732, guid: 81d47a8ea1d4aa04cae4da37d8d4b94c, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Fonte
+    prefab: {fileID: 3822121108961349732, guid: 211a46ce2420e394d9453864a4f76710, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  enemies:
+  - label: Foto
+    prefab: {fileID: 3403067134488307632, guid: b8796a2cefbcbb94cb229512adb4c827, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Tubarao
+    prefab: {fileID: 7165801827447823788, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  - label: Raccoon
+    prefab: {fileID: 6578610292248419955, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
+    category: 2
+    weight: 1
+    minimumRoomIndex: 0
+    maximumRoomIndex: -1
+  spawnChanceMultiplier: 1
+  enemySpawnChanceMultiplier: 1
