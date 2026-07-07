@@ -7,7 +7,7 @@ public class GhostWaterBehavior : MonoBehaviour
     {
         Disguised,
         Revealed,
-        Draining
+        Swallowing
     }
 
     [Header("Visual State")]
@@ -21,6 +21,12 @@ public class GhostWaterBehavior : MonoBehaviour
     public float wanderRadius = 12f;
     public float destinationReachedDistance = 1.25f;
     public float rotationSpeed = 8f;
+
+    [Header("Disguise")]
+    public bool canReturnToDisguise = true;
+    public float redisguiseDelay = 4f;
+    public float minimumRevealedTime = 2f;
+    public bool hideRainWhileDisguised = false;
 
     [Header("Detection")]
     public float revealRange = 5f;
@@ -38,19 +44,33 @@ public class GhostWaterBehavior : MonoBehaviour
     public GameObject contaminationZonePrefab;
     public float contaminationZoneInterval = 1.25f;
 
-    [Header("Swallow / Drain")]
+    [Header("Swallow")]
     public float swallowRange = 1.7f;
-    public float drainDamagePerSecond = 18f;
-    public float drainLockDuration = 1.5f;
-    public bool stopMovingWhileDraining = true;
+    public float swallowDuration = 2.5f;
+    public float swallowDamagePerSecond = 18f;
+    public Transform swallowHoldPoint;
+    public Vector3 swallowHoldOffset = new Vector3(0f, 1.1f, 0.45f);
+    public bool blockPlayerControlsWhileSwallowed = true;
+    public bool contaminatePlayerWaterOnSwallow = true;
+
+    [Header("Teleport After Swallow")]
+    public bool teleportPlayerAfterSwallow = true;
+    public Transform[] teleportDropPoints;
+    public float fallbackTeleportDistance = 8f;
+    public float teleportNavMeshSampleRadius = 5f;
+    public Vector3 teleportGroundOffset = new Vector3(0f, 0.15f, 0f);
+    public bool returnToDisguiseAfterSwallow = true;
 
     [Header("Camera Effects")]
     public PlayerVignetteEffect cameraEffects;
     [Range(0f, 1f)] public float revealedVignette = 0.35f;
-    [Range(0f, 1f)] public float drainingVignette = 0.75f;
+    [Range(0f, 1f)] public float swallowingVignette = 0.75f;
     public float revealShakeAmplitude = 0.45f;
     public float revealShakeFrequency = 9f;
     public float revealShakeDuration = 0.3f;
+    public float swallowShakeAmplitude = 0.9f;
+    public float swallowShakeFrequency = 13f;
+    public float swallowShakeDuration = 0.35f;
 
     private NavMeshAgent agent;
     private Transform targetPlayer;
@@ -58,7 +78,20 @@ public class GhostWaterBehavior : MonoBehaviour
     private GhostWaterState state = GhostWaterState.Disguised;
     private float rainTimer;
     private float contaminationZoneTimer;
-    private float drainTimer;
+    private float revealedTimer;
+    private float redisguiseTimer;
+    private float swallowTimer;
+    private PlayerStatus swallowedStatus;
+    private Transform swallowedPlayer;
+    private PlayerMovement swallowedMovement;
+    private PlayerInventory swallowedInventory;
+    private WaterCannon swallowedWaterCannon;
+    private Rigidbody swallowedRigidbody;
+    private bool swallowedMovementWasEnabled;
+    private bool swallowedInventoryWasEnabled;
+    private bool swallowedWaterCannonWasEnabled;
+    private bool swallowedRigidbodyWasKinematic;
+    private bool swallowedRigidbodyUsedGravity;
     private bool revealEffectPlayed;
 
     void Start()
@@ -72,7 +105,10 @@ public class GhostWaterBehavior : MonoBehaviour
     void Update()
     {
         ResolveCameraEffects();
-        UpdateTarget();
+
+        if (state != GhostWaterState.Swallowing)
+            UpdateTarget();
+
         UpdateRain();
 
         switch (state)
@@ -83,8 +119,8 @@ public class GhostWaterBehavior : MonoBehaviour
             case GhostWaterState.Revealed:
                 UpdateRevealed();
                 break;
-            case GhostWaterState.Draining:
-                UpdateDraining();
+            case GhostWaterState.Swallowing:
+                UpdateSwallowing();
                 break;
         }
     }
@@ -103,6 +139,7 @@ public class GhostWaterBehavior : MonoBehaviour
 
             float distance = Vector3.Distance(transform.position, status.transform.position);
             if (distance >= bestDistance) continue;
+            if ((playerMask.value & (1 << status.gameObject.layer)) == 0) continue;
 
             bestDistance = distance;
             targetPlayer = status.transform;
@@ -113,6 +150,7 @@ public class GhostWaterBehavior : MonoBehaviour
     void UpdateDisguised()
     {
         Wander(disguisedSpeed);
+        UpdateCameraEffect(0f);
 
         if (targetPlayer == null) return;
         if (Vector3.Distance(transform.position, targetPlayer.position) > revealRange) return;
@@ -123,10 +161,12 @@ public class GhostWaterBehavior : MonoBehaviour
 
     void UpdateRevealed()
     {
+        revealedTimer += Time.deltaTime;
+
         if (targetPlayer == null)
         {
             Wander(revealedSpeed);
-            UpdateCameraEffect(0f);
+            TryReturnToDisguise();
             return;
         }
 
@@ -136,44 +176,236 @@ public class GhostWaterBehavior : MonoBehaviour
         if (distance > loseInterestRange)
         {
             Wander(revealedSpeed);
+            TryReturnToDisguise();
             return;
         }
 
+        redisguiseTimer = redisguiseDelay;
         MoveTo(targetPlayer.position, revealedSpeed);
 
         if (distance <= swallowRange)
-            BeginDraining();
+            BeginSwallow(targetStatus);
     }
 
-    void UpdateDraining()
+    void TryReturnToDisguise()
     {
-        if (targetPlayer == null || targetStatus == null)
+        if (!canReturnToDisguise) return;
+        if (revealedTimer < minimumRevealedTime) return;
+
+        redisguiseTimer -= Time.deltaTime;
+        if (redisguiseTimer > 0f) return;
+
+        ChangeState(GhostWaterState.Disguised);
+        revealEffectPlayed = false;
+        SetWanderDestination(disguisedSpeed);
+    }
+
+    void BeginSwallow(PlayerStatus victim)
+    {
+        if (victim == null || victim.IsDead()) return;
+
+        swallowedStatus = victim;
+        swallowedPlayer = victim.transform;
+        swallowedMovement = victim.GetComponent<PlayerMovement>();
+        swallowedInventory = victim.GetComponent<PlayerInventory>();
+        swallowedWaterCannon = victim.GetComponentInChildren<WaterCannon>();
+        swallowedRigidbody = victim.GetComponent<Rigidbody>();
+
+        StoreAndBlockVictimControls();
+
+        swallowTimer = swallowDuration;
+        ChangeState(GhostWaterState.Swallowing);
+        StopAgent();
+
+        if (cameraEffects != null)
         {
-            ChangeState(GhostWaterState.Revealed);
+            cameraEffects.Pulse(swallowingVignette, swallowShakeDuration);
+            cameraEffects.Shake(swallowShakeAmplitude, swallowShakeFrequency, swallowShakeDuration);
+        }
+    }
+
+    void UpdateSwallowing()
+    {
+        if (swallowedStatus == null || swallowedPlayer == null || swallowedStatus.IsDead())
+        {
+            EndSwallow(false);
             return;
         }
 
-        FaceTarget(targetPlayer.position);
-        UpdateCameraEffect(Vector3.Distance(transform.position, targetPlayer.position));
+        StopAgent();
+        HoldSwallowedPlayer();
+        FaceTarget(swallowedPlayer.position);
+        UpdateCameraEffect(0f);
 
-        if (stopMovingWhileDraining)
-            StopAgent();
-        else
-            MoveTo(targetPlayer.position, revealedSpeed);
+        swallowTimer -= Time.deltaTime;
+        swallowedStatus.TakeDamage(swallowDamagePerSecond * Time.deltaTime);
 
-        drainTimer -= Time.deltaTime;
-        targetStatus.TakeDamage(drainDamagePerSecond * Time.deltaTime);
-        if (contaminatePlayerWater)
-            targetStatus.ContaminateWater();
+        if (contaminatePlayerWaterOnSwallow || contaminatePlayerWater)
+            swallowedStatus.ContaminateWater();
 
-        float distance = Vector3.Distance(transform.position, targetPlayer.position);
-        if (drainTimer <= 0f || distance > swallowRange * 1.35f || targetStatus.IsDead())
-            ChangeState(GhostWaterState.Revealed);
+        if (swallowTimer <= 0f || swallowedStatus.IsDead())
+            EndSwallow(true);
+    }
+
+    void EndSwallow(bool teleportVictim)
+    {
+        PlayerStatus releasedStatus = swallowedStatus;
+        Transform releasedPlayer = swallowedPlayer;
+
+        if (teleportVictim && teleportPlayerAfterSwallow && releasedPlayer != null)
+            TeleportPlayer(releasedPlayer);
+
+        RestoreVictimControls(releasedStatus);
+        ClearSwallowedReferences();
+
+        if (returnToDisguiseAfterSwallow && canReturnToDisguise)
+        {
+            ChangeState(GhostWaterState.Disguised);
+            revealEffectPlayed = false;
+            SetWanderDestination(disguisedSpeed);
+            return;
+        }
+
+        ChangeState(GhostWaterState.Revealed);
+        redisguiseTimer = redisguiseDelay;
+    }
+
+    void StoreAndBlockVictimControls()
+    {
+        if (!blockPlayerControlsWhileSwallowed) return;
+
+        if (swallowedMovement != null)
+        {
+            swallowedMovementWasEnabled = swallowedMovement.enabled;
+            swallowedMovement.enabled = false;
+        }
+
+        if (swallowedInventory != null)
+        {
+            swallowedInventoryWasEnabled = swallowedInventory.enabled;
+            swallowedInventory.enabled = false;
+        }
+
+        if (swallowedWaterCannon != null)
+        {
+            swallowedWaterCannonWasEnabled = swallowedWaterCannon.enabled;
+            swallowedWaterCannon.enabled = false;
+        }
+
+        if (swallowedRigidbody != null)
+        {
+            swallowedRigidbodyWasKinematic = swallowedRigidbody.isKinematic;
+            swallowedRigidbodyUsedGravity = swallowedRigidbody.useGravity;
+            swallowedRigidbody.linearVelocity = Vector3.zero;
+            swallowedRigidbody.angularVelocity = Vector3.zero;
+            swallowedRigidbody.useGravity = false;
+            swallowedRigidbody.isKinematic = true;
+        }
+    }
+
+    void RestoreVictimControls(PlayerStatus releasedStatus)
+    {
+        if (!blockPlayerControlsWhileSwallowed) return;
+        bool canRestore = releasedStatus != null && releasedStatus.CanAct();
+
+        if (swallowedMovement != null)
+            swallowedMovement.enabled = canRestore && swallowedMovementWasEnabled;
+
+        if (swallowedInventory != null)
+            swallowedInventory.enabled = canRestore && swallowedInventoryWasEnabled;
+
+        if (swallowedWaterCannon != null)
+            swallowedWaterCannon.enabled = canRestore && swallowedWaterCannonWasEnabled;
+
+        if (swallowedRigidbody != null && canRestore)
+        {
+            swallowedRigidbody.isKinematic = swallowedRigidbodyWasKinematic;
+            swallowedRigidbody.useGravity = swallowedRigidbodyUsedGravity;
+        }
+    }
+
+    void ClearSwallowedReferences()
+    {
+        swallowedStatus = null;
+        swallowedPlayer = null;
+        swallowedMovement = null;
+        swallowedInventory = null;
+        swallowedWaterCannon = null;
+        swallowedRigidbody = null;
+        swallowedMovementWasEnabled = false;
+        swallowedInventoryWasEnabled = false;
+        swallowedWaterCannonWasEnabled = false;
+    }
+
+    void HoldSwallowedPlayer()
+    {
+        if (swallowedPlayer == null) return;
+
+        Vector3 holdPosition = swallowHoldPoint != null
+            ? swallowHoldPoint.position
+            : transform.TransformPoint(swallowHoldOffset);
+
+        TeleportTransform(swallowedPlayer, holdPosition, transform.rotation);
+    }
+
+    void TeleportPlayer(Transform playerTransform)
+    {
+        Vector3 destination = GetTeleportDestination();
+        TeleportTransform(playerTransform, destination, playerTransform.rotation);
+    }
+
+    Vector3 GetTeleportDestination()
+    {
+        Transform dropPoint = ChooseDropPoint();
+        if (dropPoint != null)
+            return dropPoint.position + teleportGroundOffset;
+
+        Vector3 wanted = transform.position - transform.forward * fallbackTeleportDistance;
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(wanted, out hit, teleportNavMeshSampleRadius, NavMesh.AllAreas))
+            return hit.position + teleportGroundOffset;
+
+        return wanted + teleportGroundOffset;
+    }
+
+    Transform ChooseDropPoint()
+    {
+        if (teleportDropPoints == null || teleportDropPoints.Length == 0)
+            return null;
+
+        int start = Random.Range(0, teleportDropPoints.Length);
+        for (int i = 0; i < teleportDropPoints.Length; i++)
+        {
+            Transform point = teleportDropPoints[(start + i) % teleportDropPoints.Length];
+            if (point != null)
+                return point;
+        }
+
+        return null;
+    }
+
+    void TeleportTransform(Transform target, Vector3 position, Quaternion rotation)
+    {
+        if (target == null) return;
+
+        Rigidbody body = target.GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.position = position;
+            body.rotation = rotation;
+            return;
+        }
+
+        target.SetPositionAndRotation(position, rotation);
     }
 
     void Reveal()
     {
         ChangeState(GhostWaterState.Revealed);
+        revealedTimer = 0f;
+        redisguiseTimer = redisguiseDelay;
 
         if (revealEffectPlayed) return;
         revealEffectPlayed = true;
@@ -183,12 +415,6 @@ public class GhostWaterBehavior : MonoBehaviour
             cameraEffects.Pulse(revealedVignette, revealShakeDuration);
             cameraEffects.Shake(revealShakeAmplitude, revealShakeFrequency, revealShakeDuration);
         }
-    }
-
-    void BeginDraining()
-    {
-        drainTimer = drainLockDuration;
-        ChangeState(GhostWaterState.Draining);
     }
 
     void UpdateRain()
@@ -335,7 +561,7 @@ public class GhostWaterBehavior : MonoBehaviour
             trueFormVisualRoot.SetActive(!disguised);
 
         if (rainVisualRoot != null)
-            rainVisualRoot.SetActive(true);
+            rainVisualRoot.SetActive(!hideRainWhileDisguised || !disguised);
     }
 
     void ResolveCameraEffects()
@@ -356,12 +582,13 @@ public class GhostWaterBehavior : MonoBehaviour
 
         float range = Mathf.Max(0.01f, chaseRange);
         float danger = 1f - Mathf.Clamp01(distanceToPlayer / range);
-        float maxIntensity = state == GhostWaterState.Draining ? drainingVignette : revealedVignette;
+        float maxIntensity = state == GhostWaterState.Swallowing ? swallowingVignette : revealedVignette;
         cameraEffects.SetThreatIntensity(maxIntensity * danger);
     }
 
     void OnDestroy()
     {
+        RestoreVictimControls(swallowedStatus);
         if (cameraEffects != null)
             cameraEffects.ClearThreatIntensity();
     }
