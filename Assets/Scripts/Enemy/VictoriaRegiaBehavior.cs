@@ -33,6 +33,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
     [Header("Stalking")]
     public float stalkSpeed = 3.25f;
+    public float rotationSpeed = 8f;
     public float behindPlayerDistance = 2.4f;
     public float behindPositionRefreshInterval = 0.25f;
     public float grappleRange = 1.45f;
