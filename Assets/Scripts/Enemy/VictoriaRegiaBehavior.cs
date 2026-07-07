@@ -50,6 +50,9 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     public Transform[] escapePoints;
     public float fallbackEscapeDistance = 10f;
     public float escapeReachedDistance = 1.5f;
+    public float escapePointSearchRadius = 2f;
+    public int fallbackEscapeSampleCount = 8;
+    public float fallbackEscapeSampleAngle = 120f;
     public bool instantKillBypassesKnockout = true;
     public bool sinkAfterKill = true;
 
@@ -72,6 +75,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     private float grappleTimer;
     private Vector3 currentBehindTarget;
     private Vector3 escapeTarget;
+    private Vector3 escapeReferencePosition;
     private PlayerMovement grappledMovement;
     private PlayerInventory grappledInventory;
     private WaterCannon grappledWaterCannon;
@@ -263,6 +267,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
         state = VictoriaRegiaState.Grappling;
         grappleTimer = grappleWindup;
+        escapeReferencePosition = targetPlayer != null ? targetPlayer.position : transform.position - transform.forward;
         StoreAndBlockVictimControls(targetStatus);
         StopAgent();
 
@@ -403,39 +408,109 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
     Vector3 GetEscapeTarget()
     {
-        Transform point = ChooseEscapePoint();
-        if (point != null)
-            return point.position;
+        Vector3 escapePointTarget;
+        if (TryGetEscapePointTarget(out escapePointTarget))
+            return escapePointTarget;
 
-        Vector3 away = targetPlayer != null
-            ? transform.position - targetPlayer.position
-            : -transform.forward;
+        Vector3 away = transform.position - escapeReferencePosition;
         away.y = 0f;
+
+        if (away.sqrMagnitude <= 0.001f && targetPlayer != null)
+        {
+            away = -targetPlayer.forward;
+            away.y = 0f;
+        }
+
         if (away.sqrMagnitude <= 0.001f)
             away = -transform.forward;
 
-        Vector3 wanted = transform.position + away.normalized * fallbackEscapeDistance;
-        NavMeshHit hit;
-        if (NavMesh.SamplePosition(wanted, out hit, fallbackEscapeDistance, NavMesh.AllAreas))
-            return hit.position;
-
-        return wanted;
+        return ChooseFallbackEscapeTarget(away.normalized);
     }
 
-    Transform ChooseEscapePoint()
+    bool TryGetEscapePointTarget(out Vector3 target)
     {
+        target = Vector3.zero;
         if (escapePoints == null || escapePoints.Length == 0)
-            return null;
+            return false;
 
         int start = Random.Range(0, escapePoints.Length);
+        float bestScore = float.NegativeInfinity;
+        bool found = false;
+
         for (int i = 0; i < escapePoints.Length; i++)
         {
             Transform point = escapePoints[(start + i) % escapePoints.Length];
-            if (point != null)
-                return point;
+            if (point == null) continue;
+
+            Vector3 reachable;
+            if (!TryGetReachablePoint(point.position, escapePointSearchRadius, out reachable))
+                continue;
+
+            float score = (reachable - escapeReferencePosition).sqrMagnitude;
+            if (score <= bestScore) continue;
+
+            bestScore = score;
+            target = reachable;
+            found = true;
         }
 
-        return null;
+        return found;
+    }
+
+    Vector3 ChooseFallbackEscapeTarget(Vector3 baseDirection)
+    {
+        int sampleCount = Mathf.Max(1, fallbackEscapeSampleCount);
+        float angleRange = Mathf.Max(0f, fallbackEscapeSampleAngle);
+        Vector3 bestTarget = transform.position + baseDirection * fallbackEscapeDistance;
+        float bestScore = float.NegativeInfinity;
+        bool found = false;
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            float t = sampleCount == 1 ? 0f : (i / (sampleCount - 1f)) - 0.5f;
+            float angle = t * angleRange;
+            Vector3 direction = Quaternion.Euler(0f, angle, 0f) * baseDirection;
+            Vector3 wanted = transform.position + direction.normalized * fallbackEscapeDistance;
+
+            Vector3 reachable;
+            if (!TryGetReachablePoint(wanted, fallbackEscapeDistance, out reachable))
+                continue;
+
+            float score = (reachable - escapeReferencePosition).sqrMagnitude + (reachable - transform.position).sqrMagnitude * 0.25f;
+            if (score <= bestScore) continue;
+
+            bestScore = score;
+            bestTarget = reachable;
+            found = true;
+        }
+
+        if (found)
+            return bestTarget;
+
+        NavMeshHit hit;
+        if (NavMesh.SamplePosition(bestTarget, out hit, fallbackEscapeDistance, NavMesh.AllAreas))
+            return hit.position;
+
+        return bestTarget;
+    }
+
+    bool TryGetReachablePoint(Vector3 wanted, float sampleRadius, out Vector3 reachable)
+    {
+        reachable = wanted;
+
+        NavMeshHit hit;
+        if (!NavMesh.SamplePosition(wanted, out hit, Mathf.Max(0.1f, sampleRadius), NavMesh.AllAreas))
+            return false;
+
+        reachable = hit.position;
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh)
+            return true;
+
+        NavMeshPath path = new NavMeshPath();
+        if (!agent.CalculatePath(reachable, path))
+            return false;
+
+        return path.status == NavMeshPathStatus.PathComplete;
     }
 
     void StoreAndBlockVictimControls(PlayerStatus victim)
@@ -543,6 +618,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
         state = VictoriaRegiaState.Submerged;
         unwatchedTimer = 0f;
         riseTimer = 0f;
+        escapeReferencePosition = transform.position;
         StopAgent();
         MoveBodyToward(submergedLocalY, 999f);
         UpdateVisuals();
@@ -655,5 +731,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, gazeCheckDistance);
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, grappleRange);
+        Gizmos.color = Color.magenta;
+        Gizmos.DrawWireSphere(escapeTarget, escapeReachedDistance);
     }
 }
