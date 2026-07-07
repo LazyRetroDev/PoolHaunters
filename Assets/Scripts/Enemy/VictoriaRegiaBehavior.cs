@@ -65,7 +65,6 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     private VictoriaRegiaState state = VictoriaRegiaState.Submerged;
     private Transform targetPlayer;
     private PlayerStatus targetStatus;
-    private Transform targetCamera;
     private float unwatchedTimer;
     private float riseTimer;
     private float behindRefreshTimer;
@@ -123,7 +122,6 @@ public class VictoriaRegiaBehavior : MonoBehaviour
         float bestDistance = float.PositiveInfinity;
         targetStatus = null;
         targetPlayer = null;
-        targetCamera = null;
 
         for (int i = 0; i < players.Length; i++)
         {
@@ -136,7 +134,6 @@ public class VictoriaRegiaBehavior : MonoBehaviour
             bestDistance = distance;
             targetStatus = status;
             targetPlayer = status.transform;
-            targetCamera = FindPlayerCamera(status.transform);
         }
     }
 
@@ -338,7 +335,6 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
         targetStatus = null;
         targetPlayer = null;
-        targetCamera = null;
         ClearVictimReferences();
 
         if (sinkAfterKill)
@@ -655,7 +651,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, revealRange: gazeCheckDistance);
+        Gizmos.DrawWireSphere(transform.position, gazeCheckDistance);
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, grappleRange);
     }
