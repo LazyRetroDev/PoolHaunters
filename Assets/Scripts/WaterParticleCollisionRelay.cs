@@ -24,15 +24,15 @@ public class WaterParticleCollisionRelay : MonoBehaviour
 
     void Update()
     {
-        DetectRaccoonsInsideWaterParticles();
+        DetectWaterReactiveEnemiesInsideParticles();
     }
 
     void OnParticleCollision(GameObject other)
     {
-        NotifyRaccoon(other);
+        NotifyWaterReactiveEnemy(other);
     }
 
-    void DetectRaccoonsInsideWaterParticles()
+    void DetectWaterReactiveEnemiesInsideParticles()
     {
         if (waterParticles == null || !waterParticles.isPlaying)
             return;
@@ -59,7 +59,7 @@ public class WaterParticleCollisionRelay : MonoBehaviour
                 QueryTriggerInteraction.Collide);
 
             for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
-                NotifyRaccoon(colliderBuffer[hitIndex].gameObject);
+                NotifyWaterReactiveEnemy(colliderBuffer[hitIndex].gameObject);
         }
     }
 
@@ -78,7 +78,7 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         }
     }
 
-    void NotifyRaccoon(GameObject hitObject)
+    void NotifyWaterReactiveEnemy(GameObject hitObject)
     {
         if (hitObject == null)
             return;
@@ -86,5 +86,9 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         RaccoonBehavior raccoon = hitObject.GetComponentInParent<RaccoonBehavior>();
         if (raccoon != null)
             raccoon.ReceiveWaterHit(transform.position);
+
+        BathroomBlondeBehavior bathroomBlonde = hitObject.GetComponentInParent<BathroomBlondeBehavior>();
+        if (bathroomBlonde != null)
+            bathroomBlonde.ReceiveWaterHit(transform.position);
     }
 }
