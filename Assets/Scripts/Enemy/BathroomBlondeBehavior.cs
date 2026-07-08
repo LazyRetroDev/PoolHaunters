@@ -157,6 +157,12 @@ public class BathroomBlondeBehavior : MonoBehaviour
         BeginRetreat();
     }
 
+    public void ReceiveWaterHit(Vector3 sourcePosition)
+    {
+        if (state == BathroomBlondeState.EmergingFromMirror)
+            BeginRetreat();
+    }
+
     void BeginRetreat()
     {
         activeMirror = null;
