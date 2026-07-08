@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 2604956402167404004}
   - component: {fileID: 5858466260864568056}
   - component: {fileID: 5050229456726935484}
+  - component: {fileID: 912515278141332379}
   m_Layer: 0
   m_Name: Fountain (1)
   m_TagString: Untagged
@@ -129,6 +130,36 @@ MonoBehaviour:
   allowInfiniteWaterWhenNoSource: 1
   fallbackWaterQuality: 0
   replacePlayerWaterQuality: 0
+--- !u!114 &912515278141332379
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1363054981379544165}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85518c2ee574f0f4da01395aa08ffb43, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaterSourceDryable
+  startsDry: 0
+  isDry: 0
+  waterQuality: 0
+  maxWaterAmount: 250
+  currentWaterAmount: 250
+  refillToMaxOnStart: 1
+  replacePlayerWaterQuality: 0
+  deterioratesOverTime: 1
+  waterLossPerSecond: 0.25
+  canBecomeContaminated: 1
+  contaminationDelay: 120
+  wetVisualRoot: {fileID: 0}
+  dryVisualRoot: {fileID: 0}
+  waterParticles: []
+  renderersToDisableWhenDry: []
+  collidersToDisableWhenDry: []
+  disableObjectWhenDry: 0
+  extraObjectsToDisableWhenDry: []
 --- !u!1 &3822121108961349732
 GameObject:
   m_ObjectHideFlags: 0
@@ -143,7 +174,7 @@ GameObject:
   - component: {fileID: 4673643906171800868}
   m_Layer: 0
   m_Name: Cooler
-  m_TagString: Untagged
+  m_TagString: WaterSource
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
