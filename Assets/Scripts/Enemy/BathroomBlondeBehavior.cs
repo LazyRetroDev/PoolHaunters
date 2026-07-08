@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.InputSystem;
 
 public class BathroomBlondeBehavior : MonoBehaviour
 {
@@ -7,6 +8,7 @@ public class BathroomBlondeBehavior : MonoBehaviour
     {
         Hidden,
         EmergingFromMirror,
+        HoldingVictim,
         Retreating
     }
 
@@ -31,25 +33,50 @@ public class BathroomBlondeBehavior : MonoBehaviour
     public float emergeDuration = 5f;
     public float retreatDuration = 1.5f;
     public float riseSpeed = 2.5f;
+    public bool makeRigidbodyKinematic = true;
+
+    [Header("Hair Hold")]
+    public Transform hairHoldPoint;
+    public Vector3 hairHoldOffset = new Vector3(0f, 1.1f, 0.55f);
+    public float hairHoldDuration = 4f;
+    public int escapeClicksRequired = 18;
+    public bool destroyMirrorAfterEscape = true;
+    public bool destroyMirrorAfterSwallow = true;
 
     [Header("Camera Effects")]
     public PlayerVignetteEffect cameraEffects;
     [Range(0f, 1f)] public float mirrorThreatVignette = 0.75f;
+    [Range(0f, 1f)] public float holdThreatVignette = 0.9f;
     public float emergeShakeAmplitude = 0.8f;
     public float emergeShakeFrequency = 10f;
     public float emergeShakeDuration = 0.35f;
+    public float holdShakeAmplitude = 1f;
+    public float holdShakeFrequency = 13f;
+    public float holdShakeDuration = 0.35f;
 
     private BathroomBlondeState state = BathroomBlondeState.Hidden;
     private BathroomBlondeMirror activeMirror;
     private PlayerStatus activeVictim;
+    private Transform activeVictimTransform;
+    private PlayerMovement heldMovement;
+    private PlayerInventory heldInventory;
+    private WaterCannon heldWaterCannon;
+    private Rigidbody heldRigidbody;
+    private bool heldMovementWasEnabled;
+    private bool heldInventoryWasEnabled;
+    private bool heldWaterCannonWasEnabled;
+    private bool heldRigidbodyWasKinematic;
+    private bool heldRigidbodyUsedGravity;
     private float mirrorSpawnTimer;
     private float drainSpawnTimer;
     private float stateTimer;
+    private int escapeClicks;
     private Vector3 hiddenPosition;
 
     void Start()
     {
         hiddenPosition = transform.position;
+        ConfigureOwnPhysics();
         mirrorSpawnTimer = Random.Range(2f, Mathf.Max(2f, mirrorSpawnInterval));
         drainSpawnTimer = Random.Range(2f, Mathf.Max(2f, drainSpawnInterval));
         ResolveCameraEffects();
@@ -69,10 +96,26 @@ public class BathroomBlondeBehavior : MonoBehaviour
             case BathroomBlondeState.EmergingFromMirror:
                 UpdateEmerging();
                 break;
+            case BathroomBlondeState.HoldingVictim:
+                UpdateHoldingVictim();
+                break;
             case BathroomBlondeState.Retreating:
                 UpdateRetreating();
                 break;
         }
+    }
+
+    void ConfigureOwnPhysics()
+    {
+        if (!makeRigidbodyKinematic) return;
+
+        Rigidbody body = GetComponent<Rigidbody>();
+        if (body == null) return;
+
+        body.linearVelocity = Vector3.zero;
+        body.angularVelocity = Vector3.zero;
+        body.useGravity = false;
+        body.isKinematic = true;
     }
 
     void UpdateHazardSpawning()
@@ -114,6 +157,90 @@ public class BathroomBlondeBehavior : MonoBehaviour
         stateTimer -= Time.deltaTime;
         float percent = emergeDuration > 0f ? 1f - Mathf.Clamp01(stateTimer / emergeDuration) : 1f;
         SetBodyLocalY(Mathf.Lerp(hiddenLocalY, emergedLocalY, percent));
+
+        if (stateTimer <= 0f)
+            BeginHairHold();
+    }
+
+    void BeginHairHold()
+    {
+        if (activeVictim == null || activeVictim.IsDead())
+        {
+            BeginRetreat();
+            return;
+        }
+
+        state = BathroomBlondeState.HoldingVictim;
+        stateTimer = hairHoldDuration;
+        escapeClicks = 0;
+        activeVictimTransform = activeVictim.transform;
+        StoreAndBlockVictimControls(activeVictim);
+        activeMirror?.MarkBlondeOut();
+
+        if (cameraEffects != null)
+        {
+            cameraEffects.Pulse(holdThreatVignette, holdShakeDuration);
+            cameraEffects.Shake(holdShakeAmplitude, holdShakeFrequency, holdShakeDuration);
+        }
+    }
+
+    void UpdateHoldingVictim()
+    {
+        if (activeVictim == null || activeVictimTransform == null || activeVictim.IsDead())
+        {
+            BeginRetreat();
+            return;
+        }
+
+        FollowActiveMirror();
+        SetBodyLocalY(emergedLocalY);
+        FaceTarget(activeVictimTransform.position);
+        HoldVictimWithHair();
+        CountEscapeClicks();
+        UpdateCameraEffect(holdThreatVignette);
+
+        stateTimer -= Time.deltaTime;
+        if (escapeClicks >= escapeClicksRequired)
+        {
+            EscapeHairHold();
+            return;
+        }
+
+        if (stateTimer <= 0f)
+            SwallowVictim();
+    }
+
+    void CountEscapeClicks()
+    {
+        if (Mouse.current == null) return;
+        if (Mouse.current.leftButton.wasPressedThisFrame)
+            escapeClicks++;
+    }
+
+    void EscapeHairHold()
+    {
+        RestoreVictimControls(activeVictim);
+        ClearHeldReferences();
+
+        if (destroyMirrorAfterEscape && activeMirror != null)
+            activeMirror.DestroyAfterBlondeFinished();
+
+        BeginRetreat();
+    }
+
+    void SwallowVictim()
+    {
+        PlayerStatus victim = activeVictim;
+        RestoreVictimControls(victim);
+        ClearHeldReferences();
+
+        if (victim != null && !victim.IsDead())
+            victim.Die();
+
+        if (destroyMirrorAfterSwallow && activeMirror != null)
+            activeMirror.DestroyAfterBlondeFinished();
+
+        BeginRetreat();
     }
 
     void UpdateRetreating()
@@ -129,9 +256,11 @@ public class BathroomBlondeBehavior : MonoBehaviour
     public void BeginMirrorEmergence(BathroomBlondeMirror mirror, PlayerStatus victim, Transform emergePoint)
     {
         if (mirror == null || victim == null || victim.IsDead()) return;
+        if (state == BathroomBlondeState.HoldingVictim) return;
 
         activeMirror = mirror;
         activeVictim = victim;
+        activeVictimTransform = victim.transform;
         state = BathroomBlondeState.EmergingFromMirror;
         stateTimer = emergeDuration;
         FollowActiveMirror();
@@ -148,12 +277,7 @@ public class BathroomBlondeBehavior : MonoBehaviour
     public void CancelMirrorEmergence(BathroomBlondeMirror mirror)
     {
         if (mirror != activeMirror) return;
-        BeginRetreat();
-    }
-
-    public void CompleteMirrorSwallow(BathroomBlondeMirror mirror)
-    {
-        if (mirror != activeMirror) return;
+        if (state == BathroomBlondeState.HoldingVictim) return;
         BeginRetreat();
     }
 
@@ -165,8 +289,11 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     void BeginRetreat()
     {
+        RestoreVictimControls(activeVictim);
+        ClearHeldReferences();
         activeMirror = null;
         activeVictim = null;
+        activeVictimTransform = null;
         state = BathroomBlondeState.Retreating;
         stateTimer = retreatDuration;
         UpdateVisuals();
@@ -174,8 +301,11 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     void EnterHidden(bool immediate)
     {
+        RestoreVictimControls(activeVictim);
+        ClearHeldReferences();
         activeMirror = null;
         activeVictim = null;
+        activeVictimTransform = null;
         state = BathroomBlondeState.Hidden;
         transform.position = hiddenPosition;
 
@@ -306,6 +436,96 @@ public class BathroomBlondeBehavior : MonoBehaviour
         return true;
     }
 
+    void StoreAndBlockVictimControls(PlayerStatus victim)
+    {
+        if (victim == null) return;
+
+        heldMovement = victim.GetComponent<PlayerMovement>();
+        heldInventory = victim.GetComponent<PlayerInventory>();
+        heldWaterCannon = victim.GetComponentInChildren<WaterCannon>();
+        heldRigidbody = victim.GetComponent<Rigidbody>();
+
+        if (heldMovement != null)
+        {
+            heldMovementWasEnabled = heldMovement.enabled;
+            heldMovement.enabled = false;
+        }
+
+        if (heldInventory != null)
+        {
+            heldInventoryWasEnabled = heldInventory.enabled;
+            heldInventory.enabled = false;
+        }
+
+        if (heldWaterCannon != null)
+        {
+            heldWaterCannonWasEnabled = heldWaterCannon.enabled;
+            heldWaterCannon.enabled = false;
+        }
+
+        if (heldRigidbody != null)
+        {
+            heldRigidbodyWasKinematic = heldRigidbody.isKinematic;
+            heldRigidbodyUsedGravity = heldRigidbody.useGravity;
+            heldRigidbody.linearVelocity = Vector3.zero;
+            heldRigidbody.angularVelocity = Vector3.zero;
+            heldRigidbody.useGravity = false;
+            heldRigidbody.isKinematic = true;
+        }
+    }
+
+    void RestoreVictimControls(PlayerStatus victim)
+    {
+        bool canRestore = victim != null && victim.CanAct();
+
+        if (heldMovement != null)
+            heldMovement.enabled = canRestore && heldMovementWasEnabled;
+
+        if (heldInventory != null)
+            heldInventory.enabled = canRestore && heldInventoryWasEnabled;
+
+        if (heldWaterCannon != null)
+            heldWaterCannon.enabled = canRestore && heldWaterCannonWasEnabled;
+
+        if (heldRigidbody != null && canRestore)
+        {
+            heldRigidbody.isKinematic = heldRigidbodyWasKinematic;
+            heldRigidbody.useGravity = heldRigidbodyUsedGravity;
+        }
+    }
+
+    void ClearHeldReferences()
+    {
+        heldMovement = null;
+        heldInventory = null;
+        heldWaterCannon = null;
+        heldRigidbody = null;
+        heldMovementWasEnabled = false;
+        heldInventoryWasEnabled = false;
+        heldWaterCannonWasEnabled = false;
+    }
+
+    void HoldVictimWithHair()
+    {
+        if (activeVictimTransform == null) return;
+
+        Vector3 holdPosition = hairHoldPoint != null
+            ? hairHoldPoint.position
+            : transform.TransformPoint(hairHoldOffset);
+
+        Rigidbody body = activeVictimTransform.GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.position = holdPosition;
+            body.rotation = transform.rotation;
+            return;
+        }
+
+        activeVictimTransform.SetPositionAndRotation(holdPosition, transform.rotation);
+    }
+
     void MoveBodyToward(float targetY, float speed)
     {
         if (bodyRoot == null) return;
@@ -339,13 +559,15 @@ public class BathroomBlondeBehavior : MonoBehaviour
     void UpdateVisuals()
     {
         bool hidden = state == BathroomBlondeState.Hidden;
-        bool emerging = state == BathroomBlondeState.EmergingFromMirror;
+        bool visible = state == BathroomBlondeState.EmergingFromMirror ||
+            state == BathroomBlondeState.HoldingVictim ||
+            state == BathroomBlondeState.Retreating;
 
         if (hiddenVisualRoot != null)
             hiddenVisualRoot.SetActive(hidden);
 
         if (emergingVisualRoot != null)
-            emergingVisualRoot.SetActive(emerging || state == BathroomBlondeState.Retreating);
+            emergingVisualRoot.SetActive(visible);
     }
 
     void ResolveCameraEffects()
@@ -371,6 +593,7 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     void OnDestroy()
     {
+        RestoreVictimControls(activeVictim);
         ClearCameraEffect();
     }
 }
