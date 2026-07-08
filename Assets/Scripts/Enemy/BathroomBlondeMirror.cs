@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class BathroomBlondeMirror : MonoBehaviour
 {
@@ -7,6 +6,7 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         Idle,
         Summoning,
+        BlondeOut,
         Broken,
         Spent
     }
@@ -21,12 +21,7 @@ public class BathroomBlondeMirror : MonoBehaviour
 
     [Header("Summon")]
     public Transform emergencePoint;
-    public Transform victimHoldPoint;
-    public Vector3 victimHoldOffset = new Vector3(0f, 1.1f, 0.45f);
-    public float summonDuration = 5f;
-    public int escapeClicksRequired = 18;
-    public bool destroyAfterEscape = true;
-    public bool destroyAfterSwallow = true;
+    public bool destroyWhenBlondeFinishes = true;
 
     [Header("Mirror Health")]
     public float maxDurability = 60f;
@@ -37,25 +32,13 @@ public class BathroomBlondeMirror : MonoBehaviour
     [Header("Visuals")]
     public GameObject idleVisualRoot;
     public GameObject summoningVisualRoot;
+    public GameObject blondeOutVisualRoot;
     public GameObject brokenVisualRoot;
 
     private BathroomBlondeBehavior owner;
     private MirrorState state = MirrorState.Idle;
-    private PlayerStatus trappedStatus;
-    private Transform trappedPlayer;
-    private PlayerMovement trappedMovement;
-    private PlayerInventory trappedInventory;
-    private WaterCannon trappedWaterCannon;
-    private Rigidbody trappedRigidbody;
-    private bool trappedMovementWasEnabled;
-    private bool trappedInventoryWasEnabled;
-    private bool trappedWaterCannonWasEnabled;
-    private bool trappedRigidbodyWasKinematic;
-    private bool trappedRigidbodyUsedGravity;
     private int lookCount;
-    private int escapeClicks;
     private float lookTimer;
-    private float summonTimer;
     private float durability;
 
     void Awake()
@@ -73,15 +56,8 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         lookTimer -= Time.deltaTime;
 
-        switch (state)
-        {
-            case MirrorState.Idle:
-                UpdateIdleCurse();
-                break;
-            case MirrorState.Summoning:
-                UpdateSummoning();
-                break;
-        }
+        if (state == MirrorState.Idle)
+            UpdateIdleCurse();
     }
 
     void UpdateIdleCurse()
@@ -157,71 +133,25 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         if (victim == null || victim.IsDead()) return;
 
-        trappedStatus = victim;
-        trappedPlayer = victim.transform;
-        summonTimer = summonDuration;
-        escapeClicks = 0;
         state = MirrorState.Summoning;
-        StoreAndBlockVictimControls(victim);
         owner?.BeginMirrorEmergence(this, victim, GetEmergencePoint());
         UpdateVisuals();
     }
 
-    void UpdateSummoning()
+    public void MarkBlondeOut()
     {
-        if (trappedStatus == null || trappedPlayer == null || trappedStatus.IsDead())
-        {
-            BreakMirror();
-            return;
-        }
+        if (state != MirrorState.Summoning) return;
 
-        HoldTrappedPlayer();
-        CountEscapeClicks();
-
-        summonTimer -= Time.deltaTime;
-        if (escapeClicks >= escapeClicksRequired)
-        {
-            EscapeMirror();
-            return;
-        }
-
-        if (summonTimer <= 0f)
-            SwallowVictim();
+        state = MirrorState.BlondeOut;
+        UpdateVisuals();
     }
 
-    void CountEscapeClicks()
+    public void DestroyAfterBlondeFinished()
     {
-        if (Mouse.current == null) return;
-        if (Mouse.current.leftButton.wasPressedThisFrame)
-            escapeClicks++;
-    }
-
-    void EscapeMirror()
-    {
-        RestoreVictimControls(trappedStatus);
-        ClearTrappedReferences();
-        owner?.CancelMirrorEmergence(this);
         state = MirrorState.Spent;
         UpdateVisuals();
 
-        if (destroyAfterEscape)
-            Destroy(gameObject);
-    }
-
-    void SwallowVictim()
-    {
-        PlayerStatus victim = trappedStatus;
-        RestoreVictimControls(victim);
-        ClearTrappedReferences();
-
-        if (victim != null && !victim.IsDead())
-            victim.Die();
-
-        owner?.CompleteMirrorSwallow(this);
-        state = MirrorState.Spent;
-        UpdateVisuals();
-
-        if (destroyAfterSwallow)
+        if (destroyWhenBlondeFinishes)
             Destroy(gameObject);
     }
 
@@ -255,8 +185,6 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         if (state == MirrorState.Broken || state == MirrorState.Spent) return;
 
-        RestoreVictimControls(trappedStatus);
-        ClearTrappedReferences();
         owner?.CancelMirrorEmergence(this);
         state = MirrorState.Broken;
         UpdateVisuals();
@@ -268,109 +196,11 @@ public class BathroomBlondeMirror : MonoBehaviour
         return emergencePoint != null ? emergencePoint : transform;
     }
 
-    void StoreAndBlockVictimControls(PlayerStatus victim)
-    {
-        if (victim == null) return;
-
-        trappedMovement = victim.GetComponent<PlayerMovement>();
-        trappedInventory = victim.GetComponent<PlayerInventory>();
-        trappedWaterCannon = victim.GetComponentInChildren<WaterCannon>();
-        trappedRigidbody = victim.GetComponent<Rigidbody>();
-
-        if (trappedMovement != null)
-        {
-            trappedMovementWasEnabled = trappedMovement.enabled;
-            trappedMovement.enabled = false;
-        }
-
-        if (trappedInventory != null)
-        {
-            trappedInventoryWasEnabled = trappedInventory.enabled;
-            trappedInventory.enabled = false;
-        }
-
-        if (trappedWaterCannon != null)
-        {
-            trappedWaterCannonWasEnabled = trappedWaterCannon.enabled;
-            trappedWaterCannon.enabled = false;
-        }
-
-        if (trappedRigidbody != null)
-        {
-            trappedRigidbodyWasKinematic = trappedRigidbody.isKinematic;
-            trappedRigidbodyUsedGravity = trappedRigidbody.useGravity;
-            trappedRigidbody.linearVelocity = Vector3.zero;
-            trappedRigidbody.angularVelocity = Vector3.zero;
-            trappedRigidbody.useGravity = false;
-            trappedRigidbody.isKinematic = true;
-        }
-    }
-
-    void RestoreVictimControls(PlayerStatus victim)
-    {
-        bool canRestore = victim != null && victim.CanAct();
-
-        if (trappedMovement != null)
-            trappedMovement.enabled = canRestore && trappedMovementWasEnabled;
-
-        if (trappedInventory != null)
-            trappedInventory.enabled = canRestore && trappedInventoryWasEnabled;
-
-        if (trappedWaterCannon != null)
-            trappedWaterCannon.enabled = canRestore && trappedWaterCannonWasEnabled;
-
-        if (trappedRigidbody != null && canRestore)
-        {
-            trappedRigidbody.isKinematic = trappedRigidbodyWasKinematic;
-            trappedRigidbody.useGravity = trappedRigidbodyUsedGravity;
-        }
-    }
-
-    void ClearTrappedReferences()
-    {
-        trappedStatus = null;
-        trappedPlayer = null;
-        trappedMovement = null;
-        trappedInventory = null;
-        trappedWaterCannon = null;
-        trappedRigidbody = null;
-        trappedMovementWasEnabled = false;
-        trappedInventoryWasEnabled = false;
-        trappedWaterCannonWasEnabled = false;
-    }
-
-    void HoldTrappedPlayer()
-    {
-        if (trappedPlayer == null) return;
-
-        Vector3 holdPosition = victimHoldPoint != null
-            ? victimHoldPoint.position
-            : transform.TransformPoint(victimHoldOffset);
-
-        TeleportTransform(trappedPlayer, holdPosition, transform.rotation);
-    }
-
-    void TeleportTransform(Transform target, Vector3 position, Quaternion rotation)
-    {
-        if (target == null) return;
-
-        Rigidbody body = target.GetComponent<Rigidbody>();
-        if (body != null)
-        {
-            body.linearVelocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.position = position;
-            body.rotation = rotation;
-            return;
-        }
-
-        target.SetPositionAndRotation(position, rotation);
-    }
-
     void UpdateVisuals()
     {
         bool idle = state == MirrorState.Idle;
         bool summoning = state == MirrorState.Summoning;
+        bool blondeOut = state == MirrorState.BlondeOut;
         bool broken = state == MirrorState.Broken;
 
         if (idleVisualRoot != null)
@@ -379,13 +209,11 @@ public class BathroomBlondeMirror : MonoBehaviour
         if (summoningVisualRoot != null)
             summoningVisualRoot.SetActive(summoning);
 
+        if (blondeOutVisualRoot != null)
+            blondeOutVisualRoot.SetActive(blondeOut);
+
         if (brokenVisualRoot != null)
             brokenVisualRoot.SetActive(broken);
-    }
-
-    void OnDestroy()
-    {
-        RestoreVictimControls(trappedStatus);
     }
 
     void OnDrawGizmosSelected()
