@@ -90,5 +90,13 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         BathroomBlondeBehavior bathroomBlonde = hitObject.GetComponentInParent<BathroomBlondeBehavior>();
         if (bathroomBlonde != null)
             bathroomBlonde.ReceiveWaterHit(transform.position);
+
+        BathroomBlondeMirror bathroomMirror = hitObject.GetComponentInParent<BathroomBlondeMirror>();
+        if (bathroomMirror != null)
+            bathroomMirror.ReceiveWaterHit(transform.position);
+
+        BathroomBlondeDrain bathroomDrain = hitObject.GetComponentInParent<BathroomBlondeDrain>();
+        if (bathroomDrain != null)
+            bathroomDrain.ReceiveWaterHit(transform.position);
     }
 }
