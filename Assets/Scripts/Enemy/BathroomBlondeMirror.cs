@@ -44,6 +44,7 @@ public class BathroomBlondeMirror : MonoBehaviour
     void Awake()
     {
         durability = maxDurability;
+        ResolveOwner();
         UpdateVisuals();
     }
 
@@ -133,9 +134,18 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         if (victim == null || victim.IsDead()) return;
 
+        ResolveOwner();
+        if (owner == null) return;
+
         state = MirrorState.Summoning;
-        owner?.BeginMirrorEmergence(this, victim, GetEmergencePoint());
+        owner.BeginMirrorEmergence(this, victim, GetEmergencePoint());
         UpdateVisuals();
+    }
+
+    void ResolveOwner()
+    {
+        if (owner != null) return;
+        owner = FindObjectOfType<BathroomBlondeBehavior>();
     }
 
     public void MarkBlondeOut()
@@ -185,7 +195,10 @@ public class BathroomBlondeMirror : MonoBehaviour
     {
         if (state == MirrorState.Broken || state == MirrorState.Spent) return;
 
-        owner?.CancelMirrorEmergence(this);
+        ResolveOwner();
+        if (owner != null)
+            owner.CancelMirrorEmergence(this);
+
         state = MirrorState.Broken;
         UpdateVisuals();
         Destroy(gameObject, 0.25f);
