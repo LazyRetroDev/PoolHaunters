@@ -22,6 +22,15 @@ public class RoomGenerationProfile : ScriptableObject
     public bool guaranteeMinimumBranchCount = true;
     public bool allowRepeatingFinalRoomsForBranches = true;
 
+    [Header("Branch Connections")]
+    public bool connectAdjacentBranches = true;
+    [Range(0f, 1f)] public float adjacentBranchConnectionChance = 0.35f;
+    [Tooltip("Use 0 for no maximum.")]
+    [Min(0)] public int maximumAdjacentBranchConnections;
+    [Tooltip("Maximum world distance allowed between DoorPoints when connecting two already generated branches.")]
+    [Min(0.1f)] public float maximumAdjacentBranchConnectionDoorDistance = 4.5f;
+    public bool enforceFinalRoomMinimumDistance = true;
+
     [Header("Validation")]
     public bool validateFullMapAfterGeneration = true;
     [Min(1)] public int fullMapGenerationAttempts = 20;
@@ -76,6 +85,11 @@ public class RoomGenerationProfile : ScriptableObject
     public bool logRejectedFullMapAttempts = true;
     public bool renameGeneratedRoomsForDebug = true;
     public bool drawGeneratedMapGizmos = true;
+    public bool drawGeneratedMapLabels = true;
+    public bool drawClosedConnectorGizmos = true;
+    public bool drawBranchConnectionGizmos = true;
+    [Min(0.1f)] public float generationDebugMarkerSize = 1.25f;
+    [Min(0f)] public float generationDebugLabelHeight = 2.5f;
 
     public void ApplyProgressionTo(RoomProgressionController progression)
     {
@@ -142,6 +156,12 @@ public class RoomGenerationProfile : ScriptableObject
             minimumRoomsPerBranch,
             maximumRoomsPerBranch);
         branchGenerationAttempts = Mathf.Max(1, branchGenerationAttempts);
+        adjacentBranchConnectionChance =
+            Mathf.Clamp01(adjacentBranchConnectionChance);
+        maximumAdjacentBranchConnections =
+            Mathf.Max(0, maximumAdjacentBranchConnections);
+        maximumAdjacentBranchConnectionDoorDistance =
+            Mathf.Max(0.1f, maximumAdjacentBranchConnectionDoorDistance);
         fullMapGenerationAttempts = Mathf.Max(1, fullMapGenerationAttempts);
         roomsToKeep = Mathf.Max(0, roomsToKeep);
 
@@ -156,6 +176,8 @@ public class RoomGenerationProfile : ScriptableObject
         navMeshLinkWidth = Mathf.Max(0.1f, navMeshLinkWidth);
         navMeshLinkWorldHeight = Mathf.Max(0f, navMeshLinkWorldHeight);
         navMeshLinkHalfLength = Mathf.Max(0.1f, navMeshLinkHalfLength);
+        generationDebugMarkerSize = Mathf.Max(0.1f, generationDebugMarkerSize);
+        generationDebugLabelHeight = Mathf.Max(0f, generationDebugLabelHeight);
 
         ValidateProgressionRules();
     }

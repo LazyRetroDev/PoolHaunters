@@ -11361,20 +11361,20 @@ MonoBehaviour:
   - {fileID: 3378611166528902296, guid: 8f51da85525f1a142bc0ca6d9d6a1a55, type: 3}
   - {fileID: 3378611166528902296, guid: 5f9b88c71e5343941a1a5069769acf00, type: 3}
   - {fileID: 3378611166528902296, guid: 20f7c2250cdda38468ef0662bca58c1f, type: 3}
+  - {fileID: 2395395961881278218, guid: f44babece57505d4aba560befb937d4d, type: 3}
   startingRoomCount: 2
   maxGeneratedRooms: 25
   generateFullMapOnStart: 1
-  minimumBranchCount: 12
-  maximumBranchCount: 16
+  minimumBranchCount: 24
+  maximumBranchCount: 24
   minimumRoomsPerBranch: 16
-  maximumRoomsPerBranch: 24
+  maximumRoomsPerBranch: 16
   branchGenerationAttempts: 50
   guaranteeMinimumBranchCount: 1
   allowRepeatingFinalRoomsForBranches: 1
   connectAdjacentBranches: 1
   adjacentBranchConnectionChance: 1
-  maximumAdjacentBranchConnections: 5
-  maximumAdjacentBranchConnectionDoorDistance: 12
+  maximumAdjacentBranchConnections: 2
   enforceFinalRoomMinimumDistance: 1
   validateFullMapAfterGeneration: 1
   fullMapGenerationAttempts: 20
@@ -11384,17 +11384,12 @@ MonoBehaviour:
   logRejectedFullMapAttempts: 1
   renameGeneratedRoomsForDebug: 1
   drawGeneratedMapGizmos: 1
-  drawGeneratedMapLabels: 1
-  drawClosedConnectorGizmos: 1
-  drawBranchConnectionGizmos: 1
-  generationDebugMarkerSize: 1.25
-  generationDebugLabelHeight: 2.5
   lastGenerationReport: 
   keepGeneratedRoomsForBacktracking: 1
   roomsToKeep: 0
-  seed: 2013447991
+  seed: 0
   useSelectedRunSeed: 0
-  randomizeSeedWhenNoRunSelected: 0
+  randomizeSeedWhenNoRunSelected: 1
   spawnTimeCamperAfterStartingRooms: 1
   enemySpawner: {fileID: 2054101550}
   resourceSpawner: {fileID: 2054101548}

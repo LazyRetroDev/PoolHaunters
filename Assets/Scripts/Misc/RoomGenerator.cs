@@ -3,6 +3,9 @@ using Unity.AI.Navigation;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class RoomGenerator : MonoBehaviour
 {
@@ -30,6 +33,24 @@ public class RoomGenerator : MonoBehaviour
         public Dictionary<Vector2Int, RoomPlacement> placementsByCell;
         public Dictionary<RoomConnector, Vector2Int> connectorTargetCells;
         public Dictionary<RoomConnector, NavMeshLink> navMeshLinksByConnector;
+        public Dictionary<GameObject, RoomDebugInfo> roomDebugInfoByRoom;
+        public List<ConnectorDebugConnection> debugBranchConnections;
+    }
+
+    class RoomDebugInfo
+    {
+        public int roomIndex;
+        public int branchNumber;
+        public int branchRoomNumber;
+        public bool isStart;
+        public bool isFinal;
+        public Vector2Int cell;
+    }
+
+    class ConnectorDebugConnection
+    {
+        public RoomConnector first;
+        public RoomConnector second;
     }
 
     class FullMapGenerationStats
@@ -62,6 +83,7 @@ public class RoomGenerator : MonoBehaviour
         public int requestedBranchCount;
         public int completedBranchCount;
         public int branchBuildAttempts;
+        public int adjacentBranchConnectionCount;
         public int generatedRoomCount;
         public int finalRoomCount;
         public int closedConnectorCount;
@@ -142,6 +164,23 @@ public class RoomGenerator : MonoBehaviour
     [Tooltip("Allows the same Final room prefab to close multiple branches in full-map generation.")]
     public bool allowRepeatingFinalRoomsForBranches = true;
 
+    [Header("Branch Connections")]
+    public bool connectAdjacentBranches = true;
+
+    [Range(0f, 1f)]
+    public float adjacentBranchConnectionChance = 0.35f;
+
+    [Tooltip("Use 0 for no maximum.")]
+    [Min(0)]
+    public int maximumAdjacentBranchConnections = 0;
+
+    [Tooltip("Maximum world distance allowed between DoorPoints when connecting two already generated branches.")]
+    [Min(0.1f)]
+    public float maximumAdjacentBranchConnectionDoorDistance = 4.5f;
+
+    [Tooltip("Reject maps where a Final room can be reached from the starting room in fewer steps than minimumRoomsPerBranch.")]
+    public bool enforceFinalRoomMinimumDistance = true;
+
     [Header("Full Map Validation")]
     public bool validateFullMapAfterGeneration = true;
 
@@ -156,6 +195,15 @@ public class RoomGenerator : MonoBehaviour
     public bool logRejectedFullMapAttempts = true;
     public bool renameGeneratedRoomsForDebug = true;
     public bool drawGeneratedMapGizmos = true;
+    public bool drawGeneratedMapLabels = true;
+    public bool drawClosedConnectorGizmos = true;
+    public bool drawBranchConnectionGizmos = true;
+
+    [Min(0.1f)]
+    public float generationDebugMarkerSize = 1.25f;
+
+    [Min(0f)]
+    public float generationDebugLabelHeight = 2.5f;
 
     [TextArea(8, 30)]
     [SerializeField] private string lastGenerationReport;
@@ -241,6 +289,10 @@ public class RoomGenerator : MonoBehaviour
         new Dictionary<RoomConnector, Vector2Int>();
     private readonly Dictionary<RoomConnector, NavMeshLink> navMeshLinksByConnector =
         new Dictionary<RoomConnector, NavMeshLink>();
+    private readonly Dictionary<GameObject, RoomDebugInfo> roomDebugInfoByRoom =
+        new Dictionary<GameObject, RoomDebugInfo>();
+    private readonly List<ConnectorDebugConnection> debugBranchConnections =
+        new List<ConnectorDebugConnection>();
 
     private Transform navMeshLinkRoot;
     private Transform lastExitPoint;
@@ -296,6 +348,14 @@ public class RoomGenerator : MonoBehaviour
         guaranteeMinimumBranchCount = profile.guaranteeMinimumBranchCount;
         allowRepeatingFinalRoomsForBranches =
             profile.allowRepeatingFinalRoomsForBranches;
+        connectAdjacentBranches = profile.connectAdjacentBranches;
+        adjacentBranchConnectionChance = profile.adjacentBranchConnectionChance;
+        maximumAdjacentBranchConnections =
+            profile.maximumAdjacentBranchConnections;
+        maximumAdjacentBranchConnectionDoorDistance =
+            profile.maximumAdjacentBranchConnectionDoorDistance;
+        enforceFinalRoomMinimumDistance =
+            profile.enforceFinalRoomMinimumDistance;
 
         validateFullMapAfterGeneration = profile.validateFullMapAfterGeneration;
         fullMapGenerationAttempts = profile.fullMapGenerationAttempts;
@@ -342,6 +402,11 @@ public class RoomGenerator : MonoBehaviour
         logRejectedFullMapAttempts = profile.logRejectedFullMapAttempts;
         renameGeneratedRoomsForDebug = profile.renameGeneratedRoomsForDebug;
         drawGeneratedMapGizmos = profile.drawGeneratedMapGizmos;
+        drawGeneratedMapLabels = profile.drawGeneratedMapLabels;
+        drawClosedConnectorGizmos = profile.drawClosedConnectorGizmos;
+        drawBranchConnectionGizmos = profile.drawBranchConnectionGizmos;
+        generationDebugMarkerSize = profile.generationDebugMarkerSize;
+        generationDebugLabelHeight = profile.generationDebugLabelHeight;
     }
 
     void Start()
@@ -757,7 +822,12 @@ public class RoomGenerator : MonoBehaviour
         RoomPlacement placement,
         int roomIndex)
     {
-        if (currentGenerationReport == null || room == null)
+        if (room == null)
+            return;
+
+        RecordRoomDebugInfo(room, placement, roomIndex);
+
+        if (currentGenerationReport == null)
             return;
 
         if (renameGeneratedRoomsForDebug)
@@ -776,6 +846,32 @@ public class RoomGenerator : MonoBehaviour
 
         if (IsFinalRoom(room))
             currentBranchReport.finalRoomName = room.name;
+    }
+
+    void RecordRoomDebugInfo(
+        GameObject room,
+        RoomPlacement placement,
+        int roomIndex)
+    {
+        if (room == null)
+            return;
+
+        int branchNumber = currentBranchReport != null
+            ? currentBranchReport.branchNumber
+            : 0;
+        int branchRoomNumber = currentBranchReport != null
+            ? currentBranchReport.generatedRoomCount + 1
+            : roomIndex;
+
+        roomDebugInfoByRoom[room] = new RoomDebugInfo
+        {
+            roomIndex = roomIndex,
+            branchNumber = branchNumber,
+            branchRoomNumber = branchRoomNumber,
+            isStart = roomIndex == 0,
+            isFinal = IsFinalRoom(room),
+            cell = placement != null ? placement.cell : Vector2Int.zero
+        };
     }
 
     void FinishFullMapGenerationReport(
@@ -820,6 +916,14 @@ public class RoomGenerator : MonoBehaviour
         currentGenerationReport.rejectionCounts[reason] = count + 1;
     }
 
+    void RecordAdjacentBranchConnections(int count)
+    {
+        if (currentGenerationReport == null || count <= 0)
+            return;
+
+        currentGenerationReport.adjacentBranchConnectionCount += count;
+    }
+
     string BuildFullMapGenerationReport(FullMapGenerationReport report)
     {
         if (report == null)
@@ -833,6 +937,7 @@ public class RoomGenerator : MonoBehaviour
         builder.AppendLine(
             $"Branches: {report.completedBranchCount}/{report.requestedBranchCount} completed, {report.requiredBranchCount} required");
         builder.AppendLine($"Branch build attempts: {report.branchBuildAttempts}");
+        builder.AppendLine($"Branch connections: {report.adjacentBranchConnectionCount}");
         builder.AppendLine(
             $"Rooms: {report.generatedRoomCount} total, {report.finalRoomCount} final");
         builder.AppendLine(
@@ -1030,6 +1135,7 @@ public class RoomGenerator : MonoBehaviour
 
         ValidateRoomPlacements(result);
         ValidateConnectorStates(result);
+        ValidateFinalRoomDistances(result);
 
         return result;
     }
@@ -1046,6 +1152,90 @@ public class RoomGenerator : MonoBehaviour
         return count;
     }
 
+    void ValidateFinalRoomDistances(MapValidationResult result)
+    {
+        if (!enforceFinalRoomMinimumDistance)
+            return;
+        if (spawnedRooms.Count == 0 || spawnedRooms[0] == null)
+            return;
+
+        int minimumDistance = Mathf.Max(1, minimumRoomsPerBranch);
+        GameObject startRoom = spawnedRooms[0];
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject room = spawnedRooms[i];
+            if (room == null || !IsFinalRoom(room))
+                continue;
+
+            int distance = GetShortestRoomGraphDistance(startRoom, room);
+            if (distance < 0)
+            {
+                result.Fail($"{room.name} is Final but unreachable from the starting room");
+                continue;
+            }
+
+            if (distance < minimumDistance)
+            {
+                result.Fail(
+                    $"{room.name} is Final at distance {distance}, minimum required is {minimumDistance}");
+            }
+        }
+    }
+
+    int GetShortestRoomGraphDistance(GameObject startRoom, GameObject targetRoom)
+    {
+        if (startRoom == null || targetRoom == null)
+            return -1;
+        if (startRoom == targetRoom)
+            return 0;
+
+        Queue<GameObject> queue = new Queue<GameObject>();
+        Dictionary<GameObject, int> distances = new Dictionary<GameObject, int>();
+
+        queue.Enqueue(startRoom);
+        distances[startRoom] = 0;
+
+        while (queue.Count > 0)
+        {
+            GameObject currentRoom = queue.Dequeue();
+            int currentDistance = distances[currentRoom];
+
+            RoomDefinition definition = GetRoomDefinition(currentRoom);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int i = 0; i < definition.connectors.Length; i++)
+            {
+                RoomConnector connector = definition.connectors[i];
+                GameObject connectedRoom = GetConnectedRoom(connector);
+                if (connectedRoom == null || distances.ContainsKey(connectedRoom))
+                    continue;
+
+                int connectedDistance = currentDistance + 1;
+                if (connectedRoom == targetRoom)
+                    return connectedDistance;
+
+                distances[connectedRoom] = connectedDistance;
+                queue.Enqueue(connectedRoom);
+            }
+        }
+
+        return -1;
+    }
+
+    GameObject GetConnectedRoom(RoomConnector connector)
+    {
+        if (connector == null || connector.State != RoomConnectorState.Connected)
+            return null;
+
+        RoomConnector connectedTo = connector.ConnectedTo;
+        if (connectedTo == null)
+            return null;
+
+        RoomDefinition definition = connectedTo.GetComponentInParent<RoomDefinition>();
+        return definition != null ? definition.gameObject : null;
+    }
     void ValidateRoomPlacements(MapValidationResult result)
     {
         List<RoomPlacement> placements = new List<RoomPlacement>();
@@ -1284,6 +1474,8 @@ public class RoomGenerator : MonoBehaviour
         placementsByCell.Clear();
         connectorTargetCells.Clear();
         navMeshLinksByConnector.Clear();
+        roomDebugInfoByRoom.Clear();
+        debugBranchConnections.Clear();
         lastExitPoint = null;
         generatedRoomCount = 0;
         initialEnemySpawned = false;
@@ -1329,7 +1521,9 @@ public class RoomGenerator : MonoBehaviour
             placementsByRoom = new Dictionary<GameObject, RoomPlacement>(placementsByRoom),
             placementsByCell = new Dictionary<Vector2Int, RoomPlacement>(placementsByCell),
             connectorTargetCells = new Dictionary<RoomConnector, Vector2Int>(connectorTargetCells),
-            navMeshLinksByConnector = new Dictionary<RoomConnector, NavMeshLink>(navMeshLinksByConnector)
+            navMeshLinksByConnector = new Dictionary<RoomConnector, NavMeshLink>(navMeshLinksByConnector),
+            roomDebugInfoByRoom = new Dictionary<GameObject, RoomDebugInfo>(roomDebugInfoByRoom),
+            debugBranchConnections = new List<ConnectorDebugConnection>(debugBranchConnections)
         };
     }
 
@@ -1354,6 +1548,8 @@ public class RoomGenerator : MonoBehaviour
         RestoreDictionary(placementsByCell, snapshot.placementsByCell);
         RestoreDictionary(connectorTargetCells, snapshot.connectorTargetCells);
         RestoreDictionary(navMeshLinksByConnector, snapshot.navMeshLinksByConnector);
+        RestoreDictionary(roomDebugInfoByRoom, snapshot.roomDebugInfoByRoom);
+        RestoreList(debugBranchConnections, snapshot.debugBranchConnections);
 
         for (int i = 0; i < openConnectors.Count; i++)
         {
@@ -2311,6 +2507,8 @@ public class RoomGenerator : MonoBehaviour
         if (mapConsolidated)
             return;
 
+        int adjacentBranchConnections = TryConnectAdjacentBranches();
+        RecordAdjacentBranchConnections(adjacentBranchConnections);
         CleanOpenConnectors();
 
         for (int i = 0; i < spawnedRooms.Count; i++)
@@ -2337,6 +2535,434 @@ public class RoomGenerator : MonoBehaviour
         mapConsolidated = true;
     }
 
+    int TryConnectAdjacentBranches()
+    {
+        if (!connectAdjacentBranches || adjacentBranchConnectionChance <= 0f)
+            return 0;
+        if (!useGridOccupancy || spawnedRooms.Count <= 1)
+            return 0;
+
+        CleanOpenConnectors();
+
+        int connectedCount = 0;
+        int maximumConnections = Mathf.Max(0, maximumAdjacentBranchConnections);
+        List<RoomConnector> connectorsToCheck = new List<RoomConnector>(openConnectors);
+
+        for (int i = 0; i < connectorsToCheck.Count; i++)
+        {
+            if (maximumConnections > 0 && connectedCount >= maximumConnections)
+                break;
+
+            RoomConnector source = connectorsToCheck[i];
+            if (source == null || !source.IsAvailable)
+                continue;
+            if (Random.value > adjacentBranchConnectionChance)
+                continue;
+
+            RoomConnector exitConnector;
+            RoomConnector entryConnector;
+            if (!TryGetAdjacentBranchConnectionPair(
+                source,
+                out exitConnector,
+                out entryConnector))
+            {
+                continue;
+            }
+
+            if (!ConnectRooms(exitConnector, entryConnector))
+                continue;
+
+            RecordDebugBranchConnection(exitConnector, entryConnector);
+            CreateNavMeshLink(exitConnector, entryConnector);
+            RefreshNavMeshLinkForConnector(exitConnector);
+            connectedCount++;
+        }
+
+        if (connectedCount > 0)
+        {
+            Debug.Log(
+                $"RoomGenerator connected {connectedCount} adjacent branch connector pair(s).");
+        }
+
+        return connectedCount;
+    }
+
+    void RecordDebugBranchConnection(
+        RoomConnector first,
+        RoomConnector second)
+    {
+        if (first == null || second == null)
+            return;
+
+        debugBranchConnections.Add(new ConnectorDebugConnection
+        {
+            first = first,
+            second = second
+        });
+    }
+
+    bool TryGetAdjacentBranchConnectionPair(
+        RoomConnector source,
+        out RoomConnector exitConnector,
+        out RoomConnector entryConnector)
+    {
+        exitConnector = null;
+        entryConnector = null;
+
+        if (source == null || !source.IsAvailable)
+            return false;
+
+        RoomPlacement sourcePlacement;
+        if (!TryGetConnectorSourcePlacement(source, out sourcePlacement))
+            return false;
+
+        Vector2Int targetCell;
+        if (TryGetConnectorTargetCell(source, out targetCell))
+        {
+            RoomPlacement targetPlacement;
+            if (placementsByCell.TryGetValue(targetCell, out targetPlacement) &&
+                targetPlacement != null &&
+                targetPlacement.room != null &&
+                CanConnectAdjacentBranchRooms(sourcePlacement, targetPlacement))
+            {
+                RoomDefinition targetDefinition = GetRoomDefinition(targetPlacement.room);
+                if (targetDefinition != null && targetDefinition.connectors != null)
+                {
+                    for (int i = 0; i < targetDefinition.connectors.Length; i++)
+                    {
+                        RoomConnector candidate = targetDefinition.connectors[i];
+                        if (candidate == null ||
+                            candidate == source ||
+                            !candidate.IsAvailable)
+                        {
+                            continue;
+                        }
+
+                        Vector2Int candidateTargetCell;
+                        if (!TryGetConnectorTargetCell(candidate, out candidateTargetCell))
+                            continue;
+
+                        if (candidateTargetCell != sourcePlacement.cell)
+                            continue;
+
+                        if (TryGetOrderedAdjacentBranchConnection(
+                            source,
+                            candidate,
+                            out exitConnector,
+                            out entryConnector))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return TryGetNearestPhysicalBranchConnectionPair(
+            source,
+            sourcePlacement,
+            out exitConnector,
+            out entryConnector);
+    }
+
+    bool TryGetNearestPhysicalBranchConnectionPair(
+        RoomConnector source,
+        RoomPlacement sourcePlacement,
+        out RoomConnector exitConnector,
+        out RoomConnector entryConnector)
+    {
+        exitConnector = null;
+        entryConnector = null;
+
+        if (source == null || sourcePlacement == null)
+            return false;
+
+        float bestScore = float.MaxValue;
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject targetRoom = spawnedRooms[i];
+            RoomPlacement targetPlacement;
+            if (targetRoom == null ||
+                !placementsByRoom.TryGetValue(targetRoom, out targetPlacement) ||
+                !CanConnectAdjacentBranchRooms(sourcePlacement, targetPlacement))
+            {
+                continue;
+            }
+
+            RoomDefinition targetDefinition = GetRoomDefinition(targetRoom);
+            if (targetDefinition == null || targetDefinition.connectors == null)
+                continue;
+
+            for (int j = 0; j < targetDefinition.connectors.Length; j++)
+            {
+                RoomConnector candidate = targetDefinition.connectors[j];
+                if (candidate == null ||
+                    candidate == source ||
+                    !candidate.IsAvailable)
+                {
+                    continue;
+                }
+
+                RoomConnector orderedExit;
+                RoomConnector orderedEntry;
+                if (!TryGetOrderedAdjacentBranchConnection(
+                    source,
+                    candidate,
+                    out orderedExit,
+                    out orderedEntry))
+                {
+                    continue;
+                }
+
+                float score = GetConnectorDistanceScore(source, candidate);
+                if (score >= bestScore)
+                    continue;
+
+                bestScore = score;
+                exitConnector = orderedExit;
+                entryConnector = orderedEntry;
+            }
+        }
+
+        return exitConnector != null && entryConnector != null;
+    }
+
+    bool TryGetOrderedAdjacentBranchConnection(
+        RoomConnector first,
+        RoomConnector second,
+        out RoomConnector exitConnector,
+        out RoomConnector entryConnector)
+    {
+        exitConnector = null;
+        entryConnector = null;
+
+        if (first == null || second == null)
+            return false;
+
+        if (first.CanConnectTo(second) &&
+            CanPhysicallyConnectAdjacentBranchDoors(first, second) &&
+            HasClearDoorwayBetweenConnectors(first, second))
+        {
+            exitConnector = first;
+            entryConnector = second;
+            return true;
+        }
+
+        if (second.CanConnectTo(first) &&
+            CanPhysicallyConnectAdjacentBranchDoors(second, first) &&
+            HasClearDoorwayBetweenConnectors(second, first))
+        {
+            exitConnector = second;
+            entryConnector = first;
+            return true;
+        }
+
+        return false;
+    }
+
+    float GetConnectorDistanceScore(RoomConnector first, RoomConnector second)
+    {
+        if (first == null || second == null || first.Point == null || second.Point == null)
+            return float.MaxValue;
+
+        Vector3 delta = second.Point.position - first.Point.position;
+        delta.y = 0f;
+        return delta.sqrMagnitude;
+    }
+
+    bool CanPhysicallyConnectAdjacentBranchDoors(
+        RoomConnector exitConnector,
+        RoomConnector entryConnector)
+    {
+        if (exitConnector == null || entryConnector == null)
+            return false;
+
+        Transform exitPoint = exitConnector.Point;
+        Transform entryPoint = entryConnector.Point;
+        if (exitPoint == null || entryPoint == null)
+            return false;
+
+        Vector3 delta = entryPoint.position - exitPoint.position;
+        Vector3 horizontalDelta = new Vector3(delta.x, 0f, delta.z);
+        float maxDistance = Mathf.Max(
+            0.1f,
+            maximumAdjacentBranchConnectionDoorDistance);
+
+        if (horizontalDelta.sqrMagnitude > maxDistance * maxDistance)
+            return false;
+
+        float maxVerticalOffset = Mathf.Max(0.5f, doorwayClearanceHeight * 0.25f);
+        if (Mathf.Abs(delta.y) > maxVerticalOffset)
+            return false;
+
+        if (horizontalDelta.sqrMagnitude <= 0.0001f)
+            return true;
+
+        Vector3 connectionDirection = horizontalDelta.normalized;
+        Vector3 exitForward = GetHorizontalForward(exitPoint);
+        Vector3 entryForward = GetHorizontalForward(entryPoint);
+
+        if (exitForward != Vector3.zero &&
+            Vector3.Dot(exitForward, connectionDirection) < 0.65f)
+        {
+            return false;
+        }
+
+        if (entryForward != Vector3.zero &&
+            Vector3.Dot(entryForward, -connectionDirection) < 0.65f)
+        {
+            return false;
+        }
+
+        if (exitForward != Vector3.zero &&
+            entryForward != Vector3.zero &&
+            Vector3.Dot(exitForward, -entryForward) < 0.65f)
+        {
+            return false;
+        }
+
+        if (exitForward != Vector3.zero)
+        {
+            float forwardDistance = Vector3.Dot(horizontalDelta, exitForward);
+            Vector3 lateralOffset =
+                horizontalDelta - exitForward * forwardDistance;
+            float maxLateralOffset =
+                Mathf.Max(doorwayClearanceWidth, navMeshLinkWidth) * 0.5f;
+
+            if (lateralOffset.magnitude > maxLateralOffset)
+                return false;
+        }
+
+        return true;
+    }
+
+    Vector3 GetHorizontalForward(Transform point)
+    {
+        if (point == null)
+            return Vector3.zero;
+
+        Vector3 forward = point.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude <= 0.0001f)
+            return Vector3.zero;
+
+        return forward.normalized;
+    }
+
+    bool CanConnectAdjacentBranchRooms(
+        RoomPlacement sourcePlacement,
+        RoomPlacement targetPlacement)
+    {
+        if (sourcePlacement == null || targetPlacement == null)
+            return false;
+        if (sourcePlacement == targetPlacement)
+            return false;
+        if (sourcePlacement.room == null || targetPlacement.room == null)
+            return false;
+        if (spawnedRooms.Count > 0 &&
+            (sourcePlacement.room == spawnedRooms[0] ||
+             targetPlacement.room == spawnedRooms[0]))
+        {
+            return false;
+        }
+        if (BelongToSameDebugBranch(sourcePlacement.room, targetPlacement.room))
+            return false;
+
+        return !IsFinalRoom(sourcePlacement.room) &&
+            !IsFinalRoom(targetPlacement.room);
+    }
+
+    bool BelongToSameDebugBranch(GameObject firstRoom, GameObject secondRoom)
+    {
+        RoomDebugInfo firstInfo = GetRoomDebugInfo(firstRoom);
+        RoomDebugInfo secondInfo = GetRoomDebugInfo(secondRoom);
+
+        if (firstInfo == null || secondInfo == null)
+            return false;
+        if (firstInfo.branchNumber <= 0 || secondInfo.branchNumber <= 0)
+            return false;
+
+        return firstInfo.branchNumber == secondInfo.branchNumber;
+    }
+
+    bool HasClearDoorwayBetweenConnectors(
+        RoomConnector first,
+        RoomConnector second)
+    {
+        if (!validateConnectedDoorwayClearance)
+            return true;
+        if (first == null || second == null)
+            return false;
+
+        Transform firstPoint = first.Point;
+        Transform secondPoint = second.Point;
+        if (firstPoint == null || secondPoint == null)
+            return false;
+
+        RoomDefinition firstDefinition = first.GetComponentInParent<RoomDefinition>();
+        RoomDefinition secondDefinition = second.GetComponentInParent<RoomDefinition>();
+        Transform firstRoom = firstDefinition != null ? firstDefinition.transform : null;
+        Transform secondRoom = secondDefinition != null ? secondDefinition.transform : null;
+
+        Physics.SyncTransforms();
+
+        Vector3 center = (firstPoint.position + secondPoint.position) * 0.5f;
+        Vector3 halfExtents = new Vector3(
+            doorwayClearanceWidth * 0.5f,
+            doorwayClearanceHeight * 0.5f,
+            doorwayClearanceDepth * 0.5f);
+
+        Collider[] overlaps = Physics.OverlapBox(
+            center,
+            halfExtents,
+            firstPoint.rotation,
+            doorwayBlockingLayers,
+            QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            Collider blocker = overlaps[i];
+            if (blocker == null)
+                continue;
+
+            Transform blockerTransform = blocker.transform;
+            bool belongsToFirstRoom = firstRoom != null &&
+                blockerTransform.IsChildOf(firstRoom);
+            bool belongsToSecondRoom = secondRoom != null &&
+                blockerTransform.IsChildOf(secondRoom);
+
+            if (!belongsToFirstRoom && !belongsToSecondRoom)
+                continue;
+            if (IsDoorwayIgnoredLayer(blocker.gameObject.layer))
+                continue;
+            if (ShouldIgnoreFloorLevelDoorwayBlocker(
+                blocker,
+                firstPoint,
+                secondPoint))
+            {
+                continue;
+            }
+
+            RecordGenerationRejection(
+                $"Adjacent doorway blocked by collider {GetColliderDebugName(blocker)}.");
+            return false;
+        }
+
+        return true;
+    }
+
+    void RefreshNavMeshLinkForConnector(RoomConnector connector)
+    {
+        if (connector == null)
+            return;
+
+        NavMeshLink link;
+        if (!navMeshLinksByConnector.TryGetValue(connector, out link) || link == null)
+            return;
+
+        ForceRefreshNavMeshLink(link);
+    }
     void TrySpawnInitialTimeCamper()
     {
         if (initialEnemySpawned) return;
@@ -2511,7 +3137,9 @@ public class RoomGenerator : MonoBehaviour
         }
 
         openConnectors.Remove(exitConnector);
+        openConnectors.Remove(entryConnector);
         connectorTargetCells.Remove(exitConnector);
+        connectorTargetCells.Remove(entryConnector);
         return true;
     }
 
@@ -2695,7 +3323,8 @@ public class RoomGenerator : MonoBehaviour
                 continue;
             }
 
-            if (IsGridCellOccupied(targetCell))
+            if (IsGridCellOccupied(targetCell) &&
+                !ShouldKeepOccupiedConnectorForBranchConnection(connector))
             {
                 CloseBlockedConnector(connector);
                 continue;
@@ -2719,9 +3348,20 @@ public class RoomGenerator : MonoBehaviour
                 continue;
             }
 
-            if (IsConnectorTargetCellOccupied(connector))
+            if (IsConnectorTargetCellOccupied(connector) &&
+                !ShouldKeepOccupiedConnectorForBranchConnection(connector))
+            {
                 CloseBlockedConnector(connector);
+            }
         }
+    }
+
+    bool ShouldKeepOccupiedConnectorForBranchConnection(RoomConnector connector)
+    {
+        return connectAdjacentBranches &&
+            generateFullMapOnStart &&
+            connector != null &&
+            connector.IsAvailable;
     }
 
     void RemoveOpenConnectorsForRoom(GameObject room)
@@ -2892,8 +3532,12 @@ public class RoomGenerator : MonoBehaviour
         if (!drawGeneratedMapGizmos)
             return;
 
+        Dictionary<GameObject, int> distances = BuildRoomDistanceMap();
         DrawGeneratedRoomBoundsGizmos();
+        DrawGeneratedRoomMarkerGizmos();
         DrawConnectedConnectorGizmos();
+        DrawClosedConnectorGizmos();
+        DrawGeneratedRoomLabels(distances);
     }
 
     void DrawGeneratedRoomBoundsGizmos()
@@ -2918,7 +3562,6 @@ public class RoomGenerator : MonoBehaviour
             return;
 
         List<RoomConnector> drawnConnectors = new List<RoomConnector>();
-        Gizmos.color = new Color(0.25f, 0.9f, 1f, 0.9f);
 
         for (int i = 0; i < spawnedRooms.Count; i++)
         {
@@ -2939,15 +3582,290 @@ public class RoomGenerator : MonoBehaviour
 
                 drawnConnectors.Add(connector);
                 drawnConnectors.Add(connector.ConnectedTo);
+
+                bool isBranchConnection = IsDebugBranchConnection(
+                    connector,
+                    connector.ConnectedTo);
+                Gizmos.color = isBranchConnection && drawBranchConnectionGizmos
+                    ? new Color(1f, 0.45f, 0.05f, 1f)
+                    : new Color(0.25f, 0.9f, 1f, 0.9f);
+
                 Gizmos.DrawLine(
                     connector.Point.position,
                     connector.ConnectedTo.Point.position);
+
+                if (isBranchConnection && drawBranchConnectionGizmos)
+                {
+                    Vector3 midpoint =
+                        (connector.Point.position + connector.ConnectedTo.Point.position) *
+                        0.5f;
+                    Gizmos.DrawWireSphere(
+                        midpoint,
+                        generationDebugMarkerSize * 0.45f);
+                    DrawBranchConnectionVerticalMarker(connector, Gizmos.color);
+                    DrawBranchConnectionVerticalMarker(connector.ConnectedTo, Gizmos.color);
+                }
             }
         }
     }
 
+    void DrawBranchConnectionVerticalMarker(
+        RoomConnector connector,
+        Color color)
+    {
+        if (connector == null || connector.Point == null)
+            return;
+
+        RoomPlacement placement;
+        if (!TryGetConnectorSourcePlacement(connector, out placement) ||
+            placement == null)
+        {
+            return;
+        }
+
+        float markerSize = Mathf.Max(0.1f, generationDebugMarkerSize);
+        float markerHeight = Mathf.Max(2f, markerSize * 3f);
+        Vector3 basePosition = connector.Point.position;
+        basePosition.y = placement.bounds.max.y + markerSize * 0.25f;
+        Vector3 topPosition = basePosition + Vector3.up * markerHeight;
+
+        Gizmos.color = color;
+        Gizmos.DrawLine(basePosition, topPosition);
+        Gizmos.DrawWireSphere(topPosition, markerSize * 0.45f);
+        Gizmos.DrawLine(
+            topPosition - Vector3.right * markerSize * 0.5f,
+            topPosition + Vector3.right * markerSize * 0.5f);
+        Gizmos.DrawLine(
+            topPosition - Vector3.forward * markerSize * 0.5f,
+            topPosition + Vector3.forward * markerSize * 0.5f);
+    }
+
+    void DrawGeneratedRoomMarkerGizmos()
+    {
+        if (placementsByRoom == null)
+            return;
+
+        float markerSize = Mathf.Max(0.1f, generationDebugMarkerSize);
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            RoomPlacement placement = pair.Value;
+            if (room == null || placement == null)
+                continue;
+
+            RoomDebugInfo info = GetRoomDebugInfo(room);
+            Vector3 center = placement.bounds.center;
+            Vector3 markerPosition =
+                center + Vector3.up * (placement.bounds.extents.y + markerSize * 0.5f);
+
+            if (info != null && info.isStart)
+            {
+                Gizmos.color = new Color(0.1f, 1f, 0.35f, 0.95f);
+                Gizmos.DrawCube(
+                    markerPosition,
+                    Vector3.one * markerSize);
+                continue;
+            }
+
+            if (IsFinalRoom(room))
+            {
+                Gizmos.color = new Color(1f, 0.15f, 0.15f, 0.95f);
+                Gizmos.DrawSphere(markerPosition, markerSize * 0.55f);
+                continue;
+            }
+
+            Gizmos.color = GetRoomBoundsGizmoColor(room);
+            Gizmos.DrawWireSphere(markerPosition, markerSize * 0.45f);
+        }
+    }
+
+    void DrawClosedConnectorGizmos()
+    {
+        if (!drawClosedConnectorGizmos || spawnedRooms == null)
+            return;
+
+        float markerSize = Mathf.Max(0.1f, generationDebugMarkerSize) * 0.45f;
+        Gizmos.color = new Color(1f, 0.1f, 0.1f, 0.95f);
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            RoomDefinition definition = GetRoomDefinition(spawnedRooms[i]);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int j = 0; j < definition.connectors.Length; j++)
+            {
+                RoomConnector connector = definition.connectors[j];
+                if (connector == null ||
+                    connector.State != RoomConnectorState.Closed ||
+                    connector.Point == null)
+                {
+                    continue;
+                }
+
+                Vector3 position = connector.Point.position;
+                Gizmos.DrawCube(position, Vector3.one * markerSize);
+                Gizmos.DrawRay(
+                    position,
+                    connector.Point.forward * generationDebugMarkerSize);
+            }
+        }
+    }
+
+    void DrawGeneratedRoomLabels(Dictionary<GameObject, int> distances)
+    {
+#if UNITY_EDITOR
+        if (!drawGeneratedMapLabels || placementsByRoom == null)
+            return;
+
+        GUIStyle style = new GUIStyle(EditorStyles.boldLabel);
+        style.alignment = TextAnchor.MiddleCenter;
+        style.normal.textColor = Color.white;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            RoomPlacement placement = pair.Value;
+            if (room == null || placement == null)
+                continue;
+
+            Vector3 labelPosition =
+                placement.bounds.center +
+                Vector3.up * (placement.bounds.extents.y + generationDebugLabelHeight);
+
+            Handles.color = GetRoomBoundsGizmoColor(room);
+            Handles.Label(
+                labelPosition,
+                GetRoomDebugLabel(room, placement, distances),
+                style);
+        }
+#endif
+    }
+
+    string GetRoomDebugLabel(
+        GameObject room,
+        RoomPlacement placement,
+        Dictionary<GameObject, int> distances)
+    {
+        RoomDebugInfo info = GetRoomDebugInfo(room);
+        int distance = -1;
+        if (distances != null && room != null)
+            distances.TryGetValue(room, out distance);
+
+        StringBuilder builder = new StringBuilder(64);
+
+        if (info != null && info.isStart)
+        {
+            builder.Append("START");
+        }
+        else if (IsFinalRoom(room))
+        {
+            builder.Append("FINAL");
+            if (info != null)
+                builder.Append($" B{info.branchNumber:00}");
+        }
+        else if (info != null && info.branchNumber > 0)
+        {
+            builder.Append($"B{info.branchNumber:00} R{info.branchRoomNumber:00}");
+        }
+        else if (info != null)
+        {
+            builder.Append($"ROOM {info.roomIndex:00}");
+        }
+        else
+        {
+            builder.Append("ROOM");
+        }
+
+        if (distance >= 0)
+            builder.Append($"\nD{distance}");
+
+        if (placement != null)
+            builder.Append($"\n{placement.cell.x},{placement.cell.y}");
+
+        return builder.ToString();
+    }
+
+    Dictionary<GameObject, int> BuildRoomDistanceMap()
+    {
+        Dictionary<GameObject, int> distances = new Dictionary<GameObject, int>();
+        if (spawnedRooms == null || spawnedRooms.Count == 0 || spawnedRooms[0] == null)
+            return distances;
+
+        Queue<GameObject> queue = new Queue<GameObject>();
+        GameObject startRoom = spawnedRooms[0];
+        distances[startRoom] = 0;
+        queue.Enqueue(startRoom);
+
+        while (queue.Count > 0)
+        {
+            GameObject currentRoom = queue.Dequeue();
+            int currentDistance = distances[currentRoom];
+
+            RoomDefinition definition = GetRoomDefinition(currentRoom);
+            if (definition == null || definition.connectors == null)
+                continue;
+
+            for (int i = 0; i < definition.connectors.Length; i++)
+            {
+                GameObject connectedRoom = GetConnectedRoom(definition.connectors[i]);
+                if (connectedRoom == null || distances.ContainsKey(connectedRoom))
+                    continue;
+
+                distances[connectedRoom] = currentDistance + 1;
+                queue.Enqueue(connectedRoom);
+            }
+        }
+
+        return distances;
+    }
+
+    bool IsDebugBranchConnection(RoomConnector first, RoomConnector second)
+    {
+        if (first == null || second == null || debugBranchConnections == null)
+            return false;
+
+        for (int i = 0; i < debugBranchConnections.Count; i++)
+        {
+            ConnectorDebugConnection connection = debugBranchConnections[i];
+            if (connection == null)
+                continue;
+
+            bool sameOrder = connection.first == first &&
+                connection.second == second;
+            bool inverseOrder = connection.first == second &&
+                connection.second == first;
+            if (sameOrder || inverseOrder)
+                return true;
+        }
+
+        return false;
+    }
+
+    RoomDebugInfo GetRoomDebugInfo(GameObject room)
+    {
+        if (room == null || roomDebugInfoByRoom == null)
+            return null;
+
+        RoomDebugInfo info;
+        roomDebugInfoByRoom.TryGetValue(room, out info);
+        return info;
+    }
+
     Color GetRoomBoundsGizmoColor(GameObject room)
     {
+        RoomDebugInfo info = GetRoomDebugInfo(room);
+        if (info != null)
+        {
+            if (info.isStart)
+                return new Color(0.1f, 1f, 0.35f, 0.95f);
+            if (info.isFinal || IsFinalRoom(room))
+                return new Color(1f, 0.15f, 0.15f, 0.95f);
+
+            return GetBranchGizmoColor(info.branchNumber);
+        }
+
         RoomDefinition definition = GetRoomDefinition(room);
         if (definition == null)
             return Color.white;
@@ -2972,6 +3890,39 @@ public class RoomGenerator : MonoBehaviour
         }
     }
 
+    Color GetBranchGizmoColor(int branchNumber)
+    {
+        if (branchNumber <= 0)
+            return new Color(0.65f, 0.9f, 1f, 0.9f);
+
+        switch ((branchNumber - 1) % 8)
+        {
+            case 0:
+                return new Color(0.15f, 0.85f, 1f, 0.95f);
+
+            case 1:
+                return new Color(1f, 0.75f, 0.15f, 0.95f);
+
+            case 2:
+                return new Color(0.45f, 1f, 0.35f, 0.95f);
+
+            case 3:
+                return new Color(1f, 0.35f, 0.7f, 0.95f);
+
+            case 4:
+                return new Color(0.7f, 0.55f, 1f, 0.95f);
+
+            case 5:
+                return new Color(0.95f, 0.55f, 0.25f, 0.95f);
+
+            case 6:
+                return new Color(0.25f, 1f, 0.75f, 0.95f);
+
+            default:
+                return new Color(0.95f, 0.95f, 0.35f, 0.95f);
+        }
+    }
+
     void CullOldRooms()
     {
         if (keepGeneratedRoomsForBacktracking) return;
@@ -2982,6 +3933,8 @@ public class RoomGenerator : MonoBehaviour
             GameObject room = spawnedRooms[0];
             spawnedRooms.RemoveAt(0);
             RemoveOpenConnectorsForRoom(room);
+            roomDebugInfoByRoom.Remove(room);
+            RemoveDebugBranchConnectionsForRoom(room);
 
             NavMeshSurface surface = room != null ? room.GetComponent<NavMeshSurface>() : null;
             if (surface == null && room != null)
@@ -2999,5 +3952,30 @@ public class RoomGenerator : MonoBehaviour
             if (room != null)
                 Destroy(room);
         }
+    }
+
+    void RemoveDebugBranchConnectionsForRoom(GameObject room)
+    {
+        if (room == null)
+            return;
+
+        for (int i = debugBranchConnections.Count - 1; i >= 0; i--)
+        {
+            ConnectorDebugConnection connection = debugBranchConnections[i];
+            if (connection == null ||
+                ConnectorBelongsToRoom(connection.first, room) ||
+                ConnectorBelongsToRoom(connection.second, room))
+            {
+                debugBranchConnections.RemoveAt(i);
+            }
+        }
+    }
+
+    bool ConnectorBelongsToRoom(RoomConnector connector, GameObject room)
+    {
+        if (connector == null || room == null)
+            return false;
+
+        return connector.transform.IsChildOf(room.transform);
     }
 }
