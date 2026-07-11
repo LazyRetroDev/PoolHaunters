@@ -87,6 +87,7 @@ public class RaccoonBehavior : MonoBehaviour
     private float nextWaterReactionTime;
     private float waterFleeTimer;
     private RaccoonState state = RaccoonState.Wandering;
+    private PlayerMovement effectTargetMovement;
 
     void OnEnable()
     {
@@ -113,6 +114,9 @@ public class RaccoonBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolvePlayer();
         ResolveCameraEffects();
         UpdateCarriedItem();
@@ -124,28 +128,35 @@ public class RaccoonBehavior : MonoBehaviour
 
     void ResolvePlayer()
     {
-        if (player != null && playerStatus != null && playerInventory != null) return;
-
-        if (player == null)
+        PlayerStatus closestStatus;
+        Transform closestPlayer;
+        if (!EnemyTargeting.TryFindClosestPlayer(
+            transform.position,
+            out closestStatus,
+            out closestPlayer))
         {
-            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-            if (playerObject != null)
-                player = playerObject.transform;
+            player = null;
+            playerStatus = null;
+            playerInventory = null;
+            return;
         }
 
-        if (player == null) return;
+        if (closestStatus == playerStatus &&
+            closestPlayer == player &&
+            playerInventory != null)
+        {
+            return;
+        }
 
-        if (playerStatus == null)
-            playerStatus = player.GetComponent<PlayerStatus>();
-
-        if (playerInventory == null)
-            playerInventory = player.GetComponent<PlayerInventory>();
+        player = closestPlayer;
+        playerStatus = closestStatus;
+        playerInventory = player.GetComponent<PlayerInventory>();
     }
 
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void SetupAgent(float speed)
@@ -637,26 +648,41 @@ public class RaccoonBehavior : MonoBehaviour
 
     public void OnWaterHit()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ReactToWater(GetFallbackWaterSource());
     }
 
     public void ReceiveWaterHit()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ReactToWater(GetFallbackWaterSource());
     }
 
     public void ReceiveWaterHit(Vector3 sourcePosition)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ReactToWater(sourcePosition);
     }
 
     public void SprayedWithWater()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ReactToWater(GetFallbackWaterSource());
     }
 
     void OnParticleCollision(GameObject other)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (other == null) return;
 
         WaterParticleCollisionRelay water = other.GetComponent<WaterParticleCollisionRelay>();
@@ -745,6 +771,9 @@ public class RaccoonBehavior : MonoBehaviour
 
     void OnNoiseHeard(Vector3 position, float radius, GameObject source)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (source == gameObject) return;
 
         float hearingRadius = radius * hearingMultiplier;
@@ -768,7 +797,11 @@ public class RaccoonBehavior : MonoBehaviour
 
     void UpdateCameraEffect()
     {
-        if (cameraEffects == null || player == null) return;
+        if (player == null)
+        {
+            ClearCameraEffect();
+            return;
+        }
 
         bool threatening = state == RaccoonState.StalkingPlayer || state == RaccoonState.Harassing;
         if (!threatening)
@@ -779,21 +812,31 @@ public class RaccoonBehavior : MonoBehaviour
 
         float distance = Vector3.Distance(transform.position, player.position);
         float intensity = Mathf.Lerp(nearbyVignette, 0f, Mathf.Clamp01(distance / sightRange));
-        cameraEffects.SetThreatIntensity(intensity);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            intensity);
     }
 
     void ClearCameraEffect()
     {
-        if (cameraEffects != null)
-            cameraEffects.ClearThreatIntensity();
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
     }
 
     void ShakeOnSteal()
     {
-        if (cameraEffects == null) return;
-
-        cameraEffects.Pulse(nearbyVignette, stealShakeDuration);
-        cameraEffects.Shake(stealShakeAmplitude, stealShakeFrequency, stealShakeDuration);
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            nearbyVignette,
+            stealShakeDuration,
+            stealShakeAmplitude,
+            stealShakeFrequency,
+            stealShakeDuration);
     }
 
     void FaceTarget(Vector3 target)

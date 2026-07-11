@@ -64,6 +64,7 @@ public class TimeCamper : MonoBehaviour
     private GameObject beamInstance;
     private PlayerStatus playerStatus;
     private NavMeshAgent agent;
+    private PlayerMovement effectTargetMovement;
 
     enum State { WaitingForPlayer, Countdown, Beam, Leaving }
     State currentState = State.WaitingForPlayer;
@@ -78,6 +79,9 @@ public class TimeCamper : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolvePlayerReferences();
         ResolveCameraEffects();
 
@@ -112,21 +116,29 @@ public class TimeCamper : MonoBehaviour
 
     void ResolvePlayerReferences()
     {
-        if (player == null)
+        if (currentState != State.WaitingForPlayer &&
+            EnemyTargeting.IsValidTarget(playerStatus) &&
+            player == playerStatus.transform)
         {
-            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-            if (playerObject != null)
-                player = playerObject.transform;
+            return;
         }
 
-        if (playerStatus == null && player != null)
-            playerStatus = player.GetComponent<PlayerStatus>();
+        if (EnemyTargeting.TryFindClosestPlayer(
+            transform.position,
+            out playerStatus,
+            out player))
+        {
+            return;
+        }
+
+        player = null;
+        playerStatus = null;
     }
 
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     bool PlayerIsInImpactArea()
@@ -164,11 +176,21 @@ public class TimeCamper : MonoBehaviour
 
     void UpdateCountdownEffect()
     {
-        if (cameraEffects == null) return;
-
         float progress = 1f - Mathf.Clamp01(countdownTimer / Mathf.Max(0.01f, countdownDuration));
-        cameraEffects.SetThreatIntensity(Mathf.Lerp(countdownMinVignette, countdownMaxVignette, progress));
-        cameraEffects.Shake(countdownMaxShakeAmplitude * progress, countdownShakeFrequency, 0.15f);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            Mathf.Lerp(countdownMinVignette, countdownMaxVignette, progress));
+        EnemyPlayerEffects.Shake(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            countdownMaxShakeAmplitude * progress,
+            countdownShakeFrequency,
+            0.15f);
     }
 
     void StartBeam()
@@ -176,11 +198,16 @@ public class TimeCamper : MonoBehaviour
         currentState = State.Beam;
         damageTimer = damageDuration;
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(beamPulseIntensity, beamPulseDuration);
-            cameraEffects.Shake(beamShakeAmplitude, beamShakeFrequency, beamShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            beamPulseIntensity,
+            beamPulseDuration,
+            beamShakeAmplitude,
+            beamShakeFrequency,
+            beamShakeDuration);
 
         if (beamPrefab != null)
             beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
@@ -188,11 +215,20 @@ public class TimeCamper : MonoBehaviour
 
     void UpdateBeamEffect()
     {
-        if (cameraEffects != null)
-        {
-            cameraEffects.SetThreatIntensity(beamVignette);
-            cameraEffects.Shake(beamShakeAmplitude * 0.35f, beamShakeFrequency, 0.15f);
-        }
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            beamVignette);
+        EnemyPlayerEffects.Shake(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            beamShakeAmplitude * 0.35f,
+            beamShakeFrequency,
+            0.15f);
     }
 
     void DamagePlayerInRadius()
@@ -284,11 +320,7 @@ public class TimeCamper : MonoBehaviour
 
     void ClearCameraEffect()
     {
-        if (cameraEffects != null)
-        {
-            cameraEffects.ClearThreatIntensity();
-            cameraEffects.StopShake();
-        }
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects, true);
     }
 
     void CleanupVisuals()

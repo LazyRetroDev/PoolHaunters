@@ -33,6 +33,9 @@ public class WillOWispBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         Wander();
         ApplyAreaEffects();
     }

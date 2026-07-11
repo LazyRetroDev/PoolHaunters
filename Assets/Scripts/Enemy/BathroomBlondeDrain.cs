@@ -54,12 +54,18 @@ public class BathroomBlondeDrain : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state == DrainState.Holding)
             UpdateHolding();
     }
 
     void OnTriggerEnter(Collider other)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state != DrainState.Armed) return;
 
         PlayerStatus status = other.GetComponentInParent<PlayerStatus>();
@@ -115,6 +121,9 @@ public class BathroomBlondeDrain : MonoBehaviour
 
     public void ApplyWater(WaterQuality quality, float amount)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (amount <= 0f || state == DrainState.Broken || state == DrainState.Spent)
             return;
 
@@ -126,6 +135,9 @@ public class BathroomBlondeDrain : MonoBehaviour
 
     public void ReceiveWaterHit(Vector3 sourcePosition)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state == DrainState.Broken || state == DrainState.Spent)
             return;
 
@@ -154,6 +166,7 @@ public class BathroomBlondeDrain : MonoBehaviour
     {
         if (victim == null) return;
 
+        victim.AddExternalControlLock();
         heldMovement = victim.GetComponent<PlayerMovement>();
         heldRigidbody = victim.GetComponent<Rigidbody>();
 
@@ -176,6 +189,9 @@ public class BathroomBlondeDrain : MonoBehaviour
 
     void RestoreVictimMovement(PlayerStatus victim)
     {
+        if (victim != null)
+            victim.RemoveExternalControlLock();
+
         bool canRestore = victim != null && victim.CanAct();
 
         if (heldMovement != null)

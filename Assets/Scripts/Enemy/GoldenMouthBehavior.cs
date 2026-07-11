@@ -74,6 +74,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     private float nextAttackTime;
     private float fireHazardTimer;
     private bool dealtCombustionDamage;
+    private PlayerMovement effectTargetMovement;
 
     void Start()
     {
@@ -87,6 +88,9 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolvePlayer();
         ResolveCameraEffects();
 
@@ -110,19 +114,22 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     void ResolvePlayer()
     {
-        if (player != null && playerStatus != null) return;
+        if (EnemyTargeting.TryFindClosestPlayer(
+            transform.position,
+            out playerStatus,
+            out player))
+        {
+            return;
+        }
 
-        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-        if (playerObject == null) return;
-
-        player = playerObject.transform;
-        playerStatus = playerObject.GetComponent<PlayerStatus>();
+        player = null;
+        playerStatus = null;
     }
 
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void UpdateHelpState()
@@ -140,6 +147,9 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     public void ApplyWater(WaterQuality quality, float amount)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state != GoldenMouthState.WaitingForHelp || amount <= 0f) return;
         if (!IsPureWater(quality)) return;
 
@@ -170,11 +180,16 @@ public class GoldenMouthBehavior : MonoBehaviour
         StopAgent();
         SpawnBurstFireHazards();
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(combustionPulseIntensity, combustionPulseDuration);
-            cameraEffects.Shake(combustionShakeAmplitude, combustionShakeFrequency, combustionShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            combustionPulseIntensity,
+            combustionPulseDuration,
+            combustionShakeAmplitude,
+            combustionShakeFrequency,
+            combustionShakeDuration);
 
         UpdateVisuals();
     }
@@ -239,26 +254,41 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     void UpdateAggressiveCameraEffect(float distanceToPlayer)
     {
-        if (cameraEffects == null) return;
-
         if (distanceToPlayer > loseInterestDistance)
         {
-            cameraEffects.ClearThreatIntensity();
-            cameraEffects.StopShake();
+            ClearCameraEffect();
             return;
         }
 
         float danger = 1f - Mathf.Clamp01(distanceToPlayer / Mathf.Max(0.01f, detectionRange));
-        cameraEffects.SetThreatIntensity(Mathf.Lerp(aggressiveMinVignette, aggressiveMaxVignette, danger));
-        cameraEffects.Shake(aggressiveMaxShakeAmplitude * danger, aggressiveShakeFrequency, 0.15f);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            Mathf.Lerp(aggressiveMinVignette, aggressiveMaxVignette, danger));
+        EnemyPlayerEffects.Shake(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            aggressiveMaxShakeAmplitude * danger,
+            aggressiveShakeFrequency,
+            0.15f);
     }
 
     void TryAttack(float distanceToPlayer)
     {
         if (distanceToPlayer > attackRange || Time.time < nextAttackTime) return;
 
-        if (cameraEffects != null)
-            cameraEffects.Shake(attackShakeAmplitude, attackShakeFrequency, attackShakeDuration);
+        EnemyPlayerEffects.Shake(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            attackShakeAmplitude,
+            attackShakeFrequency,
+            attackShakeDuration);
 
         bool knockedOut = playerStatus.TakeDamage(damagePerAttack);
         nextAttackTime = Time.time + attackCooldown;
@@ -381,11 +411,7 @@ public class GoldenMouthBehavior : MonoBehaviour
 
     void ClearCameraEffect()
     {
-        if (cameraEffects != null)
-        {
-            cameraEffects.ClearThreatIntensity();
-            cameraEffects.StopShake();
-        }
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects, true);
     }
 
     void UpdateVisuals()

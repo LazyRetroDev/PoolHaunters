@@ -672,6 +672,14 @@ public class RoomResourceSpawner : MonoBehaviour
     bool CanSpawnAuthoritatively()
     {
         NetworkManager networkManager = NetworkManager.Singleton;
+
+        if (RegionRunState.HasSelectedRegion && RegionRunState.IsMultiplayer)
+        {
+            return networkManager != null &&
+                networkManager.IsListening &&
+                networkManager.IsServer;
+        }
+
         if (networkManager == null || !networkManager.IsListening)
             return true;
 

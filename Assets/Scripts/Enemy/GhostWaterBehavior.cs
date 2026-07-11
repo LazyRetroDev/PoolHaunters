@@ -93,6 +93,7 @@ public class GhostWaterBehavior : MonoBehaviour
     private bool swallowedRigidbodyWasKinematic;
     private bool swallowedRigidbodyUsedGravity;
     private bool revealEffectPlayed;
+    private PlayerMovement effectTargetMovement;
 
     void Start()
     {
@@ -104,6 +105,9 @@ public class GhostWaterBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolveCameraEffects();
 
         if (state != GhostWaterState.Swallowing)
@@ -217,11 +221,16 @@ public class GhostWaterBehavior : MonoBehaviour
         ChangeState(GhostWaterState.Swallowing);
         StopAgent();
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(swallowingVignette, swallowShakeDuration);
-            cameraEffects.Shake(swallowShakeAmplitude, swallowShakeFrequency, swallowShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            swallowedStatus,
+            swallowedPlayer,
+            cameraEffects,
+            swallowingVignette,
+            swallowShakeDuration,
+            swallowShakeAmplitude,
+            swallowShakeFrequency,
+            swallowShakeDuration);
     }
 
     void UpdateSwallowing()
@@ -274,6 +283,9 @@ public class GhostWaterBehavior : MonoBehaviour
     {
         if (!blockPlayerControlsWhileSwallowed) return;
 
+        if (swallowedStatus != null)
+            swallowedStatus.AddExternalControlLock();
+
         if (swallowedMovement != null)
         {
             swallowedMovementWasEnabled = swallowedMovement.enabled;
@@ -306,6 +318,10 @@ public class GhostWaterBehavior : MonoBehaviour
     void RestoreVictimControls(PlayerStatus releasedStatus)
     {
         if (!blockPlayerControlsWhileSwallowed) return;
+
+        if (releasedStatus != null)
+            releasedStatus.RemoveExternalControlLock();
+
         bool canRestore = releasedStatus != null && releasedStatus.CanAct();
 
         if (swallowedMovement != null)
@@ -410,11 +426,16 @@ public class GhostWaterBehavior : MonoBehaviour
         if (revealEffectPlayed) return;
         revealEffectPlayed = true;
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(revealedVignette, revealShakeDuration);
-            cameraEffects.Shake(revealShakeAmplitude, revealShakeFrequency, revealShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            targetStatus,
+            targetPlayer,
+            cameraEffects,
+            revealedVignette,
+            revealShakeDuration,
+            revealShakeAmplitude,
+            revealShakeFrequency,
+            revealShakeDuration);
     }
 
     void UpdateRain()
@@ -567,30 +588,38 @@ public class GhostWaterBehavior : MonoBehaviour
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void UpdateCameraEffect(float distanceToPlayer)
     {
-        if (cameraEffects == null) return;
-
         if (state == GhostWaterState.Disguised)
         {
-            cameraEffects.ClearThreatIntensity();
+            EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
             return;
         }
 
         float range = Mathf.Max(0.01f, chaseRange);
         float danger = 1f - Mathf.Clamp01(distanceToPlayer / range);
         float maxIntensity = state == GhostWaterState.Swallowing ? swallowingVignette : revealedVignette;
-        cameraEffects.SetThreatIntensity(maxIntensity * danger);
+        PlayerStatus effectStatus = state == GhostWaterState.Swallowing
+            ? swallowedStatus
+            : targetStatus;
+        Transform effectPlayer = state == GhostWaterState.Swallowing
+            ? swallowedPlayer
+            : targetPlayer;
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            effectStatus,
+            effectPlayer,
+            cameraEffects,
+            maxIntensity * danger);
     }
 
     void OnDestroy()
     {
         RestoreVictimControls(swallowedStatus);
-        if (cameraEffects != null)
-            cameraEffects.ClearThreatIntensity();
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
     }
 
     void OnDrawGizmosSelected()

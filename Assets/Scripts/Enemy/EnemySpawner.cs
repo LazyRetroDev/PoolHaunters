@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
 using System.Collections.Generic;
+using Unity.Netcode;
 
 public class EnemySpawner : MonoBehaviour
 {
@@ -13,6 +14,10 @@ public class EnemySpawner : MonoBehaviour
     public float minSpawnDistanceFromTimeCampers = 5f;
     public int spawnAttempts = 30;
     public float sampleRadius = 10f;
+
+    [Header("Multiplayer")]
+    public bool requireNetworkObjectOnline = true;
+    public bool logInvalidNetworkPrefabs = true;
 
     private readonly List<NavMeshSurface> surfaces = new List<NavMeshSurface>();
     private bool navMeshReady;
@@ -70,6 +75,7 @@ public class EnemySpawner : MonoBehaviour
 
     public void SpawnTimeCamper(bool isClone = false)
     {
+        if (!CanSpawnAuthoritatively()) return;
         if (!navMeshReady || timeCamperPrefab == null) return;
         if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
 
@@ -81,6 +87,7 @@ public class EnemySpawner : MonoBehaviour
 
     public TimeCamper SpawnTimeCamperAt(Vector3 position, bool isClone = true)
     {
+        if (!CanSpawnAuthoritatively()) return null;
         if (timeCamperPrefab == null) return null;
         if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return null;
 
@@ -96,10 +103,21 @@ public class EnemySpawner : MonoBehaviour
     {
         GameObject entity = Instantiate(timeCamperPrefab, spawnPos, Quaternion.identity);
         TimeCamper timeCamper = entity.GetComponent<TimeCamper>();
-        if (timeCamper == null) return null;
+        if (timeCamper == null)
+        {
+            Destroy(entity);
+            return null;
+        }
 
         timeCamper.player = player;
         timeCamper.isClone = isClone;
+
+        if (!TrySpawnNetworkObject(entity))
+        {
+            Destroy(entity);
+            return null;
+        }
+
         TimeCamperManager.Instance.Register(timeCamper);
         return timeCamper;
     }
@@ -193,5 +211,52 @@ public class EnemySpawner : MonoBehaviour
         }
 
         return new Bounds(surface.transform.position, Vector3.one * 20f);
+    }
+
+    bool TrySpawnNetworkObject(GameObject entity)
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        bool online = networkManager != null && networkManager.IsListening;
+
+        if (!online)
+            return true;
+
+        NetworkObject networkObject = entity.GetComponent<NetworkObject>();
+        if (networkObject != null)
+        {
+            networkObject.Spawn(true);
+            return true;
+        }
+
+        if (!requireNetworkObjectOnline)
+            return true;
+
+        if (logInvalidNetworkPrefabs)
+        {
+            string prefabName = timeCamperPrefab != null
+                ? timeCamperPrefab.name
+                : "TimeCamper";
+            Debug.LogWarning(
+                $"Enemy '{prefabName}' needs a NetworkObject and NetworkManager registration for multiplayer spawning.");
+        }
+
+        return false;
+    }
+
+    bool CanSpawnAuthoritatively()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+
+        if (RegionRunState.HasSelectedRegion && RegionRunState.IsMultiplayer)
+        {
+            return networkManager != null &&
+                networkManager.IsListening &&
+                networkManager.IsServer;
+        }
+
+        if (networkManager == null || !networkManager.IsListening)
+            return true;
+
+        return networkManager.IsServer;
     }
 }

@@ -85,6 +85,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     private bool grappledWaterCannonWasEnabled;
     private bool grappledRigidbodyWasKinematic;
     private bool grappledRigidbodyUsedGravity;
+    private PlayerMovement effectTargetMovement;
 
     void Start()
     {
@@ -95,6 +96,9 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolveCameraEffects();
         ResolveTarget();
 
@@ -271,11 +275,16 @@ public class VictoriaRegiaBehavior : MonoBehaviour
         StoreAndBlockVictimControls(targetStatus);
         StopAgent();
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(grappleVignette, grappleShakeDuration);
-            cameraEffects.Shake(grappleShakeAmplitude, grappleShakeFrequency, grappleShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            targetStatus,
+            targetPlayer,
+            cameraEffects,
+            grappleVignette,
+            grappleShakeDuration,
+            grappleShakeAmplitude,
+            grappleShakeFrequency,
+            grappleShakeDuration);
 
         UpdateVisuals();
     }
@@ -517,6 +526,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     {
         if (!blockPlayerControlsWhileGrappled || victim == null) return;
 
+        victim.AddExternalControlLock();
         grappledMovement = victim.GetComponent<PlayerMovement>();
         grappledInventory = victim.GetComponent<PlayerInventory>();
         grappledWaterCannon = victim.GetComponentInChildren<WaterCannon>();
@@ -554,6 +564,10 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     void RestoreVictimControls(PlayerStatus victim)
     {
         if (!blockPlayerControlsWhileGrappled) return;
+
+        if (victim != null)
+            victim.RemoveExternalControlLock();
+
         bool canRestore = victim != null && victim.CanAct();
 
         if (grappledMovement != null)
@@ -704,19 +718,22 @@ public class VictoriaRegiaBehavior : MonoBehaviour
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void UpdateCameraEffect(float intensity)
     {
-        if (cameraEffects == null) return;
-        cameraEffects.SetThreatIntensity(intensity);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            targetStatus,
+            targetPlayer,
+            cameraEffects,
+            intensity);
     }
 
     void ClearCameraEffect()
     {
-        if (cameraEffects != null)
-            cameraEffects.ClearThreatIntensity();
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
     }
 
     void OnDestroy()

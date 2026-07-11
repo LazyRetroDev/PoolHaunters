@@ -56,6 +56,9 @@ public class TubaraoBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolvePlayer();
         UpdateMemory();
         UpdateMovement();
@@ -65,24 +68,44 @@ public class TubaraoBehavior : MonoBehaviour
 
     void ResolvePlayer()
     {
-        if (player != null && playerStatus != null) return;
+        if (EnemyTargeting.IsValidTarget(playerStatus) &&
+            player == playerStatus.transform)
+        {
+            return;
+        }
 
-        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-        if (playerObject == null) return;
+        if (EnemyTargeting.TryFindClosestPlayer(
+            transform.position,
+            out playerStatus,
+            out player))
+        {
+            return;
+        }
 
-        player = playerObject.transform;
-        playerStatus = playerObject.GetComponent<PlayerStatus>();
+        player = null;
+        playerStatus = null;
     }
 
     void OnNoiseHeard(Vector3 position, float radius, GameObject source)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         float hearingRadius = radius * multiplicadorAudicao;
         if (Vector3.Distance(transform.position, position) > hearingRadius) return;
 
         ultimoSomPosicao = position;
         ouviuSom = true;
         tempoSemSom = 0f;
-        perseguindo = player != null && source != null && source.CompareTag("Player");
+        perseguindo = EnemyTargeting.TryGetPlayerStatus(
+            source,
+            out PlayerStatus noisePlayer);
+
+        if (perseguindo)
+        {
+            playerStatus = noisePlayer;
+            player = noisePlayer.transform;
+        }
     }
 
     void UpdateMemory()

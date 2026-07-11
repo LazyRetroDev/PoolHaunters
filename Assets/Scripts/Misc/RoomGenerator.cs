@@ -1,5 +1,7 @@
 using UnityEngine;
 using Unity.AI.Navigation;
+using Unity.Collections;
+using Unity.Netcode;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -10,6 +12,8 @@ using UnityEditor;
 public class RoomGenerator : MonoBehaviour
 {
     const string ClosedDoorChildName = "ClosedDoor";
+    const string GeneratedMapSnapshotMessageName = "PoolHaunters.GeneratedMapSnapshot";
+    const string GeneratedMapRequestMessageName = "PoolHaunters.GeneratedMapRequest";
 
     class RoomPlacement
     {
@@ -24,11 +28,15 @@ public class RoomGenerator : MonoBehaviour
         public int registeredSurfaceCount;
         public int generatedRoomCount;
         public bool initialEnemySpawned;
+        public bool pendingInitialTimeCamperSpawn;
         public bool mapConsolidated;
         public Transform lastExitPoint;
         public List<RoomConnector> openConnectors;
+        public List<PendingRoomContentSpawn> pendingRoomContentSpawns;
+        public HashSet<GameObject> contentSpawnedRooms;
         public Dictionary<GameObject, int> generatedPrefabCounts;
         public Dictionary<GameObject, int> lastGeneratedPrefabIndices;
+        public Dictionary<GameObject, int> generatedPrefabIndicesByRoom;
         public Dictionary<GameObject, RoomPlacement> placementsByRoom;
         public Dictionary<Vector2Int, RoomPlacement> placementsByCell;
         public Dictionary<RoomConnector, Vector2Int> connectorTargetCells;
@@ -45,6 +53,22 @@ public class RoomGenerator : MonoBehaviour
         public bool isStart;
         public bool isFinal;
         public Vector2Int cell;
+    }
+
+    class GeneratedMapRoomSnapshot
+    {
+        public int roomIndex;
+        public int prefabIndex;
+        public Vector3 position;
+        public Quaternion rotation;
+        public Vector2Int cell;
+        public int[] connectorStates;
+    }
+
+    class PendingRoomContentSpawn
+    {
+        public GameObject room;
+        public int roomIndex;
     }
 
     class ConnectorDebugConnection
@@ -221,6 +245,11 @@ public class RoomGenerator : MonoBehaviour
     public bool useSelectedRunSeed = true;
     public bool randomizeSeedWhenNoRunSelected = false;
 
+    [Header("Multiplayer Sync")]
+    public bool synchronizeGeneratedMapToClients = true;
+    public bool teleportClientPlayerAfterMapSync = true;
+    [SerializeField] private string playerSpawnName = "PlayerSpawn";
+
     [Header("Enemy Setup")]
     public bool spawnTimeCamperAfterStartingRooms = true;
     [SerializeField] private RoomEnemySpawner enemySpawner;
@@ -281,6 +310,8 @@ public class RoomGenerator : MonoBehaviour
         new Dictionary<GameObject, int>();
     private readonly Dictionary<GameObject, int> lastGeneratedPrefabIndices =
         new Dictionary<GameObject, int>();
+    private readonly Dictionary<GameObject, int> generatedPrefabIndicesByRoom =
+        new Dictionary<GameObject, int>();
     private readonly Dictionary<GameObject, RoomPlacement> placementsByRoom =
         new Dictionary<GameObject, RoomPlacement>();
     private readonly Dictionary<Vector2Int, RoomPlacement> placementsByCell =
@@ -293,16 +324,38 @@ public class RoomGenerator : MonoBehaviour
         new Dictionary<GameObject, RoomDebugInfo>();
     private readonly List<ConnectorDebugConnection> debugBranchConnections =
         new List<ConnectorDebugConnection>();
+    private readonly List<PendingRoomContentSpawn> pendingRoomContentSpawns =
+        new List<PendingRoomContentSpawn>();
+    private readonly HashSet<GameObject> contentSpawnedRooms =
+        new HashSet<GameObject>();
 
     private Transform navMeshLinkRoot;
     private Transform lastExitPoint;
     private int generatedRoomCount;
     private bool initialEnemySpawned;
+    private bool pendingInitialTimeCamperSpawn;
     private bool mapConsolidated;
     private bool isGeneratingFullMap;
     private FullMapGenerationReport currentGenerationReport;
     private FullMapGenerationReport lastCompletedGenerationReport;
     private BranchGenerationReport currentBranchReport;
+    private NetworkManager mapSyncNetworkManager;
+    private Coroutine mapSyncRegistrationCoroutine;
+    private Coroutine roomContentFlushCoroutine;
+    private bool mapMessageHandlersRegistered;
+    private bool generatedMapSnapshotReady;
+    private bool clientPlayerTeleportedAfterInitialMapSync;
+
+    void OnEnable()
+    {
+        StartMapSyncRegistration();
+    }
+
+    void OnDisable()
+    {
+        StopRoomContentFlushCoroutine();
+        UnregisterMapSyncMessaging();
+    }
 
     void Awake()
     {
@@ -411,6 +464,12 @@ public class RoomGenerator : MonoBehaviour
 
     void Start()
     {
+        if (!CanGenerateRooms())
+        {
+            Debug.Log("RoomGenerator skipped procedural generation because this instance is a multiplayer client.");
+            return;
+        }
+
         ResolveRunSeed();
         Random.InitState(seed);
 
@@ -423,6 +482,8 @@ public class RoomGenerator : MonoBehaviour
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
             GenerateNextRoom();
+
+        NotifyGeneratedMapSnapshotReady();
     }
 
     void ResolveRunSeed()
@@ -440,13 +501,38 @@ public class RoomGenerator : MonoBehaviour
 
     public void GenerateNextRoomFromDoor(DoorTrigger trigger)
     {
+        if (!CanGenerateRooms())
+        {
+            Debug.Log("RoomGenerator ignored room generation request because this instance is a multiplayer client.");
+            return;
+        }
+
         GenerateNextRoom(trigger);
         CullOldRooms();
+        NotifyGeneratedMapSnapshotReady();
     }
 
     public GameObject GenerateNextRoom()
     {
+        if (!CanGenerateRooms())
+        {
+            Debug.Log("RoomGenerator ignored room generation request because this instance is a multiplayer client.");
+            return null;
+        }
+
         return GenerateNextRoom(null);
+    }
+
+    bool CanGenerateRooms()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+
+        if (networkManager != null && networkManager.IsListening)
+            return networkManager.IsServer;
+
+        return !RegionRunState.HasSelectedRegion ||
+            RegionRunState.IsSinglePlayer ||
+            RegionRunState.IsHost;
     }
 
     GameObject GenerateNextRoom(DoorTrigger trigger)
@@ -578,17 +664,14 @@ public class RoomGenerator : MonoBehaviour
         int roomIndex = generatedRoomCount;
         spawnedRooms.Add(room);
         RegisterRoomPlacement(placement);
+        generatedPrefabIndicesByRoom[room] = GetRoomPrefabIndex(roomPrefab);
         TrackGeneratedPrefab(roomPrefab, roomIndex);
         generatedRoomCount++;
         RecordGeneratedRoom(room, roomPrefab, placement, roomIndex);
 
-        if (resourceSpawner != null)
-            resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
-
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
-        if (enemySpawner != null)
-            enemySpawner.SpawnEnemiesForRoom(room, roomIndex, seed);
+        SpawnOrQueueRoomContent(room, roomIndex);
 
         AddOpenConnectors(room);
         UpdateLegacyExitPoint(room);
@@ -651,6 +734,7 @@ public class RoomGenerator : MonoBehaviour
                     Debug.Log(lastGenerationReport);
 
                 TrySpawnInitialTimeCamper();
+                NotifyGeneratedMapSnapshotReady();
                 return;
             }
 
@@ -666,6 +750,8 @@ public class RoomGenerator : MonoBehaviour
 
         if (logGenerationReport && !string.IsNullOrWhiteSpace(lastGenerationReport))
             Debug.Log(lastGenerationReport);
+
+        NotifyGeneratedMapSnapshotReady();
     }
 
     FullMapGenerationStats GenerateFullMapAttempt()
@@ -1468,8 +1554,11 @@ public class RoomGenerator : MonoBehaviour
 
         spawnedRooms.Clear();
         openConnectors.Clear();
+        pendingRoomContentSpawns.Clear();
+        contentSpawnedRooms.Clear();
         generatedPrefabCounts.Clear();
         lastGeneratedPrefabIndices.Clear();
+        generatedPrefabIndicesByRoom.Clear();
         placementsByRoom.Clear();
         placementsByCell.Clear();
         connectorTargetCells.Clear();
@@ -1479,7 +1568,11 @@ public class RoomGenerator : MonoBehaviour
         lastExitPoint = null;
         generatedRoomCount = 0;
         initialEnemySpawned = false;
+        pendingInitialTimeCamperSpawn = false;
         mapConsolidated = false;
+        generatedMapSnapshotReady = false;
+        mapSyncRegistrationCoroutine = null;
+        roomContentFlushCoroutine = null;
 
         Physics.SyncTransforms();
     }
@@ -1513,11 +1606,15 @@ public class RoomGenerator : MonoBehaviour
             registeredSurfaceCount = registeredSurfaces.Count,
             generatedRoomCount = generatedRoomCount,
             initialEnemySpawned = initialEnemySpawned,
+            pendingInitialTimeCamperSpawn = pendingInitialTimeCamperSpawn,
             mapConsolidated = mapConsolidated,
             lastExitPoint = lastExitPoint,
             openConnectors = new List<RoomConnector>(openConnectors),
+            pendingRoomContentSpawns = new List<PendingRoomContentSpawn>(pendingRoomContentSpawns),
+            contentSpawnedRooms = new HashSet<GameObject>(contentSpawnedRooms),
             generatedPrefabCounts = new Dictionary<GameObject, int>(generatedPrefabCounts),
             lastGeneratedPrefabIndices = new Dictionary<GameObject, int>(lastGeneratedPrefabIndices),
+            generatedPrefabIndicesByRoom = new Dictionary<GameObject, int>(generatedPrefabIndicesByRoom),
             placementsByRoom = new Dictionary<GameObject, RoomPlacement>(placementsByRoom),
             placementsByCell = new Dictionary<Vector2Int, RoomPlacement>(placementsByCell),
             connectorTargetCells = new Dictionary<RoomConnector, Vector2Int>(connectorTargetCells),
@@ -1538,12 +1635,16 @@ public class RoomGenerator : MonoBehaviour
 
         generatedRoomCount = snapshot.generatedRoomCount;
         initialEnemySpawned = snapshot.initialEnemySpawned;
+        pendingInitialTimeCamperSpawn = snapshot.pendingInitialTimeCamperSpawn;
         mapConsolidated = snapshot.mapConsolidated;
         lastExitPoint = snapshot.lastExitPoint;
 
         RestoreList(openConnectors, snapshot.openConnectors);
+        RestoreList(pendingRoomContentSpawns, snapshot.pendingRoomContentSpawns);
+        RestoreHashSet(contentSpawnedRooms, snapshot.contentSpawnedRooms);
         RestoreDictionary(generatedPrefabCounts, snapshot.generatedPrefabCounts);
         RestoreDictionary(lastGeneratedPrefabIndices, snapshot.lastGeneratedPrefabIndices);
+        RestoreDictionary(generatedPrefabIndicesByRoom, snapshot.generatedPrefabIndicesByRoom);
         RestoreDictionary(placementsByRoom, snapshot.placementsByRoom);
         RestoreDictionary(placementsByCell, snapshot.placementsByCell);
         RestoreDictionary(connectorTargetCells, snapshot.connectorTargetCells);
@@ -1584,6 +1685,7 @@ public class RoomGenerator : MonoBehaviour
             if (enemySpawner != null)
                 enemySpawner.DespawnEnemiesForRoom(room);
 
+            contentSpawnedRooms.Remove(room);
             DestroyGeneratedObject(room);
             spawnedRooms.RemoveAt(i);
         }
@@ -1628,6 +1730,16 @@ public class RoomGenerator : MonoBehaviour
 
         foreach (KeyValuePair<TKey, TValue> pair in snapshot)
             target[pair.Key] = pair.Value;
+    }
+
+    void RestoreHashSet<T>(HashSet<T> target, HashSet<T> snapshot)
+    {
+        target.Clear();
+        if (snapshot == null)
+            return;
+
+        foreach (T value in snapshot)
+            target.Add(value);
     }
 
     bool GenerateBranch(
@@ -2963,15 +3075,159 @@ public class RoomGenerator : MonoBehaviour
 
         ForceRefreshNavMeshLink(link);
     }
+
+    void SpawnOrQueueRoomContent(GameObject room, int roomIndex)
+    {
+        if (room == null || contentSpawnedRooms.Contains(room))
+            return;
+
+        if (!isGeneratingFullMap && CanSpawnRoomContentNow())
+        {
+            SpawnRoomContent(room, roomIndex);
+            return;
+        }
+
+        QueueRoomContentSpawn(room, roomIndex);
+    }
+
+    void QueueRoomContentSpawn(GameObject room, int roomIndex)
+    {
+        if (room == null)
+            return;
+
+        for (int i = 0; i < pendingRoomContentSpawns.Count; i++)
+        {
+            PendingRoomContentSpawn pending = pendingRoomContentSpawns[i];
+            if (pending != null && pending.room == room)
+                return;
+        }
+
+        pendingRoomContentSpawns.Add(new PendingRoomContentSpawn
+        {
+            room = room,
+            roomIndex = roomIndex
+        });
+        StartRoomContentFlushWhenReady();
+    }
+
+    void SpawnRoomContent(GameObject room, int roomIndex)
+    {
+        if (room == null || contentSpawnedRooms.Contains(room))
+            return;
+
+        if (resourceSpawner != null)
+            resourceSpawner.SpawnResourcesForRoom(room, roomIndex, seed);
+
+        if (enemySpawner != null)
+            enemySpawner.SpawnEnemiesForRoom(room, roomIndex, seed);
+
+        contentSpawnedRooms.Add(room);
+    }
+
+    void FlushPendingRoomContentSpawns()
+    {
+        if (!CanSpawnRoomContentNow())
+        {
+            StartRoomContentFlushWhenReady();
+            return;
+        }
+
+        for (int i = pendingRoomContentSpawns.Count - 1; i >= 0; i--)
+        {
+            PendingRoomContentSpawn pending = pendingRoomContentSpawns[i];
+            pendingRoomContentSpawns.RemoveAt(i);
+
+            if (pending == null || pending.room == null)
+                continue;
+
+            SpawnRoomContent(pending.room, pending.roomIndex);
+        }
+
+        if (pendingInitialTimeCamperSpawn)
+        {
+            pendingInitialTimeCamperSpawn = false;
+            TrySpawnInitialTimeCamper();
+        }
+    }
+
+    void StartRoomContentFlushWhenReady()
+    {
+        if (roomContentFlushCoroutine != null || !isActiveAndEnabled)
+            return;
+        if (!HasPendingRoomContentSpawns())
+            return;
+
+        roomContentFlushCoroutine = StartCoroutine(
+            FlushRoomContentWhenReady());
+    }
+
+    IEnumerator FlushRoomContentWhenReady()
+    {
+        while (isActiveAndEnabled && HasPendingRoomContentSpawns())
+        {
+            if (CanSpawnRoomContentNow())
+            {
+                FlushPendingRoomContentSpawns();
+                break;
+            }
+
+            yield return null;
+        }
+
+        roomContentFlushCoroutine = null;
+    }
+
+    void StopRoomContentFlushCoroutine()
+    {
+        if (roomContentFlushCoroutine == null)
+            return;
+
+        StopCoroutine(roomContentFlushCoroutine);
+        roomContentFlushCoroutine = null;
+    }
+
+    bool HasPendingRoomContentSpawns()
+    {
+        return pendingInitialTimeCamperSpawn ||
+            pendingRoomContentSpawns.Count > 0;
+    }
+
+    bool CanSpawnRoomContentNow()
+    {
+        bool multiplayerRun =
+            RegionRunState.HasSelectedRegion &&
+            RegionRunState.IsMultiplayer;
+        NetworkManager networkManager = NetworkManager.Singleton;
+
+        if (!multiplayerRun)
+        {
+            if (networkManager != null && networkManager.IsListening)
+                return networkManager.IsServer;
+
+            return true;
+        }
+
+        return networkManager != null &&
+            networkManager.IsListening &&
+            networkManager.IsServer;
+    }
+
     void TrySpawnInitialTimeCamper()
     {
         if (initialEnemySpawned) return;
         if (!spawnTimeCamperAfterStartingRooms) return;
         if (spawnedRooms.Count < startingRoomCount) return;
         if (EnemySpawner.Instance == null) return;
+        if (!CanSpawnRoomContentNow())
+        {
+            pendingInitialTimeCamperSpawn = true;
+            StartRoomContentFlushWhenReady();
+            return;
+        }
 
         EnemySpawner.Instance.SpawnTimeCamper();
         initialEnemySpawned = true;
+        pendingInitialTimeCamperSpawn = false;
     }
 
     bool AlignRoomToExpansion(
@@ -3921,6 +4177,552 @@ public class RoomGenerator : MonoBehaviour
             default:
                 return new Color(0.95f, 0.95f, 0.35f, 0.95f);
         }
+    }
+
+    void StartMapSyncRegistration()
+    {
+        if (!synchronizeGeneratedMapToClients ||
+            mapMessageHandlersRegistered ||
+            !isActiveAndEnabled)
+        {
+            return;
+        }
+
+        if (mapSyncRegistrationCoroutine != null)
+            return;
+
+        mapSyncRegistrationCoroutine = StartCoroutine(RegisterMapSyncMessagingWhenReady());
+    }
+
+    IEnumerator RegisterMapSyncMessagingWhenReady()
+    {
+        while (isActiveAndEnabled)
+        {
+            NetworkManager networkManager = NetworkManager.Singleton;
+            if (networkManager != null &&
+                networkManager.IsListening &&
+                networkManager.CustomMessagingManager != null)
+            {
+                RegisterMapSyncMessaging(networkManager);
+                mapSyncRegistrationCoroutine = null;
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        mapSyncRegistrationCoroutine = null;
+    }
+
+    void RegisterMapSyncMessaging(NetworkManager networkManager)
+    {
+        if (networkManager == null || mapMessageHandlersRegistered)
+            return;
+
+        mapSyncNetworkManager = networkManager;
+        mapSyncNetworkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+            GeneratedMapSnapshotMessageName,
+            HandleGeneratedMapSnapshotMessage);
+        mapSyncNetworkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+            GeneratedMapRequestMessageName,
+            HandleGeneratedMapRequestMessage);
+        mapSyncNetworkManager.OnClientConnectedCallback += HandleMapSyncClientConnected;
+        mapMessageHandlersRegistered = true;
+
+        if (mapSyncNetworkManager.IsServer && generatedMapSnapshotReady)
+        {
+            SendGeneratedMapSnapshotToConnectedClients();
+            FlushPendingRoomContentSpawns();
+        }
+        else if (mapSyncNetworkManager.IsClient && !mapSyncNetworkManager.IsServer)
+            SendGeneratedMapRequest();
+    }
+
+    void UnregisterMapSyncMessaging()
+    {
+        if (mapSyncRegistrationCoroutine != null)
+        {
+            StopCoroutine(mapSyncRegistrationCoroutine);
+            mapSyncRegistrationCoroutine = null;
+        }
+
+        if (!mapMessageHandlersRegistered || mapSyncNetworkManager == null)
+            return;
+
+        if (mapSyncNetworkManager.CustomMessagingManager != null)
+        {
+            mapSyncNetworkManager.CustomMessagingManager.UnregisterNamedMessageHandler(
+                GeneratedMapSnapshotMessageName);
+            mapSyncNetworkManager.CustomMessagingManager.UnregisterNamedMessageHandler(
+                GeneratedMapRequestMessageName);
+        }
+
+        mapSyncNetworkManager.OnClientConnectedCallback -= HandleMapSyncClientConnected;
+        mapMessageHandlersRegistered = false;
+        mapSyncNetworkManager = null;
+    }
+
+    void HandleMapSyncClientConnected(ulong clientId)
+    {
+        if (!CanSendGeneratedMapSnapshot())
+            return;
+        if (clientId == NetworkManager.ServerClientId)
+            return;
+
+        SendGeneratedMapSnapshot(clientId);
+    }
+
+    void HandleGeneratedMapRequestMessage(
+        ulong senderClientId,
+        FastBufferReader messagePayload)
+    {
+        if (!CanSendGeneratedMapSnapshot())
+            return;
+        if (senderClientId == NetworkManager.ServerClientId)
+            return;
+
+        SendGeneratedMapSnapshot(senderClientId);
+    }
+
+    void HandleGeneratedMapSnapshotMessage(
+        ulong senderClientId,
+        FastBufferReader messagePayload)
+    {
+        if (!synchronizeGeneratedMapToClients ||
+            mapSyncNetworkManager == null ||
+            mapSyncNetworkManager.IsServer ||
+            senderClientId != NetworkManager.ServerClientId)
+        {
+            return;
+        }
+
+        int receivedSeed;
+        bool receivedMapConsolidated;
+        int roomCount;
+        messagePayload.ReadValueSafe(out receivedSeed);
+        messagePayload.ReadValueSafe(out receivedMapConsolidated);
+        messagePayload.ReadValueSafe(out roomCount);
+
+        List<GeneratedMapRoomSnapshot> roomSnapshots =
+            new List<GeneratedMapRoomSnapshot>(Mathf.Max(0, roomCount));
+
+        for (int i = 0; i < roomCount; i++)
+            roomSnapshots.Add(ReadGeneratedMapRoomSnapshot(ref messagePayload));
+
+        ApplyGeneratedMapSnapshot(
+            receivedSeed,
+            receivedMapConsolidated,
+            roomSnapshots);
+    }
+
+    void NotifyGeneratedMapSnapshotReady()
+    {
+        generatedMapSnapshotReady = true;
+
+        if (synchronizeGeneratedMapToClients)
+            StartMapSyncRegistration();
+
+        if (CanSendGeneratedMapSnapshot())
+        {
+            SendGeneratedMapSnapshotToConnectedClients();
+            FlushPendingRoomContentSpawns();
+        }
+        else
+        {
+            StartRoomContentFlushWhenReady();
+        }
+    }
+
+    bool CanSendGeneratedMapSnapshot()
+    {
+        return synchronizeGeneratedMapToClients &&
+            generatedMapSnapshotReady &&
+            mapSyncNetworkManager != null &&
+            mapSyncNetworkManager.IsListening &&
+            mapSyncNetworkManager.IsServer &&
+            mapSyncNetworkManager.CustomMessagingManager != null;
+    }
+
+    void SendGeneratedMapRequest()
+    {
+        if (mapSyncNetworkManager == null ||
+            mapSyncNetworkManager.CustomMessagingManager == null ||
+            !mapSyncNetworkManager.IsClient ||
+            mapSyncNetworkManager.IsServer)
+        {
+            return;
+        }
+
+        FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp);
+        try
+        {
+            mapSyncNetworkManager.CustomMessagingManager.SendNamedMessage(
+                GeneratedMapRequestMessageName,
+                NetworkManager.ServerClientId,
+                writer,
+                NetworkDelivery.ReliableSequenced);
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    void SendGeneratedMapSnapshotToConnectedClients()
+    {
+        if (!CanSendGeneratedMapSnapshot())
+            return;
+
+        for (int i = 0; i < mapSyncNetworkManager.ConnectedClientsIds.Count; i++)
+        {
+            ulong clientId = mapSyncNetworkManager.ConnectedClientsIds[i];
+            if (clientId == NetworkManager.ServerClientId)
+                continue;
+
+            SendGeneratedMapSnapshot(clientId);
+        }
+    }
+
+    void SendGeneratedMapSnapshot(ulong clientId)
+    {
+        if (!CanSendGeneratedMapSnapshot())
+            return;
+
+        List<GeneratedMapRoomSnapshot> roomSnapshots =
+            BuildGeneratedMapSnapshot();
+        int writerSize = CalculateGeneratedMapSnapshotWriteSize(roomSnapshots);
+        FastBufferWriter writer = new FastBufferWriter(
+            writerSize,
+            Allocator.Temp,
+            int.MaxValue);
+
+        try
+        {
+            writer.WriteValueSafe(seed);
+            writer.WriteValueSafe(mapConsolidated);
+            writer.WriteValueSafe(roomSnapshots.Count);
+
+            for (int i = 0; i < roomSnapshots.Count; i++)
+                WriteGeneratedMapRoomSnapshot(ref writer, roomSnapshots[i]);
+
+            mapSyncNetworkManager.CustomMessagingManager.SendNamedMessage(
+                GeneratedMapSnapshotMessageName,
+                clientId,
+                writer,
+                NetworkDelivery.ReliableFragmentedSequenced);
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    List<GeneratedMapRoomSnapshot> BuildGeneratedMapSnapshot()
+    {
+        List<GeneratedMapRoomSnapshot> roomSnapshots =
+            new List<GeneratedMapRoomSnapshot>(spawnedRooms.Count);
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject room = spawnedRooms[i];
+            if (room == null)
+                continue;
+
+            int prefabIndex;
+            if (!generatedPrefabIndicesByRoom.TryGetValue(room, out prefabIndex))
+                prefabIndex = -1;
+
+            if (prefabIndex < 0 ||
+                roomPrefabs == null ||
+                prefabIndex >= roomPrefabs.Length ||
+                roomPrefabs[prefabIndex] == null)
+            {
+                Debug.LogWarning(
+                    $"RoomGenerator skipped map sync for {room.name} because its prefab index is invalid.");
+                continue;
+            }
+
+            RoomPlacement placement;
+            placementsByRoom.TryGetValue(room, out placement);
+
+            roomSnapshots.Add(new GeneratedMapRoomSnapshot
+            {
+                roomIndex = i,
+                prefabIndex = prefabIndex,
+                position = room.transform.position,
+                rotation = room.transform.rotation,
+                cell = placement != null ? placement.cell : Vector2Int.zero,
+                connectorStates = GetConnectorStateSnapshot(room)
+            });
+        }
+
+        return roomSnapshots;
+    }
+
+    int[] GetConnectorStateSnapshot(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null)
+            return new int[0];
+
+        int[] connectorStates = new int[definition.connectors.Length];
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            connectorStates[i] = connector != null
+                ? (int)connector.State
+                : (int)RoomConnectorState.Open;
+        }
+
+        return connectorStates;
+    }
+
+    void WriteGeneratedMapRoomSnapshot(
+        ref FastBufferWriter writer,
+        GeneratedMapRoomSnapshot roomSnapshot)
+    {
+        writer.WriteValueSafe(roomSnapshot.roomIndex);
+        writer.WriteValueSafe(roomSnapshot.prefabIndex);
+        WriteVector3(ref writer, roomSnapshot.position);
+        WriteQuaternion(ref writer, roomSnapshot.rotation);
+        writer.WriteValueSafe(roomSnapshot.cell.x);
+        writer.WriteValueSafe(roomSnapshot.cell.y);
+
+        int connectorCount = roomSnapshot.connectorStates != null
+            ? roomSnapshot.connectorStates.Length
+            : 0;
+        writer.WriteValueSafe(connectorCount);
+
+        for (int i = 0; i < connectorCount; i++)
+            writer.WriteValueSafe(roomSnapshot.connectorStates[i]);
+    }
+
+    GeneratedMapRoomSnapshot ReadGeneratedMapRoomSnapshot(
+        ref FastBufferReader reader)
+    {
+        GeneratedMapRoomSnapshot roomSnapshot = new GeneratedMapRoomSnapshot();
+        int cellX;
+        int cellY;
+        int connectorCount;
+
+        reader.ReadValueSafe(out roomSnapshot.roomIndex);
+        reader.ReadValueSafe(out roomSnapshot.prefabIndex);
+        roomSnapshot.position = ReadVector3(ref reader);
+        roomSnapshot.rotation = ReadQuaternion(ref reader);
+        reader.ReadValueSafe(out cellX);
+        reader.ReadValueSafe(out cellY);
+        reader.ReadValueSafe(out connectorCount);
+
+        roomSnapshot.cell = new Vector2Int(cellX, cellY);
+        connectorCount = Mathf.Max(0, connectorCount);
+        roomSnapshot.connectorStates = new int[connectorCount];
+
+        for (int i = 0; i < connectorCount; i++)
+            reader.ReadValueSafe(out roomSnapshot.connectorStates[i]);
+
+        return roomSnapshot;
+    }
+
+    int CalculateGeneratedMapSnapshotWriteSize(
+        List<GeneratedMapRoomSnapshot> roomSnapshots)
+    {
+        int size = 64;
+        if (roomSnapshots == null)
+            return size;
+
+        for (int i = 0; i < roomSnapshots.Count; i++)
+        {
+            int connectorCount = roomSnapshots[i].connectorStates != null
+                ? roomSnapshots[i].connectorStates.Length
+                : 0;
+            size += 96 + connectorCount * 4;
+        }
+
+        return Mathf.Max(256, size);
+    }
+
+    void ApplyGeneratedMapSnapshot(
+        int receivedSeed,
+        bool receivedMapConsolidated,
+        List<GeneratedMapRoomSnapshot> roomSnapshots)
+    {
+        ClearGeneratedMapForRetry();
+
+        seed = receivedSeed;
+        mapConsolidated = receivedMapConsolidated;
+
+        if (roomSnapshots == null)
+            roomSnapshots = new List<GeneratedMapRoomSnapshot>();
+
+        for (int i = 0; i < roomSnapshots.Count; i++)
+            InstantiateSynchronizedRoom(roomSnapshots[i]);
+
+        generatedRoomCount = spawnedRooms.Count;
+        generatedMapSnapshotReady = true;
+        Physics.SyncTransforms();
+
+        if (ShouldTeleportClientPlayerAfterMapSync())
+            TeleportLocalClientPlayerToSpawn();
+
+        Debug.Log($"RoomGenerator synchronized {spawnedRooms.Count} room(s) from host.");
+    }
+
+    void InstantiateSynchronizedRoom(GeneratedMapRoomSnapshot roomSnapshot)
+    {
+        if (roomPrefabs == null ||
+            roomSnapshot.prefabIndex < 0 ||
+            roomSnapshot.prefabIndex >= roomPrefabs.Length)
+        {
+            Debug.LogWarning(
+                $"RoomGenerator received invalid room prefab index {roomSnapshot.prefabIndex}.");
+            return;
+        }
+
+        GameObject roomPrefab = roomPrefabs[roomSnapshot.prefabIndex];
+        if (roomPrefab == null)
+            return;
+
+        GameObject room = Instantiate(
+            roomPrefab,
+            roomSnapshot.position,
+            roomSnapshot.rotation);
+        room.name = $"{roomPrefab.name}_Synced_{roomSnapshot.roomIndex:00}";
+
+        ApplySynchronizedConnectorStates(room, roomSnapshot.connectorStates);
+
+        RoomPlacement placement = new RoomPlacement
+        {
+            room = room,
+            cell = roomSnapshot.cell,
+            bounds = CalculateRoomBounds(room)
+        };
+
+        spawnedRooms.Add(room);
+        RegisterRoomPlacement(placement);
+        generatedPrefabIndicesByRoom[room] = roomSnapshot.prefabIndex;
+        TrackGeneratedPrefab(roomPrefab, roomSnapshot.roomIndex);
+        RecordRoomDebugInfo(room, placement, roomSnapshot.roomIndex);
+        RegisterRoomDoors(room);
+        RegisterRoomNavMesh(room);
+    }
+
+    void ApplySynchronizedConnectorStates(
+        GameObject room,
+        int[] connectorStates)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null)
+            return;
+
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector == null)
+                continue;
+
+            RoomConnectorState synchronizedState = RoomConnectorState.Open;
+            if (connectorStates != null && i < connectorStates.Length)
+                synchronizedState = (RoomConnectorState)connectorStates[i];
+
+            connector.ApplySynchronizedState(synchronizedState);
+        }
+    }
+
+    void TeleportLocalClientPlayerToSpawn()
+    {
+        if (mapSyncNetworkManager == null || mapSyncNetworkManager.IsServer)
+            return;
+
+        NetworkObject localPlayerObject = mapSyncNetworkManager.SpawnManager != null
+            ? mapSyncNetworkManager.SpawnManager.GetLocalPlayerObject()
+            : null;
+        if (localPlayerObject == null)
+            return;
+
+        Transform spawn = FindPlayerSpawn();
+        if (spawn == null)
+            return;
+
+        Rigidbody body = localPlayerObject.GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+        }
+
+        localPlayerObject.transform.SetPositionAndRotation(
+            spawn.position,
+            spawn.rotation);
+
+        clientPlayerTeleportedAfterInitialMapSync = true;
+    }
+
+    bool ShouldTeleportClientPlayerAfterMapSync()
+    {
+        return teleportClientPlayerAfterMapSync &&
+            !clientPlayerTeleportedAfterInitialMapSync;
+    }
+
+    Transform FindPlayerSpawn()
+    {
+        if (string.IsNullOrWhiteSpace(playerSpawnName))
+            return null;
+
+        GameObject spawnObject = GameObject.Find(playerSpawnName);
+        return spawnObject != null ? spawnObject.transform : null;
+    }
+
+    void WriteVector3(ref FastBufferWriter writer, Vector3 value)
+    {
+        writer.WriteValueSafe(value.x);
+        writer.WriteValueSafe(value.y);
+        writer.WriteValueSafe(value.z);
+    }
+
+    Vector3 ReadVector3(ref FastBufferReader reader)
+    {
+        float x;
+        float y;
+        float z;
+        reader.ReadValueSafe(out x);
+        reader.ReadValueSafe(out y);
+        reader.ReadValueSafe(out z);
+        return new Vector3(x, y, z);
+    }
+
+    void WriteQuaternion(ref FastBufferWriter writer, Quaternion value)
+    {
+        writer.WriteValueSafe(value.x);
+        writer.WriteValueSafe(value.y);
+        writer.WriteValueSafe(value.z);
+        writer.WriteValueSafe(value.w);
+    }
+
+    Quaternion ReadQuaternion(ref FastBufferReader reader)
+    {
+        float x;
+        float y;
+        float z;
+        float w;
+        reader.ReadValueSafe(out x);
+        reader.ReadValueSafe(out y);
+        reader.ReadValueSafe(out z);
+        reader.ReadValueSafe(out w);
+        return new Quaternion(x, y, z, w);
+    }
+
+    int GetRoomPrefabIndex(GameObject roomPrefab)
+    {
+        if (roomPrefab == null || roomPrefabs == null)
+            return -1;
+
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            if (roomPrefabs[i] == roomPrefab)
+                return i;
+        }
+
+        return -1;
     }
 
     void CullOldRooms()

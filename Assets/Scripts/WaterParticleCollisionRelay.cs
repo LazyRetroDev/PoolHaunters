@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Netcode;
 
 [RequireComponent(typeof(ParticleSystem))]
 public class WaterParticleCollisionRelay : MonoBehaviour
@@ -15,20 +16,28 @@ public class WaterParticleCollisionRelay : MonoBehaviour
     private ParticleSystem waterParticles;
     private ParticleSystem.Particle[] particleBuffer;
     private readonly Collider[] colliderBuffer = new Collider[ColliderBufferSize];
+    private PlayerMovement ownerMovement;
 
     void Awake()
     {
         waterParticles = GetComponent<ParticleSystem>();
         particleBuffer = new ParticleSystem.Particle[InitialParticleCapacity];
+        ownerMovement = GetComponentInParent<PlayerMovement>();
     }
 
     void Update()
     {
+        if (!CanProcessGameplayCollision())
+            return;
+
         DetectWaterReactiveEnemiesInsideParticles();
     }
 
     void OnParticleCollision(GameObject other)
     {
+        if (!CanProcessGameplayCollision())
+            return;
+
         NotifyWaterReactiveEnemy(other);
     }
 
@@ -83,6 +92,12 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         if (hitObject == null)
             return;
 
+        if (ownerMovement != null)
+        {
+            ownerMovement.RequestEnemyWaterHit(hitObject, transform.position);
+            return;
+        }
+
         RaccoonBehavior raccoon = hitObject.GetComponentInParent<RaccoonBehavior>();
         if (raccoon != null)
             raccoon.ReceiveWaterHit(transform.position);
@@ -98,5 +113,21 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         BathroomBlondeDrain bathroomDrain = hitObject.GetComponentInParent<BathroomBlondeDrain>();
         if (bathroomDrain != null)
             bathroomDrain.ReceiveWaterHit(transform.position);
+    }
+
+    bool CanProcessGameplayCollision()
+    {
+        if (ownerMovement == null)
+            return true;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null ||
+            !networkManager.IsListening ||
+            !ownerMovement.IsSpawned)
+        {
+            return true;
+        }
+
+        return ownerMovement.IsOwner;
     }
 }

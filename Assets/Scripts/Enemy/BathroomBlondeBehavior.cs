@@ -72,6 +72,7 @@ public class BathroomBlondeBehavior : MonoBehaviour
     private float stateTimer;
     private int escapeClicks;
     private Vector3 hiddenPosition;
+    private PlayerMovement effectTargetMovement;
 
     void Start()
     {
@@ -85,6 +86,9 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolveCameraEffects();
         UpdateHazardSpawning();
 
@@ -177,11 +181,16 @@ public class BathroomBlondeBehavior : MonoBehaviour
         StoreAndBlockVictimControls(activeVictim);
         activeMirror?.MarkBlondeOut();
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(holdThreatVignette, holdShakeDuration);
-            cameraEffects.Shake(holdShakeAmplitude, holdShakeFrequency, holdShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            activeVictim,
+            activeVictimTransform,
+            cameraEffects,
+            holdThreatVignette,
+            holdShakeDuration,
+            holdShakeAmplitude,
+            holdShakeFrequency,
+            holdShakeDuration);
     }
 
     void UpdateHoldingVictim()
@@ -267,11 +276,16 @@ public class BathroomBlondeBehavior : MonoBehaviour
         SetBodyLocalY(hiddenLocalY);
         UpdateVisuals();
 
-        if (cameraEffects != null)
-        {
-            cameraEffects.Pulse(mirrorThreatVignette, emergeShakeDuration);
-            cameraEffects.Shake(emergeShakeAmplitude, emergeShakeFrequency, emergeShakeDuration);
-        }
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            activeVictim,
+            activeVictimTransform,
+            cameraEffects,
+            mirrorThreatVignette,
+            emergeShakeDuration,
+            emergeShakeAmplitude,
+            emergeShakeFrequency,
+            emergeShakeDuration);
     }
 
     public void CancelMirrorEmergence(BathroomBlondeMirror mirror)
@@ -283,6 +297,9 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     public void ReceiveWaterHit(Vector3 sourcePosition)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state == BathroomBlondeState.EmergingFromMirror)
             BeginRetreat();
     }
@@ -440,6 +457,7 @@ public class BathroomBlondeBehavior : MonoBehaviour
     {
         if (victim == null) return;
 
+        victim.AddExternalControlLock();
         heldMovement = victim.GetComponent<PlayerMovement>();
         heldInventory = victim.GetComponent<PlayerInventory>();
         heldWaterCannon = victim.GetComponentInChildren<WaterCannon>();
@@ -476,6 +494,9 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     void RestoreVictimControls(PlayerStatus victim)
     {
+        if (victim != null)
+            victim.RemoveExternalControlLock();
+
         bool canRestore = victim != null && victim.CanAct();
 
         if (heldMovement != null)
@@ -573,22 +594,22 @@ public class BathroomBlondeBehavior : MonoBehaviour
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void UpdateCameraEffect(float intensity)
     {
-        if (cameraEffects != null)
-            cameraEffects.SetThreatIntensity(intensity);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            activeVictim,
+            activeVictimTransform,
+            cameraEffects,
+            intensity);
     }
 
     void ClearCameraEffect()
     {
-        if (cameraEffects != null)
-        {
-            cameraEffects.ClearThreatIntensity();
-            cameraEffects.StopShake();
-        }
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects, true);
     }
 
     void OnDestroy()

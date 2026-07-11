@@ -18,6 +18,12 @@ public class WaterCannon : MonoBehaviour
     public float sprayParticleRate = 80f;
     public bool autoCreateSprayParticles = true;
 
+    [Header("Network Visuals")]
+    public bool syncSprayVisuals = true;
+    public float sprayVisualSyncInterval = 0.05f;
+    public float sprayVisualPositionThreshold = 0.03f;
+    public float sprayVisualAngleThreshold = 2f;
+
     [Header("Water Quality Visuals")]
     public Color cleanWaterColor = new Color(0.65f, 0.85f, 1f, 0.8f);
     public Color contaminatedWaterColor = new Color(0.35f, 0.9f, 0.25f, 0.85f);
@@ -50,6 +56,7 @@ public class WaterCannon : MonoBehaviour
     public bool useScreenCenterWhenCursorLocked = true;
 
     private PlayerInput playerInput;
+    private PlayerMovement playerMovement;
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
     private InputAction attackAction;
@@ -61,10 +68,17 @@ public class WaterCannon : MonoBehaviour
     private float waterUsageMultiplier = 1f;
     private float waterUsageMultiplierTimer;
     private DirtSpot dirtTemplate;
+    private bool publishedSprayPlaying;
+    private WaterQuality publishedSprayQuality;
+    private Vector3 lastPublishedSprayPosition;
+    private Quaternion lastPublishedSprayRotation = Quaternion.identity;
+    private bool hasPublishedSprayPose;
+    private float nextSprayVisualSyncTime;
 
     void Awake()
     {
         playerInput = GetComponentInParent<PlayerInput>();
+        playerMovement = GetComponentInParent<PlayerMovement>();
         playerStatus = GetComponentInParent<PlayerStatus>();
         playerPetrify = GetComponentInParent<PlayerPetrify>();
         ownerRoot = playerStatus != null ? playerStatus.transform : transform.root;
@@ -120,7 +134,7 @@ public class WaterCannon : MonoBehaviour
         }
 
         float qualityMultiplier = GetCleaningMultiplierForQuality(sprayedWaterQuality);
-        StartSpray();
+        StartSpray(sprayedWaterQuality);
         ApplySprayEffects(sprayedWaterQuality, cleanPowerPerSecond * qualityMultiplier * Time.deltaTime, waterThisFrame);
     }
 
@@ -130,10 +144,14 @@ public class WaterCannon : MonoBehaviour
             transform.position = followTarget.TransformPoint(positionOffset);
 
         AimTowardMouse();
+
+        if (sprayParticles != null && sprayParticles.isPlaying && playerStatus != null)
+            PublishSprayVisualIfNeeded(true, playerStatus.GetWaterQuality());
     }
 
     void OnDisable()
     {
+        StopSpray();
         StopSprayImmediate();
     }
 
@@ -235,6 +253,13 @@ public class WaterCannon : MonoBehaviour
         if (sprayParticles == null) return;
 
         WaterQuality quality = playerStatus != null ? playerStatus.GetWaterQuality() : WaterQuality.Clean;
+        ApplySprayColor(quality, force);
+    }
+
+    void ApplySprayColor(WaterQuality quality, bool force = false)
+    {
+        if (sprayParticles == null) return;
+
         if (!force && hasAppliedVisualQuality && appliedVisualQuality == quality) return;
 
         var main = sprayParticles.main;
@@ -256,22 +281,133 @@ public class WaterCannon : MonoBehaviour
         }
     }
 
-    void StartSpray()
+    void StartSpray(WaterQuality quality)
     {
+        ApplySprayColor(quality);
+
         if (sprayParticles != null && !sprayParticles.isPlaying)
             sprayParticles.Play();
+
+        PublishSprayVisualIfNeeded(true, quality);
     }
 
     void StopSpray()
     {
         if (sprayParticles != null && sprayParticles.isPlaying)
             sprayParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+
+        WaterQuality quality = playerStatus != null ? playerStatus.GetWaterQuality() : appliedVisualQuality;
+        PublishSprayVisualIfNeeded(false, quality);
     }
 
     void StopSprayImmediate()
     {
         if (sprayParticles != null)
             sprayParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+    }
+
+    public void ApplyRemoteSprayVisual(
+        bool isSpraying,
+        WaterQuality quality,
+        Vector3 originPosition,
+        Quaternion originRotation)
+    {
+        if (playerMovement != null &&
+            playerMovement.IsSpawned &&
+            playerMovement.IsOwner)
+        {
+            return;
+        }
+
+        if (sprayOrigin != null)
+            sprayOrigin.SetPositionAndRotation(originPosition, originRotation);
+
+        ApplySprayColor(quality, force: true);
+
+        if (isSpraying)
+        {
+            if (sprayParticles != null && !sprayParticles.isPlaying)
+                sprayParticles.Play();
+        }
+        else
+        {
+            StopSprayImmediate();
+        }
+    }
+
+    void PublishSprayVisualIfNeeded(
+        bool isSpraying,
+        WaterQuality quality,
+        bool force = false)
+    {
+        if (!ShouldPublishSprayVisual())
+            return;
+
+        Vector3 originPosition = sprayOrigin != null
+            ? sprayOrigin.position
+            : transform.position;
+        Quaternion originRotation = sprayOrigin != null
+            ? sprayOrigin.rotation
+            : transform.rotation;
+
+        if (!force && !ShouldSendSprayVisual(
+            isSpraying,
+            quality,
+            originPosition,
+            originRotation))
+        {
+            return;
+        }
+
+        publishedSprayPlaying = isSpraying;
+        publishedSprayQuality = quality;
+        lastPublishedSprayPosition = originPosition;
+        lastPublishedSprayRotation = originRotation;
+        hasPublishedSprayPose = true;
+        nextSprayVisualSyncTime = Time.time + Mathf.Max(0.01f, sprayVisualSyncInterval);
+
+        playerMovement.PublishWaterSprayVisual(
+            isSpraying,
+            quality,
+            originPosition,
+            originRotation);
+    }
+
+    bool ShouldPublishSprayVisual()
+    {
+        return syncSprayVisuals &&
+            playerMovement != null &&
+            playerMovement.IsSpawned &&
+            playerMovement.IsOwner;
+    }
+
+    bool ShouldSendSprayVisual(
+        bool isSpraying,
+        WaterQuality quality,
+        Vector3 originPosition,
+        Quaternion originRotation)
+    {
+        if (publishedSprayPlaying != isSpraying)
+            return true;
+
+        if (!isSpraying)
+            return false;
+
+        if (publishedSprayQuality != quality)
+            return true;
+
+        if (!hasPublishedSprayPose || Time.time >= nextSprayVisualSyncTime)
+            return true;
+
+        float positionThreshold = Mathf.Max(0f, sprayVisualPositionThreshold);
+        if ((originPosition - lastPublishedSprayPosition).sqrMagnitude >
+            positionThreshold * positionThreshold)
+        {
+            return true;
+        }
+
+        return Quaternion.Angle(originRotation, lastPublishedSprayRotation) >
+            sprayVisualAngleThreshold;
     }
 
     void AimTowardMouse()
@@ -347,12 +483,32 @@ public class WaterCannon : MonoBehaviour
             if (goldenMouth != null && !goldenMouthHits.Contains(goldenMouth))
             {
                 goldenMouthHits.Add(goldenMouth);
-                goldenMouth.ApplyWater(waterQuality, cleanAmount);
+                ApplyWaterToGoldenMouth(goldenMouth, waterQuality, cleanAmount);
             }
         }
 
         if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
             CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    void ApplyWaterToGoldenMouth(
+        GoldenMouthBehavior goldenMouth,
+        WaterQuality waterQuality,
+        float cleanAmount)
+    {
+        if (goldenMouth == null)
+            return;
+
+        if (playerMovement != null)
+        {
+            playerMovement.RequestApplyWaterToGoldenMouth(
+                goldenMouth,
+                waterQuality,
+                cleanAmount);
+            return;
+        }
+
+        goldenMouth.ApplyWater(waterQuality, cleanAmount);
     }
 
     bool ShouldIgnoreHit(RaycastHit hit)

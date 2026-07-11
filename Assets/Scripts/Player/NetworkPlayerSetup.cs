@@ -132,10 +132,12 @@ public class NetworkPlayerSetup : NetworkBehaviour
         CacheReferences();
         appliedOwnershipState = true;
         lastAppliedLocalControl = isOwner;
+        bool canAcceptInput = isOwner && CanPlayerAcceptLocalInput();
+        bool canUseWaterCannon = isOwner && CanPlayerUseTools();
 
         if (movement != null)
         {
-            movement.SetAcceptsInput(isOwner);
+            movement.SetAcceptsInput(canAcceptInput);
             movement.enabled = isOwner;
         }
 
@@ -146,7 +148,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
             playerRigidbody.isKinematic = isOwner ? originalRigidbodyKinematic : true;
 
         if (disableRemoteWaterCannon)
-            SetEnabled(waterCannons, isOwner);
+            SetEnabled(waterCannons, canUseWaterCannon);
 
         if (disableRemoteCameraBehaviours)
         {
@@ -198,8 +200,13 @@ public class NetworkPlayerSetup : NetworkBehaviour
     private bool IsLocalControlIncomplete()
     {
         CacheReferences();
+        bool canAcceptInput = CanPlayerAcceptLocalInput();
+        bool canUseWaterCannon = CanPlayerUseTools();
 
-        if (movement != null && (!movement.enabled || !movement.AcceptsInput))
+        if (movement != null && !movement.enabled)
+            return true;
+
+        if (movement != null && movement.AcceptsInput != canAcceptInput)
             return true;
 
         if (playerInput != null && disableRemotePlayerInput && !playerInput.enabled)
@@ -208,7 +215,8 @@ public class NetworkPlayerSetup : NetworkBehaviour
         if (playerRigidbody != null && makeRemoteRigidbodyKinematic && playerRigidbody.isKinematic != originalRigidbodyKinematic)
             return true;
 
-        if (disableRemoteWaterCannon && HasDisabledBehaviour(waterCannons))
+        if (disableRemoteWaterCannon &&
+            HasBehaviourStateMismatch(waterCannons, canUseWaterCannon))
             return true;
 
         if (disableRemoteCameraBehaviours && (HasDisabledBehaviour(cameras) || HasDisabledBehaviour(cameraWobbles) || HasDisabledBehaviour(vignetteEffects)))
@@ -221,6 +229,16 @@ public class NetworkPlayerSetup : NetworkBehaviour
             return true;
 
         return cursorLockController != null && !cursorLockController.enabled;
+    }
+
+    private bool CanPlayerAcceptLocalInput()
+    {
+        return playerStatus == null || playerStatus.AllowsLocalInput();
+    }
+
+    private bool CanPlayerUseTools()
+    {
+        return playerStatus == null || playerStatus.CanAct();
     }
 
     private static NetworkObject GetLocalPlayerObject()
@@ -261,6 +279,21 @@ public class NetworkPlayerSetup : NetworkBehaviour
         foreach (Behaviour behaviour in behaviours)
         {
             if (behaviour != null && !behaviour.enabled)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasBehaviourStateMismatch(
+        Behaviour[] behaviours,
+        bool expectedEnabled)
+    {
+        if (behaviours == null) return false;
+
+        foreach (Behaviour behaviour in behaviours)
+        {
+            if (behaviour != null && behaviour.enabled != expectedEnabled)
                 return true;
         }
 

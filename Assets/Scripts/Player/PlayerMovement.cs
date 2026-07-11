@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Netcode;
+using System.Collections.Generic;
 
 public class PlayerMovement : NetworkBehaviour
 {
@@ -64,6 +65,13 @@ public class PlayerMovement : NetworkBehaviour
     private float staminaDrainMultiplierTimer;
     private float footstepTimer;
     private bool acceptsInput = true;
+    private PlayerVignetteEffect localVignetteEffect;
+    private float lastThreatEffectSendTime = -999f;
+    private float lastThreatEffectSentIntensity = -1f;
+    private float lastShakeEffectSendTime = -999f;
+    private bool threatEffectKnownClear = true;
+    private const float ThreatEffectSendInterval = 0.08f;
+    private const float ThreatEffectIntensityEpsilon = 0.02f;
     public bool AcceptsInput => acceptsInput;
 
     public void SetAcceptsInput(bool value)
@@ -385,8 +393,482 @@ public class PlayerMovement : NetworkBehaviour
         float noiseRadius = isCrouching
             ? crouchNoiseRadius
             : sprintingNow ? sprintNoiseRadius : walkNoiseRadius;
-        NoiseEvent.Emit(transform.position, noiseRadius, gameObject);
+        EmitFootstepNoise(noiseRadius);
         PlayFootstepAudio(sprintingNow);
+    }
+
+    void EmitFootstepNoise(float noiseRadius)
+    {
+        if (IsSpawned && !IsServer)
+        {
+            EmitFootstepNoiseServerRpc(transform.position, noiseRadius);
+            return;
+        }
+
+        NoiseEvent.Emit(transform.position, noiseRadius, gameObject);
+    }
+
+    [ServerRpc]
+    void EmitFootstepNoiseServerRpc(Vector3 noisePosition, float noiseRadius)
+    {
+        NoiseEvent.Emit(noisePosition, noiseRadius, gameObject);
+    }
+
+    public void RequestApplyWaterToGoldenMouth(
+        GoldenMouthBehavior target,
+        WaterQuality quality,
+        float amount)
+    {
+        if (target == null || amount <= 0f)
+            return;
+
+        if (IsSpawned && !IsServer)
+        {
+            NetworkObjectReference targetReference;
+            if (TryGetNetworkObjectReference(target.gameObject, out targetReference))
+                ApplyWaterToGoldenMouthServerRpc(targetReference, (int)quality, amount);
+
+            return;
+        }
+
+        target.ApplyWater(quality, amount);
+    }
+
+    public void RequestEnemyWaterHit(GameObject target, Vector3 sourcePosition)
+    {
+        if (target == null)
+            return;
+
+        if (IsSpawned && !IsServer)
+        {
+            NetworkObjectReference targetReference;
+            if (TryGetNetworkObjectReference(target, out targetReference))
+                EnemyWaterHitServerRpc(targetReference, sourcePosition);
+
+            return;
+        }
+
+        ApplyEnemyWaterHit(target, sourcePosition);
+    }
+
+    [ServerRpc]
+    void ApplyWaterToGoldenMouthServerRpc(
+        NetworkObjectReference targetReference,
+        int quality,
+        float amount)
+    {
+        NetworkObject targetObject;
+        if (!targetReference.TryGet(out targetObject))
+            return;
+
+        GoldenMouthBehavior target =
+            targetObject.GetComponentInChildren<GoldenMouthBehavior>(true);
+        if (target != null)
+            target.ApplyWater((WaterQuality)quality, amount);
+    }
+
+    [ServerRpc]
+    void EnemyWaterHitServerRpc(
+        NetworkObjectReference targetReference,
+        Vector3 sourcePosition)
+    {
+        NetworkObject targetObject;
+        if (!targetReference.TryGet(out targetObject))
+            return;
+
+        ApplyEnemyWaterHit(targetObject.gameObject, sourcePosition);
+    }
+
+    public void PublishWaterSprayVisual(
+        bool isSpraying,
+        WaterQuality quality,
+        Vector3 originPosition,
+        Quaternion originRotation)
+    {
+        if (!IsSpawned)
+            return;
+
+        if (IsServer)
+        {
+            BroadcastWaterSprayVisual(
+                isSpraying,
+                quality,
+                originPosition,
+                originRotation);
+            return;
+        }
+
+        PublishWaterSprayVisualServerRpc(
+            isSpraying,
+            (int)quality,
+            originPosition,
+            originRotation);
+    }
+
+    [ServerRpc]
+    void PublishWaterSprayVisualServerRpc(
+        bool isSpraying,
+        int quality,
+        Vector3 originPosition,
+        Quaternion originRotation)
+    {
+        BroadcastWaterSprayVisual(
+            isSpraying,
+            (WaterQuality)quality,
+            originPosition,
+            originRotation);
+    }
+
+    void BroadcastWaterSprayVisual(
+        bool isSpraying,
+        WaterQuality quality,
+        Vector3 originPosition,
+        Quaternion originRotation)
+    {
+        ClientRpcParams clientRpcParams;
+        if (!TryBuildNonOwnerClientRpcParams(out clientRpcParams))
+            return;
+
+        ApplyRemoteWaterSprayVisualClientRpc(
+            isSpraying,
+            (int)quality,
+            originPosition,
+            originRotation,
+            clientRpcParams);
+    }
+
+    [ClientRpc]
+    void ApplyRemoteWaterSprayVisualClientRpc(
+        bool isSpraying,
+        int quality,
+        Vector3 originPosition,
+        Quaternion originRotation,
+        ClientRpcParams clientRpcParams = default)
+    {
+        if (IsOwner)
+            return;
+
+        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>(true);
+        if (waterCannon != null)
+        {
+            waterCannon.ApplyRemoteSprayVisual(
+                isSpraying,
+                (WaterQuality)quality,
+                originPosition,
+                originRotation);
+        }
+    }
+
+    bool TryBuildNonOwnerClientRpcParams(out ClientRpcParams clientRpcParams)
+    {
+        clientRpcParams = default;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null || !networkManager.IsListening)
+            return false;
+
+        List<ulong> targetClientIds = new List<ulong>();
+        foreach (ulong clientId in networkManager.ConnectedClientsIds)
+        {
+            if (clientId != OwnerClientId)
+                targetClientIds.Add(clientId);
+        }
+
+        if (targetClientIds.Count == 0)
+            return false;
+
+        clientRpcParams = new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = targetClientIds.ToArray()
+            }
+        };
+        return true;
+    }
+
+    public void SetLocalThreatIntensity(float intensity)
+    {
+        intensity = Mathf.Clamp01(intensity);
+
+        if (ShouldSendLocalEffectToOwner())
+        {
+            if (!ShouldSendThreatIntensity(intensity))
+                return;
+
+            threatEffectKnownClear = false;
+            SetLocalThreatIntensityClientRpc(intensity, OwnerClientRpcParams());
+            return;
+        }
+
+        ApplyLocalThreatIntensity(intensity);
+    }
+
+    public void ClearLocalThreatEffect(bool stopShake = false)
+    {
+        if (ShouldSendLocalEffectToOwner())
+        {
+            if (threatEffectKnownClear)
+                return;
+
+            threatEffectKnownClear = true;
+            ResetThreatEffectSendState();
+            ClearLocalThreatEffectClientRpc(stopShake, OwnerClientRpcParams());
+            return;
+        }
+
+        ApplyClearLocalThreatEffect(stopShake);
+    }
+
+    public void PulseLocalThreatEffect(
+        float intensity,
+        float duration,
+        float shakeAmplitude = 0f,
+        float shakeFrequency = 0f,
+        float shakeDuration = 0f)
+    {
+        if (ShouldSendLocalEffectToOwner())
+        {
+            threatEffectKnownClear = false;
+            PulseLocalThreatEffectClientRpc(
+                intensity,
+                duration,
+                shakeAmplitude,
+                shakeFrequency,
+                shakeDuration,
+                OwnerClientRpcParams());
+            return;
+        }
+
+        ApplyPulseLocalThreatEffect(
+            intensity,
+            duration,
+            shakeAmplitude,
+            shakeFrequency,
+            shakeDuration);
+    }
+
+    public void ShakeLocalThreatEffect(
+        float amplitude,
+        float frequency,
+        float duration)
+    {
+        if (ShouldSendLocalEffectToOwner())
+        {
+            if (!ShouldSendShakeEffect())
+                return;
+
+            threatEffectKnownClear = false;
+            ShakeLocalThreatEffectClientRpc(
+                amplitude,
+                frequency,
+                duration,
+                OwnerClientRpcParams());
+            return;
+        }
+
+        ApplyShakeLocalThreatEffect(amplitude, frequency, duration);
+    }
+
+    [ClientRpc]
+    void SetLocalThreatIntensityClientRpc(
+        float intensity,
+        ClientRpcParams clientRpcParams = default)
+    {
+        ApplyLocalThreatIntensity(intensity);
+    }
+
+    [ClientRpc]
+    void ClearLocalThreatEffectClientRpc(
+        bool stopShake,
+        ClientRpcParams clientRpcParams = default)
+    {
+        ApplyClearLocalThreatEffect(stopShake);
+    }
+
+    [ClientRpc]
+    void PulseLocalThreatEffectClientRpc(
+        float intensity,
+        float duration,
+        float shakeAmplitude,
+        float shakeFrequency,
+        float shakeDuration,
+        ClientRpcParams clientRpcParams = default)
+    {
+        ApplyPulseLocalThreatEffect(
+            intensity,
+            duration,
+            shakeAmplitude,
+            shakeFrequency,
+            shakeDuration);
+    }
+
+    [ClientRpc]
+    void ShakeLocalThreatEffectClientRpc(
+        float amplitude,
+        float frequency,
+        float duration,
+        ClientRpcParams clientRpcParams = default)
+    {
+        ApplyShakeLocalThreatEffect(amplitude, frequency, duration);
+    }
+
+    bool ShouldSendLocalEffectToOwner()
+    {
+        return IsSpawned && IsServer && !IsOwner;
+    }
+
+    ClientRpcParams OwnerClientRpcParams()
+    {
+        return new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { OwnerClientId }
+            }
+        };
+    }
+
+    bool ShouldSendThreatIntensity(float intensity)
+    {
+        if (Time.time - lastThreatEffectSendTime < ThreatEffectSendInterval &&
+            Mathf.Abs(intensity - lastThreatEffectSentIntensity) < ThreatEffectIntensityEpsilon)
+        {
+            return false;
+        }
+
+        lastThreatEffectSendTime = Time.time;
+        lastThreatEffectSentIntensity = intensity;
+        return true;
+    }
+
+    bool ShouldSendShakeEffect()
+    {
+        if (Time.time - lastShakeEffectSendTime < ThreatEffectSendInterval)
+            return false;
+
+        lastShakeEffectSendTime = Time.time;
+        return true;
+    }
+
+    void ResetThreatEffectSendState()
+    {
+        lastThreatEffectSendTime = -999f;
+        lastThreatEffectSentIntensity = -1f;
+        lastShakeEffectSendTime = -999f;
+    }
+
+    PlayerVignetteEffect ResolveLocalVignetteEffect()
+    {
+        if (localVignetteEffect == null)
+            localVignetteEffect = GetComponentInChildren<PlayerVignetteEffect>(true);
+
+        return localVignetteEffect;
+    }
+
+    void ApplyLocalThreatIntensity(float intensity)
+    {
+        PlayerVignetteEffect effect = ResolveLocalVignetteEffect();
+        if (effect != null)
+            effect.SetThreatIntensity(intensity);
+    }
+
+    void ApplyClearLocalThreatEffect(bool stopShake)
+    {
+        PlayerVignetteEffect effect = ResolveLocalVignetteEffect();
+        if (effect == null)
+            return;
+
+        effect.ClearThreatIntensity();
+        if (stopShake)
+            effect.StopShake();
+    }
+
+    void ApplyPulseLocalThreatEffect(
+        float intensity,
+        float duration,
+        float shakeAmplitude,
+        float shakeFrequency,
+        float shakeDuration)
+    {
+        PlayerVignetteEffect effect = ResolveLocalVignetteEffect();
+        if (effect == null)
+            return;
+
+        if (intensity > 0f && duration > 0f)
+            effect.Pulse(intensity, duration);
+
+        if (shakeAmplitude > 0f && shakeDuration > 0f)
+            effect.Shake(shakeAmplitude, shakeFrequency, shakeDuration);
+    }
+
+    void ApplyShakeLocalThreatEffect(
+        float amplitude,
+        float frequency,
+        float duration)
+    {
+        PlayerVignetteEffect effect = ResolveLocalVignetteEffect();
+        if (effect != null && amplitude > 0f && duration > 0f)
+            effect.Shake(amplitude, frequency, duration);
+    }
+
+    bool TryGetNetworkObjectReference(
+        GameObject target,
+        out NetworkObjectReference targetReference)
+    {
+        NetworkObject networkObject = target != null
+            ? target.GetComponentInParent<NetworkObject>()
+            : null;
+
+        if (networkObject == null && target != null)
+            networkObject = target.GetComponentInChildren<NetworkObject>(true);
+
+        if (networkObject == null)
+        {
+            targetReference = default;
+            return false;
+        }
+
+        targetReference = networkObject;
+        return true;
+    }
+
+    void ApplyEnemyWaterHit(GameObject target, Vector3 sourcePosition)
+    {
+        if (target == null)
+            return;
+
+        RaccoonBehavior raccoon =
+            GetComponentInHierarchy<RaccoonBehavior>(target);
+        if (raccoon != null)
+            raccoon.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeBehavior bathroomBlonde =
+            GetComponentInHierarchy<BathroomBlondeBehavior>(target);
+        if (bathroomBlonde != null)
+            bathroomBlonde.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeMirror bathroomMirror =
+            GetComponentInHierarchy<BathroomBlondeMirror>(target);
+        if (bathroomMirror != null)
+            bathroomMirror.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeDrain bathroomDrain =
+            GetComponentInHierarchy<BathroomBlondeDrain>(target);
+        if (bathroomDrain != null)
+            bathroomDrain.ReceiveWaterHit(sourcePosition);
+    }
+
+    T GetComponentInHierarchy<T>(GameObject target) where T : Component
+    {
+        if (target == null)
+            return null;
+
+        T component = target.GetComponentInParent<T>();
+        if (component != null)
+            return component;
+
+        return target.GetComponentInChildren<T>(true);
     }
 
     void PlayFootstepAudio(bool sprintingNow)

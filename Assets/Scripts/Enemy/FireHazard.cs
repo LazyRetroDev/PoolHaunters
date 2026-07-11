@@ -37,6 +37,9 @@ public class FireHazard : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         DamagePlayersInRadius();
         TryIgniteItems();
         TryDryWaterSources();

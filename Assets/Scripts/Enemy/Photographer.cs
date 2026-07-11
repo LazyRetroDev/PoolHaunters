@@ -77,6 +77,7 @@ public class Photographer : MonoBehaviour
     public float loseSightDelay = 1f;
 
     private GameObject activeCapturedPhoto;
+    private PlayerMovement effectTargetMovement;
 
     enum State { Wandering, Observing, Chasing, Admiring }
     State currentState = State.Wandering;
@@ -99,6 +100,9 @@ public class Photographer : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         ResolvePlayerReferences();
         ResolveCameraEffects();
         bool playerVisible = GetPlayerVisibility();
@@ -212,41 +216,55 @@ public class Photographer : MonoBehaviour
 
     void ResolvePlayerReferences()
     {
-        if (player == null)
+        PlayerStatus closestStatus;
+        Transform closestPlayer;
+        if (!EnemyTargeting.TryFindClosestPlayer(
+            transform.position,
+            out closestStatus,
+            out closestPlayer))
         {
-            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-            if (playerObject != null)
-                player = playerObject.transform;
+            player = null;
+            playerStatus = null;
+            return;
         }
 
-        if (playerStatus == null && player != null)
-            playerStatus = player.GetComponent<PlayerStatus>();
+        player = closestPlayer;
+        playerStatus = closestStatus;
     }
 
     void ResolveCameraEffects()
     {
         if (cameraEffects != null) return;
-        cameraEffects = FindObjectOfType<PlayerVignetteEffect>();
+        cameraEffects = FindAnyObjectByType<PlayerVignetteEffect>();
     }
 
     void SetChaseCameraEffect()
     {
-        if (cameraEffects != null)
-            cameraEffects.SetThreatIntensity(chaseVignetteIntensity);
+        EnemyPlayerEffects.SetThreatIntensity(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            chaseVignetteIntensity);
     }
 
     void ClearChaseCameraEffect()
     {
-        if (cameraEffects != null)
-            cameraEffects.ClearThreatIntensity();
+        EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
     }
 
     void PulseSnapshotCamera(float intensity, float duration, float shakeAmplitude, float shakeFrequency, float shakeDuration)
     {
-        if (cameraEffects == null) return;
-
-        cameraEffects.Pulse(intensity, duration);
-        cameraEffects.Shake(shakeAmplitude, shakeFrequency, shakeDuration);
+        EnemyPlayerEffects.Pulse(
+            ref effectTargetMovement,
+            playerStatus,
+            player,
+            cameraEffects,
+            intensity,
+            duration,
+            shakeAmplitude,
+            shakeFrequency,
+            shakeDuration);
     }
 
     void HandleWander()
@@ -304,7 +322,7 @@ public class Photographer : MonoBehaviour
     bool TrySnapshotRay(Vector3 origin, Vector3 direction, out RaycastHit hit)
     {
         if (Physics.Raycast(origin, direction, out hit, snapshotDistance, snapshotMask, QueryTriggerInteraction.Ignore))
-            return !hit.collider.CompareTag("Player");
+            return hit.collider.GetComponentInParent<PlayerStatus>() == null;
 
         return false;
     }
@@ -356,9 +374,13 @@ public class Photographer : MonoBehaviour
         if (!Physics.Raycast(origin, directionToPlayer.normalized, out RaycastHit hit, distanceToPlayer, snapshotMask, QueryTriggerInteraction.Ignore))
             return false;
 
-        if (hit.collider.GetComponentInParent<PlayerStatus>() == null)
+        PlayerStatus photographedStatus =
+            hit.collider.GetComponentInParent<PlayerStatus>();
+        if (!EnemyTargeting.IsValidTarget(photographedStatus))
             return false;
 
+        playerStatus = photographedStatus;
+        player = photographedStatus.transform;
         PhotographPlayer();
         return true;
     }
@@ -557,7 +579,7 @@ public class Photographer : MonoBehaviour
         if (angle > fieldOfView / 2f) return false;
 
         if (Physics.Raycast(GetEyePosition(), directionToPlayer.normalized, out RaycastHit hit, sightRange, snapshotMask, QueryTriggerInteraction.Ignore))
-            return hit.collider.CompareTag("Player");
+            return hit.collider.GetComponentInParent<PlayerStatus>() == playerStatus;
 
         return false;
     }

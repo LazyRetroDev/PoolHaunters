@@ -1,7 +1,8 @@
 using UnityEngine;
+using Unity.Netcode;
 using System;
 
-public class PlayerStatus : MonoBehaviour
+public class PlayerStatus : NetworkBehaviour
 {
     [Header("Health")]
     public float maxHealth = 100f;
@@ -37,30 +38,153 @@ public class PlayerStatus : MonoBehaviour
     public event Action<PlayerStatus> OnDeath;
     public event Action<WaterQuality> OnWaterQualityChanged;
 
+    private NetworkVariable<float> syncedHealth =
+        new NetworkVariable<float>();
+    private NetworkVariable<float> syncedWater =
+        new NetworkVariable<float>();
+    private NetworkVariable<float> syncedKnockoutTimer =
+        new NetworkVariable<float>();
+    private NetworkVariable<int> syncedWaterQuality =
+        new NetworkVariable<int>();
+    private NetworkVariable<bool> syncedKnockedOut =
+        new NetworkVariable<bool>();
+    private NetworkVariable<bool> syncedDead =
+        new NetworkVariable<bool>();
+    private NetworkVariable<bool> syncedTransformed =
+        new NetworkVariable<bool>();
+    private NetworkVariable<int> syncedExternalControlLocks =
+        new NetworkVariable<int>();
+
     private float currentHealth;
-    private float currentWater = 0f;
+    private float currentWater;
     private float knockoutTimer;
     private WaterQuality currentWaterQuality;
     private bool inWater = false;
     private bool isKnockedOut = false;
     private bool isDead = false;
     private bool deathTransformationApplied = false;
+    private int externalControlLocks;
+    private bool localStateInitialized;
+    private bool serverStateInitialized;
     private WaterZone activeWaterZone;
 
     private PlayerMovement movement;
-    public bool IsMoving() => movement != null && movement.IsMoving() && (CanAct() || isKnockedOut);
+    private PlayerInventory inventory;
+    private WaterCannon waterCannon;
+
+    public bool IsMoving() =>
+        movement != null && movement.IsMoving() && (CanAct() || isKnockedOut);
+
+    void Awake()
+    {
+        CacheReferences();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        CacheReferences();
+        SubscribeNetworkState();
+
+        if (IsServer)
+            InitializeServerState();
+
+        ApplySyncedState(false);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        UnsubscribeNetworkState();
+    }
 
     void Start()
     {
-        movement = GetComponent<PlayerMovement>();
-        currentHealth = maxHealth;
+        CacheReferences();
+
+        if (IsNetworked())
+        {
+            if (IsServer)
+                InitializeServerState();
+
+            ApplySyncedState(false);
+            return;
+        }
+
+        InitializeLocalState();
+    }
+
+    void Update()
+    {
+        if (IsClientReplica())
+            return;
+
+        if (isKnockedOut)
+        {
+            UpdateKnockoutTimer();
+            return;
+        }
+
+        if (CanAct() && inWater && currentWater < maxWater)
+            FillFromCurrentWaterSource(fillRate * Time.deltaTime);
+    }
+
+    void CacheReferences()
+    {
+        if (movement == null)
+            movement = GetComponent<PlayerMovement>();
+        if (inventory == null)
+            inventory = GetComponent<PlayerInventory>();
+        if (waterCannon == null)
+            waterCannon = GetComponentInChildren<WaterCannon>(true);
+    }
+
+    void InitializeLocalState()
+    {
+        if (localStateInitialized)
+            return;
+
+        currentHealth = Mathf.Clamp(maxHealth, 0f, maxHealth);
+        currentWater = 0f;
+        knockoutTimer = 0f;
         currentWaterQuality = startingWaterQuality;
+        isKnockedOut = false;
+        isDead = false;
+        deathTransformationApplied = false;
+        externalControlLocks = 0;
+        localStateInitialized = true;
 
         if (currentHealth <= 0f)
-            EnterKnockout();
+            ApplyEnterKnockout();
+    }
+
+    void InitializeServerState()
+    {
+        if (serverStateInitialized)
+            return;
+
+        InitializeLocalState();
+        serverStateInitialized = true;
+        SyncAllState();
+    }
+
+    bool IsNetworked()
+    {
+        return IsSpawned &&
+            NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening;
+    }
+
+    bool IsClientReplica()
+    {
+        return IsNetworked() && !IsServer;
+    }
+
+    bool CanWriteState()
+    {
+        return !IsNetworked() || IsServer;
     }
 
     public void SetInWater(bool value) => inWater = value;
+
     public void SetWaterZone(WaterZone zone)
     {
         activeWaterZone = zone;
@@ -79,28 +203,28 @@ public class PlayerStatus : MonoBehaviour
     public float GetCurrentWater() => currentWater;
     public float GetWaterSpace() => Mathf.Max(0f, maxWater - currentWater);
     public WaterQuality GetWaterQuality() => currentWaterQuality;
-    public float GetHealthPercent() => maxHealth > 0f ? currentHealth / maxHealth : 0f;
-    public float GetWaterPercent() => maxWater > 0f ? currentWater / maxWater : 0f;
+    public float GetHealthPercent() =>
+        maxHealth > 0f ? currentHealth / maxHealth : 0f;
+    public float GetWaterPercent() =>
+        maxWater > 0f ? currentWater / maxWater : 0f;
     public float GetKnockoutTimeRemaining() => knockoutTimer;
-    public float GetKnockoutPercent() => knockoutDuration > 0f ? knockoutTimer / knockoutDuration : 0f;
-    public bool IsSprinting() => movement != null && movement.IsSprinting() && CanAct();
+    public float GetKnockoutPercent() =>
+        knockoutDuration > 0f ? knockoutTimer / knockoutDuration : 0f;
+    public bool IsSprinting() =>
+        movement != null && movement.IsSprinting() && CanAct();
     public bool IsKnockedOut() => isKnockedOut;
     public bool IsDead() => isDead;
     public bool IsTransformed() => deathTransformationApplied;
-    public bool CanAct() => !isKnockedOut && !isDead && !deathTransformationApplied;
-    public bool HasContaminatedWater() => currentWater > 0f && currentWaterQuality == WaterQuality.Contaminated;
-
-    void Update()
-    {
-        if (isKnockedOut)
-        {
-            UpdateKnockoutTimer();
-            return;
-        }
-
-        if (CanAct() && inWater && currentWater < maxWater)
-            FillFromCurrentWaterSource(fillRate * Time.deltaTime);
-    }
+    public bool HasExternalControlLock() => externalControlLocks > 0;
+    public bool AllowsLocalInput() =>
+        !isDead && !deathTransformationApplied && externalControlLocks <= 0;
+    public bool CanAct() =>
+        !isKnockedOut &&
+        !isDead &&
+        !deathTransformationApplied &&
+        externalControlLocks <= 0;
+    public bool HasContaminatedWater() =>
+        currentWater > 0f && currentWaterQuality == WaterQuality.Contaminated;
 
     void FillFromCurrentWaterSource(float amount)
     {
@@ -115,42 +239,44 @@ public class PlayerStatus : MonoBehaviour
 
     public bool TakeDamage(float damage)
     {
-        if (damage <= 0f || isDead || isKnockedOut || deathTransformationApplied) return false;
+        if (damage <= 0f)
+            return false;
 
-        currentHealth -= damage;
-        currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+        if (IsClientReplica())
+        {
+            TakeDamageServerRpc(damage);
+            return false;
+        }
 
-        if (currentHealth > 0f) return false;
-
-        EnterKnockout();
-        return true;
+        return ApplyDamage(damage);
     }
 
     public bool ForceTransformDeath()
     {
-        if (isDead || deathTransformationApplied) return false;
+        if (IsClientReplica())
+            return false;
 
-        ApplyDeathTransformation();
+        if (isDead || deathTransformationApplied)
+            return false;
+
+        ApplyDeath(true);
         return true;
     }
 
     public void EnterKnockout()
     {
-        if (isDead || deathTransformationApplied || isKnockedOut) return;
+        if (!CanWriteState())
+            return;
 
-        isKnockedOut = true;
-        currentHealth = 0f;
-        knockoutTimer = knockoutDuration;
-
-        if (disableControlsWhileKnockedOut)
-            DisableKnockoutBlockedComponents();
-
-        OnKnockedOut?.Invoke(this);
+        ApplyEnterKnockout();
     }
 
     void UpdateKnockoutTimer()
     {
         knockoutTimer -= Time.deltaTime;
+        knockoutTimer = Mathf.Max(0f, knockoutTimer);
+        SyncCoreState();
+
         if (knockoutTimer <= 0f)
             Die();
     }
@@ -162,44 +288,264 @@ public class PlayerStatus : MonoBehaviour
 
     public bool Revive(float revivedHealth)
     {
-        if (!isKnockedOut || isDead || deathTransformationApplied) return false;
+        if (!CanWriteState())
+            return false;
+
+        if (!isKnockedOut || isDead || deathTransformationApplied)
+            return false;
 
         isKnockedOut = false;
         knockoutTimer = 0f;
         currentHealth = Mathf.Clamp(revivedHealth, 1f, maxHealth);
         RestoreConfiguredComponents();
+        ApplyLocalControlState();
+        SyncAllState();
         OnRevived?.Invoke(this);
         return true;
     }
 
     public void Die()
     {
-        if (isDead) return;
+        if (!CanWriteState())
+            return;
 
-        isKnockedOut = false;
-        isDead = true;
-        currentHealth = 0f;
-        knockoutTimer = 0f;
-        DisableConfiguredComponents();
-        ApplyDeathPresentation();
-        ActivateSpectatorMode();
-        OnDeath?.Invoke(this);
+        ApplyDeath(false);
     }
 
     public void ApplyDeathTransformation()
     {
-        if (deathTransformationApplied) return;
-        deathTransformationApplied = true;
+        if (!CanWriteState())
+            return;
 
+        ApplyDeath(true);
+    }
+
+    public bool ConsumeWater(float amount)
+    {
+        if (!CanAct()) return false;
+        if (amount <= 0f || currentWater <= 0f) return false;
+
+        if (IsClientReplica())
+        {
+            PredictConsumeWater(amount);
+            ConsumeWaterServerRpc(amount);
+            return true;
+        }
+
+        ApplyConsumeWater(amount);
+        SyncWaterState();
+        return true;
+    }
+
+    public bool AddWater(
+        float amount,
+        WaterQuality quality,
+        bool replaceExistingQuality = false)
+    {
+        if (!CanAct()) return false;
+        if (amount <= 0f || currentWater >= maxWater) return false;
+
+        if (IsClientReplica())
+        {
+            PredictAddWater(amount, quality, replaceExistingQuality);
+            AddWaterServerRpc(amount, (int)quality, replaceExistingQuality);
+            return true;
+        }
+
+        ApplyAddWater(amount, quality, replaceExistingQuality);
+        SyncWaterState();
+        return true;
+    }
+
+    public void ContaminateWater()
+    {
+        if (!CanAct()) return;
+        if (currentWater <= 0f) return;
+
+        if (IsClientReplica())
+        {
+            SetWaterQuality(WaterQuality.Contaminated);
+            ContaminateWaterServerRpc();
+            return;
+        }
+
+        SetWaterQuality(WaterQuality.Contaminated);
+        SyncWaterState();
+    }
+
+    public void PurifyWater()
+    {
+        if (!CanAct()) return;
+        if (currentWater <= 0f) return;
+
+        if (IsClientReplica())
+        {
+            SetWaterQuality(WaterQuality.Clean);
+            PurifyWaterServerRpc();
+            return;
+        }
+
+        SetWaterQuality(WaterQuality.Clean);
+        SyncWaterState();
+    }
+
+    public void AddExternalControlLock()
+    {
+        if (IsClientReplica())
+        {
+            AddExternalControlLockServerRpc();
+            return;
+        }
+
+        externalControlLocks = Mathf.Max(0, externalControlLocks + 1);
+        ApplyLocalControlState();
+        SyncControlLockState();
+    }
+
+    public void RemoveExternalControlLock()
+    {
+        if (IsClientReplica())
+        {
+            RemoveExternalControlLockServerRpc();
+            return;
+        }
+
+        externalControlLocks = Mathf.Max(0, externalControlLocks - 1);
+        ApplyLocalControlState();
+        SyncControlLockState();
+    }
+
+    public void ClearExternalControlLocks()
+    {
+        if (IsClientReplica())
+            return;
+
+        externalControlLocks = 0;
+        ApplyLocalControlState();
+        SyncControlLockState();
+    }
+
+    public float GetWaterCleaningMultiplier()
+    {
+        if (currentWaterQuality == WaterQuality.Contaminated)
+            return contaminatedCleaningMultiplier;
+
+        if (currentWaterQuality == WaterQuality.ChemicallyEnhanced)
+            return chemicallyEnhancedCleaningMultiplier;
+
+        return 1f;
+    }
+
+    bool ApplyDamage(float damage)
+    {
+        if (damage <= 0f || isDead || isKnockedOut || deathTransformationApplied)
+            return false;
+
+        currentHealth -= damage;
+        currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+
+        if (currentHealth > 0f)
+        {
+            SyncCoreState();
+            return false;
+        }
+
+        ApplyEnterKnockout();
+        return true;
+    }
+
+    void ApplyEnterKnockout()
+    {
+        if (isDead || deathTransformationApplied || isKnockedOut) return;
+
+        isKnockedOut = true;
+        currentHealth = 0f;
+        knockoutTimer = knockoutDuration;
+
+        if (disableControlsWhileKnockedOut)
+            DisableKnockoutBlockedComponents();
+
+        ApplyLocalControlState();
+        SyncAllState();
+        OnKnockedOut?.Invoke(this);
+    }
+
+    void ApplyDeath(bool transformed)
+    {
+        if (isDead && (!transformed || deathTransformationApplied))
+            return;
+
+        bool wasDead = isDead;
         isKnockedOut = false;
         isDead = true;
+        deathTransformationApplied = deathTransformationApplied || transformed;
         currentHealth = 0f;
         knockoutTimer = 0f;
+
         DisableConfiguredComponents();
         ApplyDeathPresentation();
-        ActivateSpectatorMode();
-        OnDeath?.Invoke(this);
 
+        if (deathTransformationApplied)
+            ApplyDeathTransformationPresentation();
+
+        ApplyLocalControlState();
+        SyncAllState();
+
+        if (!wasDead)
+            OnDeath?.Invoke(this);
+    }
+
+    void ApplyConsumeWater(float amount)
+    {
+        currentWater -= amount;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+
+        if (currentWater <= 0f)
+            SetWaterQuality(WaterQuality.Clean);
+    }
+
+    void ApplyAddWater(
+        float amount,
+        WaterQuality quality,
+        bool replaceExistingQuality)
+    {
+        bool wasEmpty = currentWater <= 0f;
+        currentWater += amount;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+
+        if (wasEmpty || replaceExistingQuality || quality == WaterQuality.Contaminated)
+            SetWaterQuality(quality);
+        else if (currentWaterQuality != WaterQuality.Contaminated &&
+            quality == WaterQuality.ChemicallyEnhanced)
+            SetWaterQuality(WaterQuality.ChemicallyEnhanced);
+    }
+
+    void PredictConsumeWater(float amount)
+    {
+        ApplyConsumeWater(amount);
+    }
+
+    void PredictAddWater(
+        float amount,
+        WaterQuality quality,
+        bool replaceExistingQuality)
+    {
+        ApplyAddWater(amount, quality, replaceExistingQuality);
+    }
+
+    void ApplyDeathPresentation()
+    {
+        DisableGravityAndMotion();
+        DisableDeathHud();
+
+        if (makeBodyTransparentOnDeath)
+            MakeBodyTransparent(deadBodyAlpha);
+
+        ActivateSpectatorMode();
+    }
+
+    void ApplyDeathTransformationPresentation()
+    {
         if (hideRenderersOnDeath)
         {
             Renderer[] renderers = GetComponentsInChildren<Renderer>();
@@ -213,15 +559,6 @@ public class PlayerStatus : MonoBehaviour
             for (int i = 0; i < colliders.Length; i++)
                 colliders[i].enabled = false;
         }
-    }
-
-    void ApplyDeathPresentation()
-    {
-        DisableGravityAndMotion();
-        DisableDeathHud();
-
-        if (makeBodyTransparentOnDeath)
-            MakeBodyTransparent(deadBodyAlpha);
     }
 
     void DisableGravityAndMotion()
@@ -241,6 +578,9 @@ public class PlayerStatus : MonoBehaviour
 
     void DisableDeathHud()
     {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
         if (hudsToDisableOnDeath != null && hudsToDisableOnDeath.Length > 0)
         {
             for (int i = 0; i < hudsToDisableOnDeath.Length; i++)
@@ -249,7 +589,7 @@ public class PlayerStatus : MonoBehaviour
             return;
         }
 
-        HUD[] huds = FindObjectsOfType<HUD>();
+        HUD[] huds = FindObjectsByType<HUD>(FindObjectsInactive.Exclude);
         for (int i = 0; i < huds.Length; i++)
         {
             if (huds[i] != null && huds[i].playerStatus == this)
@@ -320,20 +660,31 @@ public class PlayerStatus : MonoBehaviour
 
     void ActivateSpectatorMode()
     {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
         PlayerSpectatorMode.ActivateFor(this);
     }
 
     void DisableKnockoutBlockedComponents()
     {
-        PlayerInventory inventory = GetComponent<PlayerInventory>();
-        if (inventory != null) inventory.enabled = false;
+        if (!ShouldApplyOwnerLocalState())
+            return;
 
-        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
-        if (waterCannon != null) waterCannon.enabled = false;
+        CacheReferences();
+
+        if (inventory != null)
+            inventory.enabled = false;
+
+        if (waterCannon != null)
+            waterCannon.enabled = false;
     }
 
     void DisableConfiguredComponents()
     {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
         if (componentsToDisableOnDeath != null && componentsToDisableOnDeath.Length > 0)
         {
             for (int i = 0; i < componentsToDisableOnDeath.Length; i++)
@@ -346,18 +697,20 @@ public class PlayerStatus : MonoBehaviour
             return;
         }
 
-        PlayerMovement playerMovement = GetComponent<PlayerMovement>();
-        if (playerMovement != null) playerMovement.enabled = false;
+        CacheReferences();
 
-        PlayerInventory inventory = GetComponent<PlayerInventory>();
+        if (movement != null) movement.enabled = false;
         if (inventory != null) inventory.enabled = false;
-
-        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
         if (waterCannon != null) waterCannon.enabled = false;
     }
 
     void RestoreConfiguredComponents()
     {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+        if (isDead || deathTransformationApplied)
+            return;
+
         if (componentsToDisableOnDeath != null && componentsToDisableOnDeath.Length > 0)
         {
             for (int i = 0; i < componentsToDisableOnDeath.Length; i++)
@@ -370,70 +723,36 @@ public class PlayerStatus : MonoBehaviour
             return;
         }
 
-        PlayerMovement playerMovement = GetComponent<PlayerMovement>();
-        if (playerMovement != null) playerMovement.enabled = true;
+        CacheReferences();
 
-        PlayerInventory inventory = GetComponent<PlayerInventory>();
-        if (inventory != null) inventory.enabled = true;
-
-        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
-        if (waterCannon != null) waterCannon.enabled = true;
+        if (movement != null)
+            movement.enabled = true;
+        if (inventory != null)
+            inventory.enabled = CanAct();
+        if (waterCannon != null)
+            waterCannon.enabled = CanAct();
     }
 
-    public bool ConsumeWater(float amount)
+    void ApplyLocalControlState()
     {
-        if (!CanAct()) return false;
-        if (amount <= 0f || currentWater <= 0f) return false;
+        if (!ShouldApplyOwnerLocalState())
+            return;
 
-        currentWater -= amount;
-        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
+        CacheReferences();
 
-        if (currentWater <= 0f)
-            SetWaterQuality(WaterQuality.Clean);
+        if (movement != null && movement.enabled)
+            movement.SetAcceptsInput(AllowsLocalInput());
 
-        return true;
+        bool canUseTools = CanAct();
+        if (inventory != null)
+            inventory.enabled = canUseTools;
+        if (waterCannon != null)
+            waterCannon.enabled = canUseTools;
     }
 
-    public bool AddWater(float amount, WaterQuality quality, bool replaceExistingQuality = false)
+    bool ShouldApplyOwnerLocalState()
     {
-        if (!CanAct()) return false;
-        if (amount <= 0f || currentWater >= maxWater) return false;
-
-        bool wasEmpty = currentWater <= 0f;
-        currentWater += amount;
-        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
-
-        if (wasEmpty || replaceExistingQuality || quality == WaterQuality.Contaminated)
-            SetWaterQuality(quality);
-        else if (currentWaterQuality != WaterQuality.Contaminated && quality == WaterQuality.ChemicallyEnhanced)
-            SetWaterQuality(WaterQuality.ChemicallyEnhanced);
-
-        return true;
-    }
-
-    public void ContaminateWater()
-    {
-        if (!CanAct()) return;
-        if (currentWater <= 0f) return;
-        SetWaterQuality(WaterQuality.Contaminated);
-    }
-
-    public void PurifyWater()
-    {
-        if (!CanAct()) return;
-        if (currentWater <= 0f) return;
-        SetWaterQuality(WaterQuality.Clean);
-    }
-
-    public float GetWaterCleaningMultiplier()
-    {
-        if (currentWaterQuality == WaterQuality.Contaminated)
-            return contaminatedCleaningMultiplier;
-
-        if (currentWaterQuality == WaterQuality.ChemicallyEnhanced)
-            return chemicallyEnhancedCleaningMultiplier;
-
-        return 1f;
+        return !IsNetworked() || IsOwner;
     }
 
     void SetWaterQuality(WaterQuality quality)
@@ -441,5 +760,242 @@ public class PlayerStatus : MonoBehaviour
         if (currentWaterQuality == quality) return;
         currentWaterQuality = quality;
         OnWaterQualityChanged?.Invoke(currentWaterQuality);
+    }
+
+    void SubscribeNetworkState()
+    {
+        syncedHealth.OnValueChanged += HandleHealthChanged;
+        syncedWater.OnValueChanged += HandleWaterChanged;
+        syncedKnockoutTimer.OnValueChanged += HandleKnockoutTimerChanged;
+        syncedWaterQuality.OnValueChanged += HandleWaterQualityChanged;
+        syncedKnockedOut.OnValueChanged += HandleKnockoutChanged;
+        syncedDead.OnValueChanged += HandleDeadChanged;
+        syncedTransformed.OnValueChanged += HandleTransformedChanged;
+        syncedExternalControlLocks.OnValueChanged += HandleExternalControlLocksChanged;
+    }
+
+    void UnsubscribeNetworkState()
+    {
+        syncedHealth.OnValueChanged -= HandleHealthChanged;
+        syncedWater.OnValueChanged -= HandleWaterChanged;
+        syncedKnockoutTimer.OnValueChanged -= HandleKnockoutTimerChanged;
+        syncedWaterQuality.OnValueChanged -= HandleWaterQualityChanged;
+        syncedKnockedOut.OnValueChanged -= HandleKnockoutChanged;
+        syncedDead.OnValueChanged -= HandleDeadChanged;
+        syncedTransformed.OnValueChanged -= HandleTransformedChanged;
+        syncedExternalControlLocks.OnValueChanged -= HandleExternalControlLocksChanged;
+    }
+
+    void ApplySyncedState(bool invokeEvents)
+    {
+        currentHealth = syncedHealth.Value;
+        currentWater = syncedWater.Value;
+        knockoutTimer = syncedKnockoutTimer.Value;
+        currentWaterQuality = (WaterQuality)syncedWaterQuality.Value;
+        externalControlLocks = Mathf.Max(0, syncedExternalControlLocks.Value);
+
+        ApplySyncedKnockout(syncedKnockedOut.Value, invokeEvents);
+        ApplySyncedDead(syncedDead.Value, invokeEvents);
+        ApplySyncedTransformed(syncedTransformed.Value, invokeEvents);
+        ApplyLocalControlState();
+        localStateInitialized = true;
+    }
+
+    void HandleHealthChanged(float previous, float next)
+    {
+        currentHealth = next;
+    }
+
+    void HandleWaterChanged(float previous, float next)
+    {
+        currentWater = next;
+    }
+
+    void HandleKnockoutTimerChanged(float previous, float next)
+    {
+        knockoutTimer = next;
+    }
+
+    void HandleWaterQualityChanged(int previous, int next)
+    {
+        SetWaterQuality((WaterQuality)next);
+    }
+
+    void HandleKnockoutChanged(bool previous, bool next)
+    {
+        ApplySyncedKnockout(next, true);
+    }
+
+    void HandleDeadChanged(bool previous, bool next)
+    {
+        ApplySyncedDead(next, true);
+    }
+
+    void HandleTransformedChanged(bool previous, bool next)
+    {
+        ApplySyncedTransformed(next, true);
+    }
+
+    void HandleExternalControlLocksChanged(int previous, int next)
+    {
+        externalControlLocks = Mathf.Max(0, next);
+        ApplyLocalControlState();
+    }
+
+    void ApplySyncedKnockout(bool next, bool invokeEvents)
+    {
+        bool wasKnockedOut = isKnockedOut;
+        isKnockedOut = next;
+
+        if (isKnockedOut && !wasKnockedOut)
+        {
+            if (disableControlsWhileKnockedOut)
+                DisableKnockoutBlockedComponents();
+
+            if (invokeEvents)
+                OnKnockedOut?.Invoke(this);
+        }
+        else if (!isKnockedOut && wasKnockedOut && !isDead && !deathTransformationApplied)
+        {
+            RestoreConfiguredComponents();
+
+            if (invokeEvents)
+                OnRevived?.Invoke(this);
+        }
+
+        ApplyLocalControlState();
+    }
+
+    void ApplySyncedDead(bool next, bool invokeEvents)
+    {
+        bool wasDead = isDead;
+        isDead = next;
+
+        if (isDead && !wasDead)
+        {
+            isKnockedOut = false;
+            currentHealth = 0f;
+            knockoutTimer = 0f;
+            DisableConfiguredComponents();
+            ApplyDeathPresentation();
+
+            if (invokeEvents)
+                OnDeath?.Invoke(this);
+        }
+
+        ApplyLocalControlState();
+    }
+
+    void ApplySyncedTransformed(bool next, bool invokeEvents)
+    {
+        bool wasTransformed = deathTransformationApplied;
+        deathTransformationApplied = next;
+
+        if (deathTransformationApplied && !wasTransformed)
+        {
+            if (!isDead)
+                ApplySyncedDead(true, invokeEvents);
+
+            ApplyDeathTransformationPresentation();
+        }
+
+        ApplyLocalControlState();
+    }
+
+    void SyncCoreState()
+    {
+        if (!IsSpawned || !IsServer)
+            return;
+
+        syncedHealth.Value = currentHealth;
+        syncedKnockoutTimer.Value = knockoutTimer;
+        syncedKnockedOut.Value = isKnockedOut;
+        syncedDead.Value = isDead;
+        syncedTransformed.Value = deathTransformationApplied;
+    }
+
+    void SyncWaterState()
+    {
+        if (!IsSpawned || !IsServer)
+            return;
+
+        syncedWater.Value = currentWater;
+        syncedWaterQuality.Value = (int)currentWaterQuality;
+    }
+
+    void SyncControlLockState()
+    {
+        if (!IsSpawned || !IsServer)
+            return;
+
+        syncedExternalControlLocks.Value = externalControlLocks;
+    }
+
+    void SyncAllState()
+    {
+        SyncCoreState();
+        SyncWaterState();
+        SyncControlLockState();
+    }
+
+    [ServerRpc]
+    void TakeDamageServerRpc(float damage)
+    {
+        ApplyDamage(damage);
+    }
+
+    [ServerRpc]
+    void ConsumeWaterServerRpc(float amount)
+    {
+        if (!CanAct() || amount <= 0f || currentWater <= 0f)
+            return;
+
+        ApplyConsumeWater(amount);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void AddWaterServerRpc(
+        float amount,
+        int quality,
+        bool replaceExistingQuality)
+    {
+        if (!CanAct() || amount <= 0f || currentWater >= maxWater)
+            return;
+
+        ApplyAddWater(amount, (WaterQuality)quality, replaceExistingQuality);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void ContaminateWaterServerRpc()
+    {
+        if (!CanAct() || currentWater <= 0f)
+            return;
+
+        SetWaterQuality(WaterQuality.Contaminated);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void PurifyWaterServerRpc()
+    {
+        if (!CanAct() || currentWater <= 0f)
+            return;
+
+        SetWaterQuality(WaterQuality.Clean);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void AddExternalControlLockServerRpc()
+    {
+        AddExternalControlLock();
+    }
+
+    [ServerRpc]
+    void RemoveExternalControlLockServerRpc()
+    {
+        RemoveExternalControlLock();
     }
 }

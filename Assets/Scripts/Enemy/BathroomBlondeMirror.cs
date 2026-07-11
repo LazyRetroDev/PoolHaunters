@@ -55,6 +55,9 @@ public class BathroomBlondeMirror : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         lookTimer -= Time.deltaTime;
 
         if (state == MirrorState.Idle)
@@ -145,7 +148,7 @@ public class BathroomBlondeMirror : MonoBehaviour
     void ResolveOwner()
     {
         if (owner != null) return;
-        owner = FindObjectOfType<BathroomBlondeBehavior>();
+        owner = FindAnyObjectByType<BathroomBlondeBehavior>();
     }
 
     public void MarkBlondeOut()
@@ -167,6 +170,9 @@ public class BathroomBlondeMirror : MonoBehaviour
 
     public void ApplyWater(WaterQuality quality, float amount)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (amount <= 0f || state == MirrorState.Broken || state == MirrorState.Spent)
             return;
 
@@ -178,6 +184,9 @@ public class BathroomBlondeMirror : MonoBehaviour
 
     public void ReceiveWaterHit(Vector3 sourcePosition)
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (state == MirrorState.Broken || state == MirrorState.Spent)
             return;
 

@@ -1,128 +1,84 @@
-using System;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class MainMenu : MonoBehaviour
 {
-    [Serializable]
-    public class RegionSceneEntry
+    [Header("Run")]
+    [SerializeField] private string regionName = "Submarino";
+    [SerializeField] private string gameSceneName = "Game";
+    [SerializeField] private bool useRandomSeed = true;
+    [SerializeField] private int fixedSeed;
+
+    [Header("Multiplayer")]
+    [SerializeField] private string connectionAddress = "127.0.0.1";
+    [SerializeField, Min(1)] private int connectionPort = 7777;
+
+    public void StartSinglePlayer()
     {
-        public string regionName = "Hospital";
-        public string sceneName = "Game";
-        [Min(0f)] public float weight = 1f;
+        RegionRunState.SelectSinglePlayerRegion(regionName, gameSceneName, CreateRunSeed());
+        LoadGameScene();
     }
 
-    [Header("Run Start")]
-    public RegionSceneEntry[] startingRegions =
+    public void StartHost()
     {
-        new RegionSceneEntry { regionName = "Hospital", sceneName = "Game", weight = 1f }
-    };
+        RegionRunState.SelectMultiplayerHostRegion(
+            regionName,
+            gameSceneName,
+            CreateRunSeed(),
+            GetConnectionPort());
 
-    public bool randomizeRunSeed = true;
-    public int fixedRunSeed = 0;
-
-    [Header("Lobby")]
-    public bool useLobbyMenuMockup = true;
-
-    public void StartGame()
-    {
-        if (useLobbyMenuMockup)
-        {
-            LobbyMenuMockup.Show(this);
-            return;
-        }
-
-        BeginGame(null);
+        LoadGameScene();
     }
 
-    public void StartGameFromLobby(string requestedRegion)
+    public void StartClient()
     {
-        BeginGame(requestedRegion);
+        RegionRunState.SelectMultiplayerClientRegion(
+            regionName,
+            gameSceneName,
+            CreateRunSeed(),
+            connectionAddress,
+            GetConnectionPort());
+
+        LoadGameScene();
     }
 
-    void BeginGame(string requestedRegion)
+    public void SetConnectionAddress(string address)
     {
-        RegionSceneEntry selectedRegion = FindRegion(requestedRegion);
-        if (selectedRegion == null)
-            selectedRegion = ChooseStartingRegion();
-
-        int runSeed = randomizeRunSeed ? UnityEngine.Random.Range(int.MinValue, int.MaxValue) : fixedRunSeed;
-
-        if (selectedRegion == null || string.IsNullOrWhiteSpace(selectedRegion.sceneName))
-        {
-            RegionRunState.SelectRegion("Hospital", "Game", runSeed);
-            SceneManager.LoadScene("Game");
-            return;
-        }
-
-        RegionRunState.SelectRegion(selectedRegion.regionName, selectedRegion.sceneName, runSeed);
-        SceneManager.LoadScene(selectedRegion.sceneName);
+        connectionAddress = string.IsNullOrWhiteSpace(address) ? "127.0.0.1" : address;
     }
 
-    RegionSceneEntry FindRegion(string requestedRegion)
+    public void SetConnectionPort(string port)
     {
-        if (string.IsNullOrWhiteSpace(requestedRegion) ||
-            requestedRegion.Equals("Random", StringComparison.OrdinalIgnoreCase) ||
-            startingRegions == null)
-        {
-            return null;
-        }
-
-        for (int i = 0; i < startingRegions.Length; i++)
-        {
-            RegionSceneEntry entry = startingRegions[i];
-            if (entry != null &&
-                string.Equals(
-                    entry.regionName,
-                    requestedRegion,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return entry;
-            }
-        }
-
-        return null;
+        if (int.TryParse(port, out int parsedPort))
+            connectionPort = Mathf.Clamp(parsedPort, 1, ushort.MaxValue);
     }
 
-    RegionSceneEntry ChooseStartingRegion()
-    {
-        if (startingRegions == null || startingRegions.Length == 0)
-            return null;
-
-        float totalWeight = 0f;
-        for (int i = 0; i < startingRegions.Length; i++)
-        {
-            RegionSceneEntry entry = startingRegions[i];
-            if (entry == null || string.IsNullOrWhiteSpace(entry.sceneName)) continue;
-            totalWeight += Mathf.Max(0f, entry.weight);
-        }
-
-        if (totalWeight <= 0f)
-            return startingRegions[0];
-
-        float roll = UnityEngine.Random.Range(0f, totalWeight);
-        for (int i = 0; i < startingRegions.Length; i++)
-        {
-            RegionSceneEntry entry = startingRegions[i];
-            if (entry == null || string.IsNullOrWhiteSpace(entry.sceneName)) continue;
-
-            roll -= Mathf.Max(0f, entry.weight);
-            if (roll <= 0f)
-                return entry;
-        }
-
-        return startingRegions[0];
-    }
-
-    public void OpenOptions()
-    {
-        // You can load an Options scene or toggle a panel here
-        Debug.Log("Options opened");
-    }
-
-    public void QuitGame()
+    public void QuitButton()
     {
         Application.Quit();
-        Debug.Log("Quit"); // only shows in Editor
+    }
+
+    private int CreateRunSeed()
+    {
+        if (!useRandomSeed)
+            return fixedSeed;
+
+        return Random.Range(1, int.MaxValue);
+    }
+
+    private ushort GetConnectionPort()
+    {
+        return (ushort)Mathf.Clamp(connectionPort, 1, ushort.MaxValue);
+    }
+
+    private void LoadGameScene()
+    {
+        if (string.IsNullOrWhiteSpace(gameSceneName))
+        {
+            Debug.LogError("MainMenu cannot start the run because the game scene name is empty.");
+            return;
+        }
+
+        SceneManager.LoadScene(gameSceneName);
     }
 }

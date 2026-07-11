@@ -17,6 +17,9 @@ public class PhotographerDecal : MonoBehaviour
 
     void Update()
     {
+        if (!EnemyAuthority.CanRunGameplay())
+            return;
+
         if (resolved || contaminationDelay <= 0f) return;
 
         timer -= Time.deltaTime;

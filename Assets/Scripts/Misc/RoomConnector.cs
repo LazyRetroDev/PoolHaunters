@@ -114,6 +114,15 @@ public class RoomConnector : MonoBehaviour
         ApplyClosedDoorState();
     }
 
+    public void ApplySynchronizedState(RoomConnectorState synchronizedState)
+    {
+        connectedTo = null;
+        state = synchronizedState == RoomConnectorState.Closed
+            ? RoomConnectorState.Closed
+            : RoomConnectorState.Open;
+        ApplyClosedDoorState();
+    }
+
     void CacheClosedDoor()
     {
         if (closedDoor != null)
