@@ -8,6 +8,7 @@ public class ContaminationStormController : MonoBehaviour
 {
     [Header("Timing")]
     public bool startStormOnStart = true;
+    public float initialDelay = 480f;
     public float spreadInterval = 120f;
     public bool contaminateFirstRoomImmediately = false;
     public bool stopAfterFinalRoom = true;
@@ -50,7 +51,7 @@ public class ContaminationStormController : MonoBehaviour
             roomGenerator = FindObjectOfType<RoomGenerator>();
 
         CacheRoomGeneratorField();
-        spreadTimer = contaminateFirstRoomImmediately ? 0f : Mathf.Max(0.01f, spreadInterval);
+        ResetSpreadTimerForStormStart();
         stormRunning = startStormOnStart;
     }
 
@@ -70,6 +71,7 @@ public class ContaminationStormController : MonoBehaviour
     {
         stormRunning = true;
         finalRoomReached = false;
+        ResetSpreadTimerForStormStart();
     }
 
     public void StopStorm()
@@ -82,7 +84,14 @@ public class ContaminationStormController : MonoBehaviour
         nextRoomIndex = 0;
         finalRoomReached = false;
         contaminatedRooms.Clear();
-        spreadTimer = contaminateFirstRoomImmediately ? 0f : Mathf.Max(0.01f, spreadInterval);
+        ResetSpreadTimerForStormStart();
+    }
+
+    void ResetSpreadTimerForStormStart()
+    {
+        spreadTimer = contaminateFirstRoomImmediately
+            ? 0f
+            : Mathf.Max(0.01f, initialDelay);
     }
 
     [ContextMenu("Spread To Next Room")]
