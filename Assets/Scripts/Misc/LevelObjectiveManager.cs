@@ -29,6 +29,8 @@ public class LevelObjectiveManager : MonoBehaviour
     [SerializeField] private int discoveredRoomCount;
     [SerializeField] private bool finalRoomDiscovered;
     [SerializeField] private float currentCleanPercent;
+    [SerializeField] private int registeredDirtSpotCount;
+    [SerializeField] private int cleanedDirtSpotCount;
     [SerializeField] private bool levelCompleted;
 
     public event Action<RoomDefinition, int> OnRoomDiscovered;
@@ -37,6 +39,8 @@ public class LevelObjectiveManager : MonoBehaviour
 
     private readonly List<RoomDefinition> discoveredRooms = new List<RoomDefinition>();
     private readonly HashSet<RoomDefinition> discoveredRoomSet = new HashSet<RoomDefinition>();
+    private readonly HashSet<DirtSpot> registeredDirtSpots = new HashSet<DirtSpot>();
+    private readonly HashSet<DirtSpot> cleanedDirtSpots = new HashSet<DirtSpot>();
     private float discoveryTimer;
     private float objectiveTimer;
 
@@ -59,6 +63,8 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void OnDestroy()
     {
+        UnregisterDirtSpotEvents();
+
         if (Instance == this)
             Instance = null;
     }
@@ -160,26 +166,72 @@ public class LevelObjectiveManager : MonoBehaviour
 
     float CalculateCleanPercent()
     {
-        DirtSpot[] dirtSpots = FindObjectsOfType<DirtSpot>();
-        if (dirtSpots == null || dirtSpots.Length == 0)
-            return 1f;
+        RegisterKnownDirtSpots();
 
-        float dirtyPercentTotal = 0f;
-        int counted = 0;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
+        if (registeredDirtSpots.Count == 0)
         {
-            DirtSpot dirt = dirtSpots[i];
-            if (dirt == null || !dirt.gameObject.activeInHierarchy) continue;
-
-            dirtyPercentTotal += Mathf.Clamp01(dirt.GetDirtPercent());
-            counted++;
+            UpdateDirtDebugCounts();
+            return 1f;
         }
 
-        if (counted == 0)
-            return 1f;
+        float cleanedAmount = 0f;
 
-        return 1f - Mathf.Clamp01(dirtyPercentTotal / counted);
+        foreach (DirtSpot dirt in registeredDirtSpots)
+        {
+            if (dirt == null || dirt.IsCleaned || cleanedDirtSpots.Contains(dirt))
+            {
+                cleanedAmount += 1f;
+                continue;
+            }
+
+            cleanedAmount += Mathf.Clamp01(1f - dirt.GetDirtPercent());
+        }
+
+        UpdateDirtDebugCounts();
+        return Mathf.Clamp01(cleanedAmount / registeredDirtSpots.Count);
+    }
+
+    void RegisterKnownDirtSpots()
+    {
+        DirtSpot[] dirtSpots = FindObjectsOfType<DirtSpot>();
+        for (int i = 0; i < dirtSpots.Length; i++)
+            RegisterDirtSpot(dirtSpots[i]);
+    }
+
+    void RegisterDirtSpot(DirtSpot dirt)
+    {
+        if (dirt == null || registeredDirtSpots.Contains(dirt))
+            return;
+
+        registeredDirtSpots.Add(dirt);
+        dirt.OnCleaned += HandleDirtSpotCleaned;
+
+        if (dirt.IsCleaned)
+            HandleDirtSpotCleaned(dirt);
+    }
+
+    void HandleDirtSpotCleaned(DirtSpot dirt)
+    {
+        if (dirt == null)
+            return;
+
+        cleanedDirtSpots.Add(dirt);
+        RefreshObjectiveState();
+    }
+
+    void UpdateDirtDebugCounts()
+    {
+        registeredDirtSpotCount = registeredDirtSpots.Count;
+        cleanedDirtSpotCount = cleanedDirtSpots.Count;
+    }
+
+    void UnregisterDirtSpotEvents()
+    {
+        foreach (DirtSpot dirt in registeredDirtSpots)
+        {
+            if (dirt != null)
+                dirt.OnCleaned -= HandleDirtSpotCleaned;
+        }
     }
 
     bool AreAllWaterSourcesClean()
