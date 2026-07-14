@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -15,6 +16,9 @@ public class DirtSpot : MonoBehaviour
     public float maxDirt = 100f;
     public float currentDirt = 100f;
     public bool destroyWhenClean = true;
+
+    public event Action<DirtSpot> OnCleaned;
+    public bool IsCleaned { get; private set; }
 
     [Header("Accuracy (Physical Area Check)")]
     public bool usePhysicalAreaCheck = true;
@@ -33,6 +37,10 @@ public class DirtSpot : MonoBehaviour
     public bool useLocalizedCleaning = true;
     public float dissolveEdgeGlow = 0.6f;
     public float cleanPointMergeDistance = 0.08f;
+
+    [Header("Cleaning Radius")]
+    public bool keepCleaningRadiusWorldSized = true;
+    [Min(0.01f)] public float maxLocalCleanRadius = 8f;
 
     [Header("Surface Adhesion")]
     public bool adhereToSurface = true;
@@ -342,7 +350,10 @@ public class DirtSpot : MonoBehaviour
         UpdateVisualState();
 
         if (currentDirt <= 0f && !usePhysicalAreaCheck)
+        {
+            MarkCleaned();
             StartCoroutine(FadeOutAndDestroy());
+        }
     }
 
     public void CleanAtWorldPoint(Vector3 worldPoint, float worldRadius, float amount)
@@ -391,6 +402,17 @@ public class DirtSpot : MonoBehaviour
     public float GetDirtPercent()
     {
         return maxDirt > 0f ? currentDirt / maxDirt : 0f;
+    }
+
+    void MarkCleaned()
+    {
+        if (IsCleaned)
+            return;
+
+        IsCleaned = true;
+        currentDirt = 0f;
+        currentCleanPercentage = 1f;
+        OnCleaned?.Invoke(this);
     }
 
     void UpdateVisualState()
@@ -574,7 +596,7 @@ public class DirtSpot : MonoBehaviour
 
             if (currentCleanPercentage >= cleanCompletionThreshold)
             {
-                currentDirt = 0f;
+                MarkCleaned();
                 UpdateVisualState();
                 StartCoroutine(FadeOutAndDestroy());
             }
@@ -594,9 +616,22 @@ public class DirtSpot : MonoBehaviour
 
     float WorldRadiusToLocalRadius(float worldRadius)
     {
+        float surfaceScale = GetSurfaceRadiusScale();
+        float localRadius = keepCleaningRadiusWorldSized && surfaceScale > 0.0001f ? worldRadius / surfaceScale : worldRadius;
+        return Mathf.Min(localRadius, maxLocalCleanRadius);
+    }
+
+    float GetSurfaceRadiusScale()
+    {
         Vector3 scale = transform.lossyScale;
-        float dominantScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
-        return dominantScale > 0.0001f ? worldRadius / dominantScale : worldRadius;
+        float x = Mathf.Abs(scale.x);
+        float y = Mathf.Abs(scale.y);
+        float z = Mathf.Abs(scale.z);
+
+        if (targetCollider is MeshCollider)
+            return Mathf.Max(x, y);
+
+        return Mathf.Max(x, z);
     }
 
     void ApplySurfaceScale(float uniformSurfaceScale)
@@ -615,6 +650,7 @@ public class DirtSpot : MonoBehaviour
     void ResetDirtyState()
     {
         isFadingOut = false;
+        IsCleaned = false;
         currentDirt = maxDirt;
         currentCleanPercentage = 0f;
         cleanPointCount = 0;
@@ -636,6 +672,7 @@ public class DirtSpot : MonoBehaviour
     private IEnumerator FadeOutAndDestroy()
     {
         isFadingOut = true;
+        MarkCleaned();
         if (targetCollider != null) targetCollider.enabled = false;
 
         float fadeDuration = 0.5f;
