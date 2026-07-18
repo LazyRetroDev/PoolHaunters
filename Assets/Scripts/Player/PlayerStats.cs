@@ -17,6 +17,7 @@ public class PlayerStatus : NetworkBehaviour
     public float fillRate = 10f;
     public WaterQuality waterFillQuality = WaterQuality.Clean;
     public WaterQuality startingWaterQuality = WaterQuality.Clean;
+    [Min(0f)] public float emptyWaterQualityThreshold = 2f;
 
     [Header("Water Cleaning Effects")]
     public float contaminatedCleaningMultiplier = 0.25f;
@@ -115,13 +116,27 @@ public class PlayerStatus : NetworkBehaviour
     void Update()
     {
         if (IsClientReplica())
+        {
+            if (IsOwner)
+                UpdateOwnerPredictedWaterFill();
+
             return;
+        }
 
         if (isKnockedOut)
         {
             UpdateKnockoutTimer();
             return;
         }
+
+        if (CanAct() && inWater && currentWater < maxWater)
+            FillFromCurrentWaterSource(fillRate * Time.deltaTime);
+    }
+
+    void UpdateOwnerPredictedWaterFill()
+    {
+        if (isKnockedOut)
+            return;
 
         if (CanAct() && inWater && currentWater < maxWater)
             FillFromCurrentWaterSource(fillRate * Time.deltaTime);
@@ -230,7 +245,10 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (activeWaterZone != null)
         {
-            activeWaterZone.TryFillPlayer(this, amount);
+            activeWaterZone.TryFillPlayer(
+                this,
+                amount,
+                drainSource: !IsClientReplica());
             return;
         }
 
@@ -510,14 +528,23 @@ public class PlayerStatus : NetworkBehaviour
         bool replaceExistingQuality)
     {
         bool wasEmpty = currentWater <= 0f;
+        bool wasEffectivelyEmpty =
+            currentWater <= Mathf.Max(0f, emptyWaterQualityThreshold);
         currentWater += amount;
         currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
 
-        if (wasEmpty || replaceExistingQuality || quality == WaterQuality.Contaminated)
+        if (wasEmpty ||
+            wasEffectivelyEmpty ||
+            replaceExistingQuality ||
+            quality == WaterQuality.Contaminated)
+        {
             SetWaterQuality(quality);
+        }
         else if (currentWaterQuality != WaterQuality.Contaminated &&
             quality == WaterQuality.ChemicallyEnhanced)
+        {
             SetWaterQuality(WaterQuality.ChemicallyEnhanced);
+        }
     }
 
     void PredictConsumeWater(float amount)

@@ -2,7 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.AI;
 
-public class RaccoonBehavior : MonoBehaviour
+public class RaccoonBehavior : NetworkBehaviour
 {
     enum RaccoonState
     {
@@ -114,12 +114,13 @@ public class RaccoonBehavior : MonoBehaviour
 
     void Update()
     {
+        UpdateCarriedItem();
+
         if (!EnemyAuthority.CanRunGameplay())
             return;
 
         ResolvePlayer();
         ResolveCameraEffects();
-        UpdateCarriedItem();
         UpdateNoiseMemory();
         UpdateState();
         UpdateCameraEffect();
@@ -541,12 +542,13 @@ public class RaccoonBehavior : MonoBehaviour
         if (item == null)
             return false;
 
+        NetworkManager networkManager = NetworkManager.Singleton;
+        bool online = networkManager != null && networkManager.IsListening;
         NetworkObject networkObject = item.GetComponent<NetworkObject>();
         if (networkObject == null)
-            return true;
+            return !online;
 
-        NetworkManager networkManager = NetworkManager.Singleton;
-        return networkManager != null && networkManager.IsListening && networkManager.IsServer;
+        return !online || networkManager.IsServer && networkObject.IsSpawned;
     }
 
     bool HasLineOfSightToLooseItem(Item item, Vector3 direction)
@@ -593,17 +595,162 @@ public class RaccoonBehavior : MonoBehaviour
 
     void AttachCarriedItem()
     {
-        if (carriedItem == null) return;
+        if (carriedItem == null)
+            return;
 
+        AttachCarriedItemLocal(carriedItem);
+
+        if (ShouldBroadcastItemVisuals() &&
+            TryGetNetworkObjectReference(carriedItem, out NetworkObjectReference itemReference))
+        {
+            AttachCarriedItemClientRpc(itemReference);
+        }
+    }
+
+    void AttachCarriedItemLocal(Item item)
+    {
+        if (item == null)
+            return;
+
+        carriedItem = item;
         carriedItem.gameObject.SetActive(true);
-        Transform parent = carryPoint != null ? carryPoint : transform;
-        carriedItem.transform.SetParent(parent, false);
-        carriedItem.transform.localPosition = carryPoint != null ? Vector3.zero : carryOffset;
-        carriedItem.transform.localRotation = Quaternion.identity;
+        carriedItem.SetPresentationState(Item.PresentationState.Carried);
 
-        Collider[] colliders = carriedItem.GetComponentsInChildren<Collider>();
+        if (IsNetworkSessionRunning())
+            ApplyNetworkCarriedItemPose(carriedItem);
+        else
+            ParentCarriedItemToCarryPoint(carriedItem);
+
+        SetItemRenderersEnabled(carriedItem, true);
+        SetItemCollidersEnabled(carriedItem, false);
+        SetItemPhysicsForCarry(carriedItem);
+    }
+
+    void ParentCarriedItemToCarryPoint(Item item)
+    {
+        if (item == null)
+            return;
+
+        Transform parent = carryPoint != null ? carryPoint : transform;
+        item.transform.SetParent(parent, false);
+        item.transform.localPosition = carryPoint != null ? Vector3.zero : carryOffset;
+        item.transform.localRotation = Quaternion.identity;
+    }
+
+    void ApplyCarriedItemWorldPose(Item item)
+    {
+        if (item == null)
+            return;
+
+        if (carryPoint != null)
+        {
+            item.transform.SetPositionAndRotation(
+                carryPoint.position,
+                carryPoint.rotation);
+            return;
+        }
+
+        item.transform.SetPositionAndRotation(
+            transform.TransformPoint(carryOffset),
+            transform.rotation);
+    }
+
+    void ApplyNetworkCarriedItemPose(Item item)
+    {
+        if (item == null)
+            return;
+
+        if (IsServer)
+            TrySetItemNetworkParent(item);
+
+        if (item.transform.parent == transform)
+        {
+            ApplyCarriedItemLocalNetworkPose(item);
+            return;
+        }
+
+        ApplyCarriedItemWorldPose(item);
+    }
+
+    void ApplyCarriedItemLocalNetworkPose(Item item)
+    {
+        if (item == null)
+            return;
+
+        if (carryPoint != null)
+        {
+            item.transform.localPosition =
+                transform.InverseTransformPoint(carryPoint.position);
+            item.transform.localRotation =
+                Quaternion.Inverse(transform.rotation) * carryPoint.rotation;
+            return;
+        }
+
+        item.transform.localPosition = carryOffset;
+        item.transform.localRotation = Quaternion.identity;
+    }
+
+    bool TrySetItemNetworkParent(Item item)
+    {
+        if (item == null ||
+            NetworkObject == null ||
+            !NetworkObject.IsSpawned ||
+            !TryGetNetworkObject(item, out NetworkObject itemNetworkObject) ||
+            !itemNetworkObject.IsSpawned)
+        {
+            return false;
+        }
+
+        ApplyCarriedItemWorldPose(item);
+
+        if (item.transform.parent != transform)
+            itemNetworkObject.TrySetParent(NetworkObject, worldPositionStays: true);
+
+        if (item.transform.parent == transform)
+            ApplyCarriedItemLocalNetworkPose(item);
+
+        return item.transform.parent == transform;
+    }
+
+    void SetItemRenderersEnabled(Item item, bool enabled)
+    {
+        if (item == null)
+            return;
+
+        Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null)
+                renderers[i].enabled = enabled;
+        }
+    }
+
+    void SetItemCollidersEnabled(Item item, bool enabled)
+    {
+        if (item == null)
+            return;
+
+        Collider[] colliders = item.GetComponentsInChildren<Collider>(true);
         for (int i = 0; i < colliders.Length; i++)
-            colliders[i].enabled = false;
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = enabled;
+        }
+    }
+
+    void SetItemPhysicsForCarry(Item item)
+    {
+        if (item == null)
+            return;
+
+        Rigidbody itemBody = item.GetComponent<Rigidbody>();
+        if (itemBody == null)
+            return;
+
+        itemBody.linearVelocity = Vector3.zero;
+        itemBody.angularVelocity = Vector3.zero;
+        itemBody.useGravity = false;
+        itemBody.isKinematic = true;
     }
 
     void BeginFleeWithItem()
@@ -625,25 +772,206 @@ public class RaccoonBehavior : MonoBehaviour
     {
         if (carriedItem == null) return;
 
+        Item item = carriedItem;
         if (destroyItemAfterEating)
         {
-            Destroy(carriedItem.gameObject);
+            ClearCarriedItemOnClients(item);
             carriedItem = null;
+            DestroyOrDespawnItem(item);
+            targetedLooseItem = null;
             return;
         }
 
-        carriedItem.transform.SetParent(null, true);
-        carriedItem.transform.position = transform.position + transform.forward * 0.75f + Vector3.up * 0.15f;
-        carriedItem.gameObject.SetActive(true);
+        Vector3 dropPosition =
+            transform.position + transform.forward * 0.75f + Vector3.up * 0.15f;
+        Quaternion dropRotation = Quaternion.identity;
+        DropCarriedItemLocal(item, dropPosition, dropRotation);
 
-        Collider[] colliders = carriedItem.GetComponentsInChildren<Collider>();
-        for (int i = 0; i < colliders.Length; i++)
-            colliders[i].enabled = true;
+        if (ShouldBroadcastItemVisuals() &&
+            TryGetNetworkObjectReference(item, out NetworkObjectReference itemReference))
+        {
+            DropCarriedItemClientRpc(itemReference, dropPosition, dropRotation);
+        }
 
         if (droppedItemMarkerPrefab != null)
-            Instantiate(droppedItemMarkerPrefab, carriedItem.transform.position, Quaternion.identity);
+            Instantiate(droppedItemMarkerPrefab, dropPosition, Quaternion.identity);
 
         carriedItem = null;
+    }
+
+    void DropCarriedItemLocal(Item item, Vector3 position, Quaternion rotation)
+    {
+        if (item == null)
+            return;
+
+        RemoveItemNetworkParent(item);
+        item.transform.SetPositionAndRotation(position, rotation);
+        item.gameObject.SetActive(true);
+        item.SetPresentationState(Item.PresentationState.World);
+
+        SetItemRenderersEnabled(item, true);
+        SetItemCollidersEnabled(item, true);
+        SetItemPhysicsForDrop(item);
+
+        if (carriedItem == item)
+            carriedItem = null;
+    }
+
+    void RemoveItemNetworkParent(Item item)
+    {
+        if (item == null)
+            return;
+
+        if (IsNetworkSessionRunning())
+        {
+            if (IsServer &&
+                TryGetNetworkObject(item, out NetworkObject itemNetworkObject) &&
+                itemNetworkObject.IsSpawned)
+            {
+                itemNetworkObject.TryRemoveParent(worldPositionStays: true);
+            }
+
+            return;
+        }
+
+        item.transform.SetParent(null, true);
+    }
+
+    void SetItemPhysicsForDrop(Item item)
+    {
+        if (item == null)
+            return;
+
+        Rigidbody itemBody = item.GetComponent<Rigidbody>();
+        if (itemBody == null)
+            return;
+
+        itemBody.isKinematic = false;
+        itemBody.useGravity = true;
+        itemBody.linearVelocity = Vector3.zero;
+        itemBody.angularVelocity = Vector3.zero;
+    }
+
+    void DestroyOrDespawnItem(Item item)
+    {
+        if (item == null)
+            return;
+
+        NetworkObject networkObject = item.GetComponent<NetworkObject>();
+        if (IsNetworkSessionRunning() &&
+            networkObject != null &&
+            networkObject.IsSpawned)
+        {
+            if (IsServer)
+                networkObject.Despawn(true);
+
+            return;
+        }
+
+        Destroy(item.gameObject);
+    }
+
+    void ClearCarriedItemOnClients(Item item)
+    {
+        if (!ShouldBroadcastItemVisuals())
+            return;
+
+        if (TryGetNetworkObjectReference(
+            item,
+            out NetworkObjectReference itemReference))
+        {
+            ClearCarriedItemClientRpc(itemReference);
+        }
+    }
+
+    bool ShouldBroadcastItemVisuals()
+    {
+        return IsServer && IsNetworkSessionRunning();
+    }
+
+    static bool IsNetworkSessionRunning()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening;
+    }
+
+    bool TryGetNetworkObjectReference(
+        Item item,
+        out NetworkObjectReference itemReference)
+    {
+        if (!TryGetNetworkObject(item, out NetworkObject networkObject))
+        {
+            itemReference = default;
+            return false;
+        }
+
+        itemReference = networkObject;
+        return true;
+    }
+
+    bool TryGetNetworkObject(Item item, out NetworkObject networkObject)
+    {
+        networkObject = item != null
+            ? item.GetComponent<NetworkObject>()
+            : null;
+
+        if (networkObject == null && item != null)
+            networkObject = item.GetComponentInParent<NetworkObject>();
+
+        return networkObject != null;
+    }
+
+    bool TryResolveItem(
+        NetworkObjectReference itemReference,
+        out Item item)
+    {
+        item = null;
+
+        NetworkObject networkObject;
+        if (!itemReference.TryGet(out networkObject) || networkObject == null)
+            return false;
+
+        item = networkObject.GetComponent<Item>();
+        if (item == null)
+            item = networkObject.GetComponentInChildren<Item>(true);
+
+        return item != null;
+    }
+
+    [ClientRpc]
+    void AttachCarriedItemClientRpc(NetworkObjectReference itemReference)
+    {
+        if (IsServer)
+            return;
+
+        if (TryResolveItem(itemReference, out Item item))
+            AttachCarriedItemLocal(item);
+    }
+
+    [ClientRpc]
+    void DropCarriedItemClientRpc(
+        NetworkObjectReference itemReference,
+        Vector3 position,
+        Quaternion rotation)
+    {
+        if (IsServer)
+            return;
+
+        if (TryResolveItem(itemReference, out Item item))
+            DropCarriedItemLocal(item, position, rotation);
+    }
+
+    [ClientRpc]
+    void ClearCarriedItemClientRpc(NetworkObjectReference itemReference)
+    {
+        if (IsServer)
+            return;
+
+        if (!TryResolveItem(itemReference, out Item item))
+            return;
+
+        if (carriedItem == item)
+            carriedItem = null;
     }
 
     public void OnWaterHit()
@@ -741,9 +1069,15 @@ public class RaccoonBehavior : MonoBehaviour
     {
         if (carriedItem == null) return;
 
+        if (IsNetworkSessionRunning())
+        {
+            ApplyNetworkCarriedItemPose(carriedItem);
+            return;
+        }
+
         Transform parent = carryPoint != null ? carryPoint : transform;
         if (carriedItem.transform.parent != parent)
-            carriedItem.transform.SetParent(parent, false);
+            ParentCarriedItemToCarryPoint(carriedItem);
     }
 
     void TryAttackPlayer()
@@ -849,9 +1183,10 @@ public class RaccoonBehavior : MonoBehaviour
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
     }
 
-    void OnDestroy()
+    public override void OnDestroy()
     {
         ClearCameraEffect();
+        base.OnDestroy();
     }
 
     void OnDrawGizmosSelected()

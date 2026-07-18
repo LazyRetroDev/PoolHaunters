@@ -263,11 +263,44 @@ public class ContaminationStormController : MonoBehaviour
             if (!TryGetRoomSpawnPosition(room, out position)) continue;
 
             DirtSpot dirtSpot = Instantiate(dirtSpotPrefab, position, Quaternion.identity);
+            if (!TrySpawnNetworkDirtSpot(dirtSpot))
+                continue;
+
             dirtSpot.ConfigureGeneratedContaminatedSpot(
                 0.35f,
                 dirtSpot.contaminatedGrowthPerWaterChunk,
                 dirtSpot.contaminatedWaterPerGrowthChunk);
         }
+    }
+
+    bool TrySpawnNetworkDirtSpot(DirtSpot dirtSpot)
+    {
+        if (dirtSpot == null)
+            return false;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null || !networkManager.IsListening)
+            return true;
+
+        if (!networkManager.IsServer)
+        {
+            Destroy(dirtSpot.gameObject);
+            return false;
+        }
+
+        NetworkObject networkObject = dirtSpot.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogWarning(
+                $"Dirt spot prefab '{dirtSpot.name}' needs a NetworkObject for multiplayer spawning.");
+            Destroy(dirtSpot.gameObject);
+            return false;
+        }
+
+        if (!networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        return true;
     }
 
     bool TryGetRoomSpawnPosition(GameObject room, out Vector3 position)

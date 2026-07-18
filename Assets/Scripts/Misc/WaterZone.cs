@@ -15,19 +15,22 @@ public class WaterZone : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        PlayerStatus status = other.GetComponent<PlayerStatus>();
+        PlayerStatus status = other.GetComponentInParent<PlayerStatus>();
         if (status != null)
             status.SetWaterZone(this);
     }
 
     void OnTriggerExit(Collider other)
     {
-        PlayerStatus status = other.GetComponent<PlayerStatus>();
+        PlayerStatus status = other.GetComponentInParent<PlayerStatus>();
         if (status != null)
             status.ClearWaterZone(this);
     }
 
-    public bool TryFillPlayer(PlayerStatus status, float requestedAmount)
+    public bool TryFillPlayer(
+        PlayerStatus status,
+        float requestedAmount,
+        bool drainSource = true)
     {
         if (status == null || requestedAmount <= 0f) return false;
 
@@ -38,6 +41,14 @@ public class WaterZone : MonoBehaviour
         {
             if (!allowInfiniteWaterWhenNoSource) return false;
             return status.AddWater(neededWater, fallbackWaterQuality, replacePlayerWaterQuality);
+        }
+
+        if (!drainSource)
+        {
+            return status.AddWater(
+                neededWater,
+                waterSource.waterQuality,
+                waterSource.replacePlayerWaterQuality);
         }
 
         float drainedAmount = waterSource.DrainWater(neededWater, out WaterQuality sourceQuality);

@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
 using System;
+using Unity.Netcode;
 
 public class WaterCannon : MonoBehaviour
 {
@@ -529,13 +530,67 @@ public class WaterCannon : MonoBehaviour
     void CreateOrGrowContaminatedDirt(RaycastHit hit, float waterAmount)
     {
         Vector3 contactPoint = hit.point + hit.normal * contaminatedDirtSurfaceOffset;
+        if (ShouldRequestServerContaminatedDirt())
+        {
+            playerMovement.RequestCreateOrGrowContaminatedDirt(
+                contactPoint,
+                hit.normal,
+                cleanContactRadius,
+                waterAmount);
+            return;
+        }
+
+        CreateOrGrowContaminatedDirtAtPoint(
+            contactPoint,
+            hit.normal,
+            cleanContactRadius,
+            waterAmount);
+    }
+
+    public void CreateOrGrowContaminatedDirtFromNetwork(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float contactRadius,
+        float waterAmount)
+    {
+        if (!IsFiniteVector3(contactPoint) ||
+            !IsFiniteVector3(surfaceNormal) ||
+            !HasValidAmount(contactRadius) ||
+            !HasValidAmount(waterAmount))
+        {
+            return;
+        }
+
+        CreateOrGrowContaminatedDirtAtPoint(
+            contactPoint,
+            surfaceNormal,
+            contactRadius,
+            waterAmount);
+    }
+
+    void CreateOrGrowContaminatedDirtAtPoint(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float contactRadius,
+        float waterAmount)
+    {
         DirtSpot dirtSpot = FindNearbyDirtSpot(contactPoint, contaminatedDirtSearchRadius);
         if (dirtSpot == null)
-            dirtSpot = SpawnContaminatedDirt(contactPoint, hit.normal);
+            dirtSpot = SpawnContaminatedDirt(contactPoint, surfaceNormal);
 
         if (dirtSpot == null) return;
 
-        dirtSpot.ApplyContaminatedWaterAtWorldPoint(contactPoint, cleanContactRadius, waterAmount);
+        dirtSpot.ApplyContaminatedWaterAtWorldPoint(contactPoint, contactRadius, waterAmount);
+    }
+
+    bool ShouldRequestServerContaminatedDirt()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return playerMovement != null &&
+            playerMovement.IsSpawned &&
+            !playerMovement.IsServer &&
+            networkManager != null &&
+            networkManager.IsListening;
     }
 
     DirtSpot FindNearbyDirtSpot(Vector3 worldPoint, float searchRadius)
@@ -580,12 +635,59 @@ public class WaterCannon : MonoBehaviour
         DirtSpot dirtSpot = dirtObject.GetComponent<DirtSpot>();
         if (dirtSpot == null) return null;
 
+        if (!TrySpawnNetworkDirtObject(dirtObject))
+            return null;
+
         dirtSpot.ConfigureGeneratedContaminatedSpot(
             contaminatedDirtInitialSize,
             contaminatedDirtGrowthPerWaterChunk,
             contaminatedDirtWaterPerGrowthChunk);
 
         return dirtSpot;
+    }
+
+    bool TrySpawnNetworkDirtObject(GameObject dirtObject)
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null || !networkManager.IsListening)
+            return true;
+
+        if (!networkManager.IsServer)
+        {
+            Destroy(dirtObject);
+            return false;
+        }
+
+        NetworkObject networkObject = dirtObject.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogWarning(
+                $"Contaminated dirt prefab '{dirtObject.name}' needs a NetworkObject for multiplayer spawning.");
+            Destroy(dirtObject);
+            return false;
+        }
+
+        if (!networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        return true;
+    }
+
+    static bool IsFiniteVector3(Vector3 value)
+    {
+        return IsFiniteFloat(value.x) &&
+            IsFiniteFloat(value.y) &&
+            IsFiniteFloat(value.z);
+    }
+
+    static bool IsFiniteFloat(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    static bool HasValidAmount(float value)
+    {
+        return IsFiniteFloat(value) && value > 0f;
     }
 
     bool TryResolveDirtTemplate(out DirtSpot template)

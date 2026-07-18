@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
 using System.Collections.Generic;
+using Unity.Netcode;
 
 public class Photographer : MonoBehaviour
 {
@@ -113,7 +114,7 @@ public class Photographer : MonoBehaviour
                 ClearChaseCameraEffect();
                 if (agent != null) agent.isStopped = false;
                 HandleWander();
-                TrySnapshot();
+                TrySnapshot(false);
                 if (playerVisible)
                 {
                     if (agent != null)
@@ -137,7 +138,7 @@ public class Photographer : MonoBehaviour
                 if (player != null)
                     FaceTarget(player.position);
 
-                TrySnapshot();
+                TrySnapshot(true);
 
                 if (!playerVisible)
                 {
@@ -282,18 +283,42 @@ public class Photographer : MonoBehaviour
         }
     }
 
-    void TrySnapshot()
+    void TrySnapshot(bool preferPlayerTarget)
     {
         snapshotTimer -= Time.deltaTime;
-        if (snapshotTimer > 0f) return;
         if (photosTaken >= maxPhotos) return;
         if (decalProjectorPrefab == null) return;
+
+        if (preferPlayerTarget && TrySnapshotVisiblePlayer())
+        {
+            photosTaken++;
+            snapshotTimer = snapshotCooldown;
+            return;
+        }
+
+        if (snapshotTimer > 0f) return;
 
         if (TryFindSnapshotSurface(out RaycastHit hit))
         {
             TakeSnapshotCone(hit.point);
             snapshotTimer = snapshotCooldown;
         }
+    }
+
+    bool TrySnapshotVisiblePlayer()
+    {
+        if (player == null)
+            return false;
+
+        Vector3 eyePosition = GetEyePosition();
+        Vector3 targetPosition = GetPlayerSnapshotTargetPosition();
+        Vector3 directionToPlayer = targetPosition - eyePosition;
+        if (directionToPlayer.sqrMagnitude <= 0.001f)
+            return false;
+
+        return TryPhotographPlayerInCone(
+            eyePosition,
+            directionToPlayer.normalized);
     }
 
     bool TryFindSnapshotSurface(out RaycastHit snapshotHit)
@@ -480,8 +505,11 @@ public class Photographer : MonoBehaviour
         activeCapturedPhoto = Instantiate(photoItemPrefab, spawnPosition, transform.rotation);
         activeCapturedPhoto.SetActive(true);
 
+        NetworkObject photoNetworkObject = activeCapturedPhoto.GetComponent<NetworkObject>();
+        TrySpawnNetworkPhoto(photoNetworkObject);
+
         if (parentCapturedPhotoToPhotographer)
-            activeCapturedPhoto.transform.SetParent(transform, true);
+            ParentPhotoToPhotographer(photoNetworkObject);
 
         PhotoItem photoItem = activeCapturedPhoto.GetComponent<PhotoItem>();
         if (photoItem == null)
@@ -489,6 +517,55 @@ public class Photographer : MonoBehaviour
 
         photoItem.SetCapturedPlayer(petrify);
         return photoItem;
+    }
+
+    void TrySpawnNetworkPhoto(NetworkObject photoNetworkObject)
+    {
+        if (!IsNetworkSessionRunning() || !IsServer())
+            return;
+
+        if (photoNetworkObject == null)
+        {
+            Debug.LogWarning("Photo item prefab needs a NetworkObject for multiplayer spawning.");
+            return;
+        }
+
+        if (!photoNetworkObject.IsSpawned)
+            photoNetworkObject.Spawn(true);
+    }
+
+    void ParentPhotoToPhotographer(NetworkObject photoNetworkObject)
+    {
+        if (IsNetworkSessionRunning())
+        {
+            NetworkObject photographerNetworkObject = GetComponent<NetworkObject>();
+            if (IsServer() &&
+                photoNetworkObject != null &&
+                photoNetworkObject.IsSpawned &&
+                photographerNetworkObject != null &&
+                photographerNetworkObject.IsSpawned)
+            {
+                photoNetworkObject.TrySetParent(
+                    photographerNetworkObject,
+                    worldPositionStays: true);
+            }
+
+            return;
+        }
+
+        activeCapturedPhoto.transform.SetParent(transform, true);
+    }
+
+    static bool IsNetworkSessionRunning()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening;
+    }
+
+    static bool IsServer()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsServer;
     }
 
     Vector3 GetPhotoItemPosition()

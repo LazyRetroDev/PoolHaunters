@@ -1,14 +1,23 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Netcode;
 
-public class PlayerInventory : MonoBehaviour
+public class PlayerInventory : NetworkBehaviour
 {
+    enum OwnerLocalUsableEffect
+    {
+        None,
+        StaminaDrainMultiplier,
+        WaterUsageMultiplier
+    }
+
     public int inventorySize = 4;
     public float pickupRange = 2.5f;
     public Transform holdPoint;
 
     [Header("Interaction")]
     public Camera interactionCamera;
+    public float networkPickupPositionTolerance = 2f;
 
     [Header("Throwing")]
     public float throwForce = 8f;
@@ -20,11 +29,16 @@ public class PlayerInventory : MonoBehaviour
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
 
+    void Awake()
+    {
+        CacheReferences();
+        EnsureSlots();
+    }
+
     void Start()
     {
-        slots = new Item[inventorySize];
-        playerStatus = GetComponent<PlayerStatus>();
-        playerPetrify = GetComponent<PlayerPetrify>();
+        CacheReferences();
+        EnsureSlots();
 
         if (interactionCamera == null)
             interactionCamera = Camera.main;
@@ -32,7 +46,7 @@ public class PlayerInventory : MonoBehaviour
 
     public void OnInteract(InputValue value)
     {
-        if (!value.isPressed || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
 
         Camera cameraToUse = GetInteractionCamera();
         if (cameraToUse == null)
@@ -56,38 +70,76 @@ public class PlayerInventory : MonoBehaviour
 
     public void OnUse(InputValue value)
     {
-        if (!value.isPressed || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
         UseSelectedItem();
     }
 
     public void OnThrow(InputValue value)
     {
-        if (!value.isPressed || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
         ThrowSelectedItem();
     }
 
     public void OnPrevious(InputValue value)
     {
-        if (!value.isPressed || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
         SelectSlot(0);
     }
 
     public void OnNext(InputValue value)
     {
-        if (!value.isPressed || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
         SelectSlot(1);
     }
 
     void Update()
     {
-        if (IsInventoryLocked()) return;
+        if (!CanHandleLocalInput() || IsInventoryLocked()) return;
+        if (Keyboard.current == null) return;
 
-        // Number keys 1-4
         for (int i = 0; i < inventorySize; i++)
         {
             if (Keyboard.current[Key.Digit1 + i].wasPressedThisFrame)
                 SelectSlot(i);
         }
+    }
+
+    void CacheReferences()
+    {
+        if (playerStatus == null)
+            playerStatus = GetComponent<PlayerStatus>();
+        if (playerPetrify == null)
+            playerPetrify = GetComponent<PlayerPetrify>();
+    }
+
+    void EnsureSlots()
+    {
+        int size = Mathf.Max(1, inventorySize);
+        if (slots != null && slots.Length == size)
+            return;
+
+        Item[] previousSlots = slots;
+        slots = new Item[size];
+        if (previousSlots != null)
+        {
+            int copyCount = Mathf.Min(previousSlots.Length, slots.Length);
+            for (int i = 0; i < copyCount; i++)
+                slots[i] = previousSlots[i];
+        }
+
+        selectedSlot = Mathf.Clamp(selectedSlot, 0, slots.Length - 1);
+    }
+
+    bool CanHandleLocalInput()
+    {
+        return !IsSpawned || IsOwner;
+    }
+
+    bool IsNetworkSessionRunning()
+    {
+        return IsSpawned &&
+            NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening;
     }
 
     Camera GetInteractionCamera()
@@ -107,7 +159,29 @@ public class PlayerInventory : MonoBehaviour
 
     void TryPickup(Item item)
     {
-        if (IsInventoryLocked()) return;
+        if (item == null || IsInventoryLocked()) return;
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            if (TryGetNetworkObjectReference(item, out NetworkObjectReference itemReference))
+                RequestPickupServerRpc(itemReference, transform.position);
+            else
+                Debug.LogWarning($"Cannot pick up {item.name} because it has no NetworkObject.");
+
+            return;
+        }
+
+        TryPickupAuthoritative(item, transform.position, 0f);
+    }
+
+    bool TryPickupAuthoritative(
+        Item item,
+        Vector3 pickupOrigin,
+        float extraRange)
+    {
+        EnsureSlots();
+        if (item == null || IsInventoryLocked()) return false;
+        if (!CanServerPickUp(item, pickupOrigin, extraRange)) return false;
 
         WaterItem waterItem = item.GetComponent<WaterItem>();
         if (waterItem != null && waterItem.useImmediatelyOnPickup)
@@ -115,67 +189,200 @@ public class PlayerInventory : MonoBehaviour
             if (!waterItem.TryApply(playerStatus))
             {
                 Debug.Log($"Could not use {item.itemName}; the player's water may already be full.");
-                return;
+                return false;
             }
 
             Debug.Log($"Used {item.itemName} on pickup. Water: {playerStatus.GetCurrentWater():0}/{playerStatus.maxWater:0} ({playerStatus.GetWaterQuality()})");
 
-            // Disable immediately so enemies cannot target it during Destroy's end-of-frame delay.
-            item.gameObject.SetActive(false);
-
             if (waterItem.destroyAfterUse)
-                Destroy(item.gameObject);
+                DestroyOrDespawnItem(item);
+            else
+                HideItemForInventory(item);
 
-            return;
+            return true;
         }
 
+        int emptySlot = GetFirstEmptySlot();
+        if (emptySlot < 0)
+        {
+            Debug.Log("Inventory full!");
+            return false;
+        }
+
+        slots[emptySlot] = item;
+        HideItemForInventory(item);
+        SendSetSlotToOwner(emptySlot, item);
+        Debug.Log($"Picked up {item.itemName} into slot {emptySlot + 1}");
+        return true;
+    }
+
+    bool CanServerPickUp(
+        Item item,
+        Vector3 pickupOrigin,
+        float extraRange)
+    {
+        if (item == null || IsItemStoredInAnyInventory(item))
+            return false;
+
+        if (!IsFiniteVector3(pickupOrigin))
+            pickupOrigin = transform.position;
+
+        float maxDistance = pickupRange + 1f + Mathf.Max(0f, extraRange);
+        float sqrDistance = (item.transform.position - pickupOrigin).sqrMagnitude;
+        return sqrDistance <= maxDistance * maxDistance;
+    }
+
+    int GetFirstEmptySlot()
+    {
+        EnsureSlots();
         for (int i = 0; i < slots.Length; i++)
         {
             if (slots[i] == null)
+                return i;
+        }
+
+        return -1;
+    }
+
+    bool IsItemStoredInAnyInventory(Item item)
+    {
+        if (item == null) return false;
+
+        PlayerInventory[] inventories =
+            FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
+        for (int inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
+        {
+            PlayerInventory inventory = inventories[inventoryIndex];
+            if (inventory == null)
+                continue;
+
+            Item[] inventorySlots = inventory.GetSlots();
+            if (inventorySlots == null)
+                continue;
+
+            for (int slotIndex = 0; slotIndex < inventorySlots.Length; slotIndex++)
             {
-                slots[i] = item;
-                item.gameObject.SetActive(false);
-                Debug.Log($"Picked up {item.itemName} into slot {i + 1}");
-                return;
+                if (inventorySlots[slotIndex] == item)
+                    return true;
             }
         }
-        Debug.Log("Inventory full!");
+
+        return false;
     }
 
     void UseSelectedItem()
     {
         if (IsInventoryLocked()) return;
-        if (slots == null || selectedSlot < 0 || selectedSlot >= slots.Length) return;
+        EnsureSlots();
+        if (selectedSlot < 0 || selectedSlot >= slots.Length) return;
 
-        Item item = slots[selectedSlot];
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            RequestUseSelectedItemServerRpc(selectedSlot);
+            return;
+        }
+
+        UseSelectedItemAuthoritative(selectedSlot);
+    }
+
+    bool UseSelectedItemAuthoritative(int slotIndex)
+    {
+        EnsureSlots();
+        if (IsInventoryLocked()) return false;
+        if (slotIndex < 0 || slotIndex >= slots.Length) return false;
+
+        Item item = slots[slotIndex];
         if (item == null)
         {
             Debug.Log("No item selected.");
-            return;
+            return false;
         }
 
         UsableItem usableItem = item.GetComponent<UsableItem>();
         if (usableItem == null)
         {
             Debug.Log($"{item.itemName} cannot be used yet.");
-            return;
+            return false;
         }
 
         bool used = usableItem.Use(this, playerStatus);
         if (!used)
         {
             Debug.Log($"{item.itemName} had no effect.");
+            return false;
+        }
+
+        SendOwnerLocalUsableEffect(item);
+        Debug.Log($"Used {item.itemName}.");
+
+        if (usableItem.consumeOnUse)
+            RemoveItemAtSlot(slotIndex, destroyItem: true);
+
+        return true;
+    }
+
+    void SendOwnerLocalUsableEffect(Item item)
+    {
+        if (!IsNetworkSessionRunning() || IsOwner)
+            return;
+
+        if (!TryGetOwnerLocalUsableEffect(
+            item,
+            out OwnerLocalUsableEffect effect,
+            out float value,
+            out float duration))
+        {
             return;
         }
 
-        Debug.Log($"Used {item.itemName}.");
-        if (usableItem.consumeOnUse)
-            RemoveItem(item, destroyItem: true);
+        ApplyOwnerLocalUsableEffectClientRpc(
+            (int)effect,
+            value,
+            duration,
+            OwnerClientRpcParams());
+    }
+
+    bool TryGetOwnerLocalUsableEffect(
+        Item item,
+        out OwnerLocalUsableEffect effect,
+        out float value,
+        out float duration)
+    {
+        effect = OwnerLocalUsableEffect.None;
+        value = 0f;
+        duration = 0f;
+
+        if (item == null)
+            return false;
+
+        StaminaDrainPowerupItem staminaPowerup =
+            item.GetComponent<StaminaDrainPowerupItem>();
+        if (staminaPowerup != null)
+        {
+            effect = OwnerLocalUsableEffect.StaminaDrainMultiplier;
+            value = staminaPowerup.staminaDrainMultiplier;
+            duration = staminaPowerup.duration;
+            return true;
+        }
+
+        WaterUsagePowerupItem waterPowerup =
+            item.GetComponent<WaterUsagePowerupItem>();
+        if (waterPowerup != null)
+        {
+            effect = OwnerLocalUsableEffect.WaterUsageMultiplier;
+            value = waterPowerup.waterUsageMultiplier;
+            duration = waterPowerup.duration;
+            return true;
+        }
+
+        return false;
     }
 
     void ThrowSelectedItem()
     {
-        if (slots == null || selectedSlot < 0 || selectedSlot >= slots.Length)
+        if (IsInventoryLocked()) return;
+        EnsureSlots();
+        if (selectedSlot < 0 || selectedSlot >= slots.Length)
             return;
 
         Item item = slots[selectedSlot];
@@ -185,6 +392,54 @@ public class PlayerInventory : MonoBehaviour
             return;
         }
 
+        GetThrowPose(out Vector3 spawnPosition, out Quaternion spawnRotation, out Vector3 impulse);
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            RequestThrowSelectedItemServerRpc(
+                selectedSlot,
+                spawnPosition,
+                spawnRotation,
+                impulse);
+            return;
+        }
+
+        ThrowSelectedItemAuthoritative(
+            selectedSlot,
+            spawnPosition,
+            spawnRotation,
+            impulse);
+    }
+
+    bool ThrowSelectedItemAuthoritative(
+        int slotIndex,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation,
+        Vector3 impulse)
+    {
+        EnsureSlots();
+        if (slotIndex < 0 || slotIndex >= slots.Length)
+            return false;
+
+        Item item = slots[slotIndex];
+        if (item == null)
+        {
+            Debug.Log("No item selected to throw.");
+            return false;
+        }
+
+        slots[slotIndex] = null;
+        SendClearSlotToOwner(slotIndex);
+        ShowThrownItem(item, spawnPosition, spawnRotation, impulse);
+        Debug.Log($"Threw {item.itemName} from slot {slotIndex + 1}.");
+        return true;
+    }
+
+    void GetThrowPose(
+        out Vector3 spawnPosition,
+        out Quaternion spawnRotation,
+        out Vector3 impulse)
+    {
         Camera cameraToUse = GetInteractionCamera();
         Transform throwOrigin = holdPoint != null
             ? holdPoint
@@ -192,16 +447,176 @@ public class PlayerInventory : MonoBehaviour
         Vector3 throwDirection = cameraToUse != null
             ? cameraToUse.transform.forward
             : transform.forward;
-        Vector3 spawnPosition = throwOrigin.position +
-            throwDirection.normalized * throwSpawnDistance;
 
-        slots[selectedSlot] = null;
-        item.transform.position = spawnPosition;
-        item.gameObject.SetActive(true);
+        spawnPosition = throwOrigin.position +
+            throwDirection.normalized * throwSpawnDistance;
+        spawnRotation = Quaternion.LookRotation(throwDirection.normalized, Vector3.up);
+        impulse = throwDirection.normalized * throwForce +
+            Vector3.up * throwUpwardForce;
+    }
+
+    public bool RemoveItem(Item item, bool destroyItem)
+    {
+        if (item == null)
+            return false;
+
+        EnsureSlots();
+        for (int i = 0; i < slots.Length; i++)
+        {
+            if (slots[i] != item) continue;
+            return RemoveItemAtSlot(i, destroyItem);
+        }
+
+        return false;
+    }
+
+    bool RemoveItemAtSlot(int slotIndex, bool destroyItem)
+    {
+        EnsureSlots();
+        if (slotIndex < 0 || slotIndex >= slots.Length)
+            return false;
+
+        Item item = slots[slotIndex];
+        if (item == null)
+            return false;
+
+        slots[slotIndex] = null;
+        SendClearSlotToOwner(slotIndex);
+
+        if (destroyItem)
+            DestroyOrDespawnItem(item);
+
+        return true;
+    }
+
+    void SelectSlot(int index)
+    {
+        if (IsInventoryLocked()) return;
+        EnsureSlots();
+
+        selectedSlot = Mathf.Clamp(index, 0, slots.Length - 1);
+
+        if (IsNetworkSessionRunning() && !IsServer)
+            SelectSlotServerRpc(selectedSlot);
+
+        Debug.Log($"Selected slot {selectedSlot + 1}");
+    }
+
+    void HideItemForInventory(Item item)
+    {
+        if (item == null)
+            return;
+
+        ApplyHiddenItemPresentation(item);
+
+        if (IsNetworkSessionRunning() && TryGetNetworkObjectReference(
+            item,
+            out NetworkObjectReference itemReference))
+        {
+            HideItemClientRpc(itemReference);
+        }
+    }
+
+    void ShowThrownItem(
+        Item item,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation,
+        Vector3 impulse)
+    {
+        if (item == null)
+            return;
+
+        ApplyThrownItemPresentation(item, spawnPosition, spawnRotation, impulse);
+
+        if (IsNetworkSessionRunning() && TryGetNetworkObjectReference(
+            item,
+            out NetworkObjectReference itemReference))
+        {
+            ShowThrownItemClientRpc(
+                itemReference,
+                spawnPosition,
+                spawnRotation,
+                impulse);
+        }
+    }
+
+    void DestroyOrDespawnItem(Item item)
+    {
+        if (item == null)
+            return;
+
+        NetworkObject networkObject = item.GetComponentInParent<NetworkObject>();
+        if (IsNetworkSessionRunning() &&
+            networkObject != null &&
+            networkObject.IsSpawned)
+        {
+            if (IsServer)
+                networkObject.Despawn(true);
+
+            return;
+        }
+
+        Destroy(item.gameObject);
+    }
+
+    void ApplyHiddenItemPresentation(Item item)
+    {
+        if (item == null)
+            return;
+
+        item.SetPresentationState(Item.PresentationState.HiddenInInventory);
+        item.transform.SetParent(null, true);
+
+        Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null)
+                renderers[i].enabled = false;
+        }
 
         Collider[] colliders = item.GetComponentsInChildren<Collider>(true);
         for (int i = 0; i < colliders.Length; i++)
-            colliders[i].enabled = true;
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = false;
+        }
+
+        Rigidbody itemBody = item.GetComponent<Rigidbody>();
+        if (itemBody != null)
+        {
+            itemBody.linearVelocity = Vector3.zero;
+            itemBody.angularVelocity = Vector3.zero;
+            itemBody.useGravity = false;
+            itemBody.isKinematic = true;
+        }
+    }
+
+    void ApplyThrownItemPresentation(
+        Item item,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation,
+        Vector3 impulse)
+    {
+        if (item == null)
+            return;
+
+        item.SetPresentationState(Item.PresentationState.World);
+        item.transform.SetParent(null, true);
+        item.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+
+        Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null)
+                renderers[i].enabled = true;
+        }
+
+        Collider[] colliders = item.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = true;
+        }
 
         Rigidbody itemBody = item.GetComponent<Rigidbody>();
         if (itemBody == null)
@@ -211,39 +626,249 @@ public class PlayerInventory : MonoBehaviour
         itemBody.useGravity = true;
         itemBody.linearVelocity = Vector3.zero;
         itemBody.angularVelocity = Vector3.zero;
-        itemBody.AddForce(
-            throwDirection.normalized * throwForce +
-            Vector3.up * throwUpwardForce,
-            ForceMode.VelocityChange);
-
-        Debug.Log($"Threw {item.itemName} from slot {selectedSlot + 1}.");
+        itemBody.AddForce(impulse, ForceMode.VelocityChange);
     }
 
-    public bool RemoveItem(Item item, bool destroyItem)
+    bool TryGetNetworkObjectReference(
+        Item item,
+        out NetworkObjectReference itemReference)
     {
-        if (item == null || slots == null) return false;
+        NetworkObject networkObject = item != null
+            ? item.GetComponentInParent<NetworkObject>()
+            : null;
 
-        for (int i = 0; i < slots.Length; i++)
+        if (networkObject == null)
         {
-            if (slots[i] != item) continue;
+            itemReference = default;
+            return false;
+        }
 
-            slots[i] = null;
-            if (destroyItem)
-                Destroy(item.gameObject);
+        itemReference = networkObject;
+        return true;
+    }
+
+    bool TryResolveItem(
+        NetworkObjectReference itemReference,
+        out Item item)
+    {
+        item = null;
+
+        NetworkObject networkObject;
+        if (!itemReference.TryGet(out networkObject) || networkObject == null)
+            return false;
+
+        item = networkObject.GetComponentInChildren<Item>(true);
+        return item != null;
+    }
+
+    void SendSetSlotToOwner(int slotIndex, Item item)
+    {
+        if (!IsNetworkSessionRunning() || IsOwner)
+            return;
+
+        if (!TryGetNetworkObjectReference(item, out NetworkObjectReference itemReference))
+            return;
+
+        SetSlotClientRpc(slotIndex, itemReference, OwnerClientRpcParams());
+    }
+
+    void SendClearSlotToOwner(int slotIndex)
+    {
+        if (!IsNetworkSessionRunning() || IsOwner)
+            return;
+
+        ClearSlotClientRpc(slotIndex, OwnerClientRpcParams());
+    }
+
+    ClientRpcParams OwnerClientRpcParams()
+    {
+        return new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { OwnerClientId }
+            }
+        };
+    }
+
+    bool CanProcessClientInventoryRequest(ServerRpcParams serverRpcParams)
+    {
+        if (!IsNetworkSessionRunning())
+            return true;
+
+        ulong senderClientId = serverRpcParams.Receive.SenderClientId;
+        if (senderClientId == OwnerClientId)
+            return true;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null &&
+            networkManager.ConnectedClients.TryGetValue(
+                senderClientId,
+                out NetworkClient senderClient) &&
+            senderClient.PlayerObject == NetworkObject)
+        {
             return true;
         }
 
+        Debug.LogWarning(
+            $"Ignored inventory request from client {senderClientId} for player owned by {OwnerClientId}.");
         return false;
     }
 
-    void SelectSlot(int index)
+    static bool IsFiniteVector3(Vector3 value)
     {
-        if (IsInventoryLocked()) return;
-
-        selectedSlot = Mathf.Clamp(index, 0, inventorySize - 1);
-        Debug.Log($"Selected slot {selectedSlot + 1}");
+        return IsFiniteFloat(value.x) &&
+            IsFiniteFloat(value.y) &&
+            IsFiniteFloat(value.z);
     }
 
-    public Item[] GetSlots() => slots;
+    static bool IsFiniteFloat(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void RequestPickupServerRpc(
+        NetworkObjectReference itemReference,
+        Vector3 requesterPosition,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
+            return;
+        if (!TryResolveItem(itemReference, out Item item))
+            return;
+
+        TryPickupAuthoritative(
+            item,
+            requesterPosition,
+            networkPickupPositionTolerance);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void RequestUseSelectedItemServerRpc(
+        int slotIndex,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
+            return;
+
+        selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
+        UseSelectedItemAuthoritative(selectedSlot);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void RequestThrowSelectedItemServerRpc(
+        int slotIndex,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation,
+        Vector3 impulse,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
+            return;
+
+        selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
+        ThrowSelectedItemAuthoritative(
+            selectedSlot,
+            spawnPosition,
+            spawnRotation,
+            impulse);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void SelectSlotServerRpc(
+        int slotIndex,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
+            return;
+
+        EnsureSlots();
+        selectedSlot = Mathf.Clamp(slotIndex, 0, slots.Length - 1);
+    }
+
+    [ClientRpc]
+    void SetSlotClientRpc(
+        int slotIndex,
+        NetworkObjectReference itemReference,
+        ClientRpcParams clientRpcParams = default)
+    {
+        if (IsServer)
+            return;
+        if (!TryResolveItem(itemReference, out Item item))
+            return;
+
+        EnsureSlots();
+        if (slotIndex >= 0 && slotIndex < slots.Length)
+            slots[slotIndex] = item;
+    }
+
+    [ClientRpc]
+    void ClearSlotClientRpc(
+        int slotIndex,
+        ClientRpcParams clientRpcParams = default)
+    {
+        if (IsServer)
+            return;
+
+        EnsureSlots();
+        if (slotIndex >= 0 && slotIndex < slots.Length)
+            slots[slotIndex] = null;
+    }
+
+    [ClientRpc]
+    void HideItemClientRpc(NetworkObjectReference itemReference)
+    {
+        if (IsServer)
+            return;
+        if (TryResolveItem(itemReference, out Item item))
+            ApplyHiddenItemPresentation(item);
+    }
+
+    [ClientRpc]
+    void ShowThrownItemClientRpc(
+        NetworkObjectReference itemReference,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation,
+        Vector3 impulse)
+    {
+        if (IsServer)
+            return;
+        if (TryResolveItem(itemReference, out Item item))
+            ApplyThrownItemPresentation(
+                item,
+                spawnPosition,
+                spawnRotation,
+                impulse);
+    }
+
+    [ClientRpc]
+    void ApplyOwnerLocalUsableEffectClientRpc(
+        int effect,
+        float value,
+        float duration,
+        ClientRpcParams clientRpcParams = default)
+    {
+        switch ((OwnerLocalUsableEffect)effect)
+        {
+            case OwnerLocalUsableEffect.StaminaDrainMultiplier:
+                PlayerMovement movement = GetComponent<PlayerMovement>();
+                if (movement != null)
+                    movement.ApplyStaminaDrainMultiplier(value, duration);
+                break;
+            case OwnerLocalUsableEffect.WaterUsageMultiplier:
+                WaterCannon waterCannon = GetComponentInChildren<WaterCannon>();
+                if (waterCannon != null)
+                    waterCannon.ApplyWaterUsageMultiplier(value, duration);
+                break;
+        }
+    }
+
+    public Item[] GetSlots()
+    {
+        EnsureSlots();
+        return slots;
+    }
+
     public int GetSelectedSlot() => selectedSlot;
 }

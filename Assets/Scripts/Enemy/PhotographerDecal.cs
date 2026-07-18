@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Netcode;
 
 public class PhotographerDecal : MonoBehaviour
 {
@@ -49,14 +50,57 @@ public class PhotographerDecal : MonoBehaviour
         resolved = true;
 
         if (dirtPrefab != null)
-            Instantiate(dirtPrefab, transform.position, transform.rotation);
+            SpawnDirtPrefab();
         else if (GetComponent<DirtSpot>() == null)
-            gameObject.AddComponent<DirtSpot>();
+            AddLocalDirtSpotFallback();
 
         if (linkedPhoto != null)
             linkedPhoto.InvalidateFromLinkedDecal();
 
         if (destroyDecalOnContamination && dirtPrefab != null)
             Destroy(gameObject);
+    }
+
+    void SpawnDirtPrefab()
+    {
+        GameObject dirtObject = Instantiate(
+            dirtPrefab,
+            transform.position,
+            transform.rotation);
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null || !networkManager.IsListening)
+            return;
+
+        if (!networkManager.IsServer)
+        {
+            Destroy(dirtObject);
+            return;
+        }
+
+        NetworkObject networkObject = dirtObject.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogWarning(
+                $"Dirt prefab '{dirtPrefab.name}' needs a NetworkObject for multiplayer spawning.");
+            Destroy(dirtObject);
+            return;
+        }
+
+        if (!networkObject.IsSpawned)
+            networkObject.Spawn(true);
+    }
+
+    void AddLocalDirtSpotFallback()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null && networkManager.IsListening)
+        {
+            Debug.LogWarning(
+                "PhotographerDecal needs a dirtPrefab with a NetworkObject during multiplayer.");
+            return;
+        }
+
+        gameObject.AddComponent<DirtSpot>();
     }
 }

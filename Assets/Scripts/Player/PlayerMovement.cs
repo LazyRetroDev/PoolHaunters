@@ -9,7 +9,6 @@ public class PlayerMovement : NetworkBehaviour
     public float walkSpeed = 5f;
     public float sprintSpeed = 9f;
     public float knockedOutCrawlSpeed = 1.35f;
-    public bool IsMoving() => acceptsInput && moveInput != Vector2.zero;
 
     [Header("Jump")]
     public float jumpVelocity = 5.5f;
@@ -30,7 +29,6 @@ public class PlayerMovement : NetworkBehaviour
     public float staminaDrainRate = 20f;
     public float staminaRegenRate = 10f;
     public float staminaRegenDelay = 1.5f;
-    public bool IsSprinting() => acceptsInput && CanSprintNow();
 
     [Header("Footstep Noise")]
     public float walkNoiseRadius = 4f;
@@ -70,8 +68,18 @@ public class PlayerMovement : NetworkBehaviour
     private float lastThreatEffectSentIntensity = -1f;
     private float lastShakeEffectSendTime = -999f;
     private bool threatEffectKnownClear = true;
+    private byte lastSentLocomotionFlags = byte.MaxValue;
+    private float lastLocomotionStateSendTime = -999f;
     private const float ThreatEffectSendInterval = 0.08f;
     private const float ThreatEffectIntensityEpsilon = 0.02f;
+    private const float LocomotionStateSendInterval = 0.05f;
+    private const byte LocomotionMovingFlag = 1 << 0;
+    private const byte LocomotionSprintingFlag = 1 << 1;
+    private readonly NetworkVariable<byte> syncedLocomotionFlags =
+        new NetworkVariable<byte>(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
     public bool AcceptsInput => acceptsInput;
 
     public void SetAcceptsInput(bool value)
@@ -88,6 +96,8 @@ public class PlayerMovement : NetworkBehaviour
 
             if (footstepAudioSource != null)
                 footstepAudioSource.Stop();
+
+            UpdateLocalLocomotionState(false, false, true);
         }
     }
 
@@ -151,7 +161,11 @@ public class PlayerMovement : NetworkBehaviour
 
     void Update()
     {
-        if (!acceptsInput) return;
+        if (!acceptsInput)
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
 
         UpdateTimedStaminaMultiplier();
         UpdateFootstepNoise();
@@ -160,16 +174,32 @@ public class PlayerMovement : NetworkBehaviour
 
     void FixedUpdate()
     {
-        if (!acceptsInput) return;
-        if (playerStatus != null && playerStatus.IsDead()) return;
-        if (playerStatus != null && playerStatus.IsTransformed()) return;
+        if (!acceptsInput)
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
+        if (playerStatus != null && playerStatus.IsDead())
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
+        if (playerStatus != null && playerStatus.IsTransformed())
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
 
         bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
         UpdateCrouchState(knockedOut);
         TryJump(knockedOut);
 
         Camera movementCamera = Camera.main;
-        if (movementCamera == null) return;
+        if (movementCamera == null)
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
 
         Vector3 camForward = movementCamera.transform.forward;
         Vector3 camRight = movementCamera.transform.right;
@@ -182,6 +212,8 @@ public class PlayerMovement : NetworkBehaviour
             playerInput != null && playerInput.actions["Sprint"].IsPressed();
         bool canSprint = !knockedOut && isSprinting &&
             currentStamina > 0f && moveInput != Vector2.zero;
+        UpdateLocalLocomotionState(moveInput != Vector2.zero, canSprint);
+
         float speed = knockedOut
             ? knockedOutCrawlSpeed
             : isCrouching
@@ -366,6 +398,102 @@ public class PlayerMovement : NetworkBehaviour
             currentStamina > 0f;
     }
 
+    public bool IsMoving()
+    {
+        if (ShouldUseSyncedLocomotionState())
+            return HasLocomotionFlag(
+                syncedLocomotionFlags.Value,
+                LocomotionMovingFlag);
+
+        return acceptsInput && moveInput != Vector2.zero;
+    }
+
+    public bool IsSprinting()
+    {
+        if (ShouldUseSyncedLocomotionState())
+            return HasLocomotionFlag(
+                syncedLocomotionFlags.Value,
+                LocomotionSprintingFlag);
+
+        return acceptsInput && CanSprintNow();
+    }
+
+    void UpdateLocalLocomotionState(
+        bool moving,
+        bool sprinting,
+        bool forceSend = false)
+    {
+        byte flags = BuildLocomotionFlags(moving, sprinting);
+
+        if (!IsNetworkSessionRunning() || !IsSpawned)
+            return;
+
+        if (IsServer)
+        {
+            if (syncedLocomotionFlags.Value != flags)
+                syncedLocomotionFlags.Value = flags;
+            return;
+        }
+
+        if (!IsOwner)
+            return;
+
+        if (!forceSend &&
+            flags == lastSentLocomotionFlags &&
+            Time.time - lastLocomotionStateSendTime < LocomotionStateSendInterval)
+        {
+            return;
+        }
+
+        lastSentLocomotionFlags = flags;
+        lastLocomotionStateSendTime = Time.time;
+        UpdateLocomotionStateServerRpc(flags);
+    }
+
+    [ServerRpc]
+    void UpdateLocomotionStateServerRpc(byte flags)
+    {
+        syncedLocomotionFlags.Value = SanitizeLocomotionFlags(flags);
+    }
+
+    bool ShouldUseSyncedLocomotionState()
+    {
+        return IsNetworkSessionRunning() &&
+            IsSpawned &&
+            !IsOwner;
+    }
+
+    static bool IsNetworkSessionRunning()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening;
+    }
+
+    static byte BuildLocomotionFlags(bool moving, bool sprinting)
+    {
+        byte flags = 0;
+        if (moving)
+            flags |= LocomotionMovingFlag;
+        if (moving && sprinting)
+            flags |= LocomotionSprintingFlag;
+
+        return flags;
+    }
+
+    static byte SanitizeLocomotionFlags(byte flags)
+    {
+        flags &= LocomotionMovingFlag | LocomotionSprintingFlag;
+        if (!HasLocomotionFlag(flags, LocomotionMovingFlag))
+            flags &= unchecked((byte)~LocomotionSprintingFlag);
+
+        return flags;
+    }
+
+    static bool HasLocomotionFlag(byte flags, byte flag)
+    {
+        return (flags & flag) != 0;
+    }
+
     void UpdateFootstepNoise()
     {
         if (playerStatus != null && playerStatus.IsKnockedOut())
@@ -451,6 +579,37 @@ public class PlayerMovement : NetworkBehaviour
         ApplyEnemyWaterHit(target, sourcePosition);
     }
 
+    public void RequestCreateOrGrowContaminatedDirt(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float contactRadius,
+        float waterAmount)
+    {
+        if (!IsFiniteVector3(contactPoint) ||
+            !IsFiniteVector3(surfaceNormal) ||
+            !HasValidNetworkAmount(contactRadius) ||
+            !HasValidNetworkAmount(waterAmount))
+        {
+            return;
+        }
+
+        if (IsSpawned && !IsServer)
+        {
+            CreateOrGrowContaminatedDirtServerRpc(
+                contactPoint,
+                surfaceNormal,
+                contactRadius,
+                waterAmount);
+            return;
+        }
+
+        ApplyCreateOrGrowContaminatedDirt(
+            contactPoint,
+            surfaceNormal,
+            contactRadius,
+            waterAmount);
+    }
+
     [ServerRpc]
     void ApplyWaterToGoldenMouthServerRpc(
         NetworkObjectReference targetReference,
@@ -477,6 +636,45 @@ public class PlayerMovement : NetworkBehaviour
             return;
 
         ApplyEnemyWaterHit(targetObject.gameObject, sourcePosition);
+    }
+
+    [ServerRpc]
+    void CreateOrGrowContaminatedDirtServerRpc(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float contactRadius,
+        float waterAmount)
+    {
+        if (!IsFiniteVector3(contactPoint) ||
+            !IsFiniteVector3(surfaceNormal) ||
+            !HasValidNetworkAmount(contactRadius) ||
+            !HasValidNetworkAmount(waterAmount))
+        {
+            return;
+        }
+
+        ApplyCreateOrGrowContaminatedDirt(
+            contactPoint,
+            surfaceNormal,
+            contactRadius,
+            waterAmount);
+    }
+
+    void ApplyCreateOrGrowContaminatedDirt(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float contactRadius,
+        float waterAmount)
+    {
+        WaterCannon waterCannon = GetComponentInChildren<WaterCannon>(true);
+        if (waterCannon == null)
+            return;
+
+        waterCannon.CreateOrGrowContaminatedDirtFromNetwork(
+            contactPoint,
+            surfaceNormal,
+            contactRadius,
+            waterAmount);
     }
 
     public void PublishWaterSprayVisual(
@@ -831,6 +1029,23 @@ public class PlayerMovement : NetworkBehaviour
 
         targetReference = networkObject;
         return true;
+    }
+
+    static bool IsFiniteVector3(Vector3 value)
+    {
+        return IsFiniteFloat(value.x) &&
+            IsFiniteFloat(value.y) &&
+            IsFiniteFloat(value.z);
+    }
+
+    static bool IsFiniteFloat(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    static bool HasValidNetworkAmount(float value)
+    {
+        return IsFiniteFloat(value) && value > 0f;
     }
 
     void ApplyEnemyWaterHit(GameObject target, Vector3 sourcePosition)

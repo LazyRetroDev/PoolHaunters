@@ -2,8 +2,9 @@ using UnityEngine;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
 
-public class DirtSpot : MonoBehaviour
+public class DirtSpot : NetworkBehaviour
 {
     static readonly int DissolveAmountId = Shader.PropertyToID("_DissolveAmount");
     static readonly int EdgeGlowId = Shader.PropertyToID("_EdgeGlow");
@@ -330,6 +331,22 @@ public class DirtSpot : MonoBehaviour
 
     public void ConfigureGeneratedContaminatedSpot(float initialSize, float growthPerWaterChunk, float waterPerGrowthChunk)
     {
+        ConfigureGeneratedContaminatedSpotLocal(
+            initialSize,
+            growthPerWaterChunk,
+            waterPerGrowthChunk);
+
+        if (ShouldBroadcastNetworkState())
+        {
+            ConfigureGeneratedContaminatedSpotClientRpc(
+                initialSize,
+                growthPerWaterChunk,
+                waterPerGrowthChunk);
+        }
+    }
+
+    void ConfigureGeneratedContaminatedSpotLocal(float initialSize, float growthPerWaterChunk, float waterPerGrowthChunk)
+    {
         createdByContaminatedWater = true;
         contaminatedGrowthPerWaterChunk = Mathf.Max(0f, growthPerWaterChunk);
         contaminatedWaterPerGrowthChunk = Mathf.Max(0.01f, waterPerGrowthChunk);
@@ -341,6 +358,20 @@ public class DirtSpot : MonoBehaviour
     }
 
     public void Clean(float amount)
+    {
+        if (ShouldRequestServerStateChange())
+        {
+            CleanServerRpc(amount);
+            return;
+        }
+
+        ApplyCleanLocal(amount);
+
+        if (ShouldBroadcastNetworkState())
+            CleanClientRpc(amount);
+    }
+
+    void ApplyCleanLocal(float amount)
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
 
@@ -357,6 +388,20 @@ public class DirtSpot : MonoBehaviour
     }
 
     public void CleanAtWorldPoint(Vector3 worldPoint, float worldRadius, float amount)
+    {
+        if (ShouldRequestServerStateChange())
+        {
+            CleanAtWorldPointServerRpc(worldPoint, worldRadius, amount);
+            return;
+        }
+
+        CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+
+        if (ShouldBroadcastNetworkState())
+            CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
+    }
+
+    void CleanAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float amount)
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
 
@@ -383,11 +428,36 @@ public class DirtSpot : MonoBehaviour
         lastHitPoint = worldPoint;
         lastHitTime = Time.time;
 
-        if (areaCleaned) Clean(amount);
+        if (areaCleaned) ApplyCleanLocal(amount);
         else UpdateVisualState();
     }
 
     public void ApplyContaminatedWaterAtWorldPoint(Vector3 worldPoint, float worldRadius, float waterAmount)
+    {
+        if (ShouldRequestServerStateChange())
+        {
+            ApplyContaminatedWaterAtWorldPointServerRpc(
+                worldPoint,
+                worldRadius,
+                waterAmount);
+            return;
+        }
+
+        ApplyContaminatedWaterAtWorldPointLocal(
+            worldPoint,
+            worldRadius,
+            waterAmount);
+
+        if (ShouldBroadcastNetworkState())
+        {
+            ApplyContaminatedWaterAtWorldPointClientRpc(
+                worldPoint,
+                worldRadius,
+                waterAmount);
+        }
+    }
+
+    void ApplyContaminatedWaterAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float waterAmount)
     {
         if (waterAmount <= 0f || isFadingOut) return;
 
@@ -397,6 +467,140 @@ public class DirtSpot : MonoBehaviour
 
         if (changed)
             UpdateVisualState();
+    }
+
+    bool ShouldRequestServerStateChange()
+    {
+        return IsSpawned && !IsServer && IsNetworkSessionRunning();
+    }
+
+    bool ShouldBroadcastNetworkState()
+    {
+        return IsSpawned && IsServer && IsNetworkSessionRunning();
+    }
+
+    static bool IsNetworkSessionRunning()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening;
+    }
+
+    static bool IsFiniteVector3(Vector3 value)
+    {
+        return IsFiniteFloat(value.x) &&
+            IsFiniteFloat(value.y) &&
+            IsFiniteFloat(value.z);
+    }
+
+    static bool IsFiniteFloat(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    static bool HasValidAmount(float value)
+    {
+        return IsFiniteFloat(value) && value > 0f;
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void CleanServerRpc(float amount)
+    {
+        if (!HasValidAmount(amount))
+            return;
+
+        ApplyCleanLocal(amount);
+        CleanClientRpc(amount);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void CleanAtWorldPointServerRpc(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount)
+    {
+        if (!IsFiniteVector3(worldPoint) ||
+            !HasValidAmount(worldRadius) ||
+            !HasValidAmount(amount))
+        {
+            return;
+        }
+
+        CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+        CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void ApplyContaminatedWaterAtWorldPointServerRpc(
+        Vector3 worldPoint,
+        float worldRadius,
+        float waterAmount)
+    {
+        if (!IsFiniteVector3(worldPoint) ||
+            !HasValidAmount(worldRadius) ||
+            !HasValidAmount(waterAmount))
+        {
+            return;
+        }
+
+        ApplyContaminatedWaterAtWorldPointLocal(
+            worldPoint,
+            worldRadius,
+            waterAmount);
+        ApplyContaminatedWaterAtWorldPointClientRpc(
+            worldPoint,
+            worldRadius,
+            waterAmount);
+    }
+
+    [ClientRpc]
+    void ConfigureGeneratedContaminatedSpotClientRpc(
+        float initialSize,
+        float growthPerWaterChunk,
+        float waterPerGrowthChunk)
+    {
+        if (IsServer)
+            return;
+
+        ConfigureGeneratedContaminatedSpotLocal(
+            initialSize,
+            growthPerWaterChunk,
+            waterPerGrowthChunk);
+    }
+
+    [ClientRpc]
+    void CleanClientRpc(float amount)
+    {
+        if (IsServer)
+            return;
+
+        ApplyCleanLocal(amount);
+    }
+
+    [ClientRpc]
+    void CleanAtWorldPointClientRpc(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount)
+    {
+        if (IsServer)
+            return;
+
+        CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+    }
+
+    [ClientRpc]
+    void ApplyContaminatedWaterAtWorldPointClientRpc(
+        Vector3 worldPoint,
+        float worldRadius,
+        float waterAmount)
+    {
+        if (IsServer)
+            return;
+
+        ApplyContaminatedWaterAtWorldPointLocal(
+            worldPoint,
+            worldRadius,
+            waterAmount);
     }
 
     public float GetDirtPercent()
@@ -695,6 +899,17 @@ public class DirtSpot : MonoBehaviour
         }
 
         if (hideRendererWhenClean && targetRenderer != null) targetRenderer.enabled = false;
-        if (destroyWhenClean) Destroy(gameObject);
+        if (!destroyWhenClean)
+            yield break;
+
+        if (IsSpawned && IsNetworkSessionRunning())
+        {
+            if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+                NetworkObject.Despawn(true);
+
+            yield break;
+        }
+
+        Destroy(gameObject);
     }
 }
