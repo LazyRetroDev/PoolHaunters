@@ -248,8 +248,9 @@ public class PlayerInventory : NetworkBehaviour
     {
         if (item == null) return false;
 
-        PlayerInventory[] inventories =
-            FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
+        PlayerInventory[] inventories = FindObjectsByType<PlayerInventory>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
         for (int inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
         {
             PlayerInventory inventory = inventories[inventoryIndex];
