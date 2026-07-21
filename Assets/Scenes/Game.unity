@@ -1133,7 +1133,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 7313615461998116812, guid: f2a8486c57c4a8f47b96f0cdf2f65a6d, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 796597370}
   m_SourcePrefab: {fileID: 100100000, guid: f2a8486c57c4a8f47b96f0cdf2f65a6d, type: 3}
 --- !u!4 &322508066 stripped
 Transform:
@@ -1990,6 +1993,36 @@ RectTransform:
   m_AnchoredPosition: {x: 295, y: 37.5}
   m_SizeDelta: {x: 75, y: 75}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &796597363 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 7313615461998116812, guid: f2a8486c57c4a8f47b96f0cdf2f65a6d, type: 3}
+  m_PrefabInstance: {fileID: 322508065}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &796597370
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 796597363}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 300121403
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 0
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -3693,6 +3726,7 @@ GameObject:
   - component: {fileID: 1506681819}
   - component: {fileID: 1506681818}
   - component: {fileID: 1506681817}
+  - component: {fileID: 1506681821}
   - component: {fileID: 1506681816}
   m_Layer: 0
   m_Name: DummyBen (1)
@@ -3737,6 +3771,7 @@ MonoBehaviour:
   fillRate: 10
   waterFillQuality: 0
   startingWaterQuality: 0
+  emptyWaterQualityThreshold: 2
   contaminatedCleaningMultiplier: 0.25
   chemicallyEnhancedCleaningMultiplier: 1.35
   disableGravityOnDeath: 1
@@ -3853,6 +3888,31 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1506681814}
   m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1506681821
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1506681814}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 185760602
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 0
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
 --- !u!4 &1519726592 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4724902581733401933, guid: c9887a1c8a6efef498d3fa86ec9d3d62, type: 3}

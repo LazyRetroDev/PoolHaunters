@@ -12,8 +12,8 @@ GameObject:
   - component: {fileID: 773636118125613607}
   - component: {fileID: 2633773052948678239}
   - component: {fileID: 5070254616084529267}
+  - component: {fileID: 7202713461243083313}
   - component: {fileID: 906370118706683745}
-  - component: {fileID: -6297035761363044397}
   - component: {fileID: -709727385245710581}
   m_Layer: 0
   m_Name: DirtSpot
@@ -116,6 +116,31 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &7202713461243083313
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8759996726081740987}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 3605335678
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
 --- !u!114 &906370118706683745
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -128,6 +153,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 25584865f2f54da09339dbfc55637c9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DirtSpot
+  ShowTopMostFoldoutHeaderGroup: 1
   maxDirt: 100
   currentDirt: 100
   destroyWhenClean: 1
@@ -144,6 +170,8 @@ MonoBehaviour:
   useLocalizedCleaning: 1
   dissolveEdgeGlow: 0
   cleanPointMergeDistance: 0.08
+  keepCleaningRadiusWorldSized: 1
+  maxLocalCleanRadius: 8
   adhereToSurface: 1
   adhesionMask:
     serializedVersion: 2
@@ -157,31 +185,6 @@ MonoBehaviour:
   contaminatedGrowthPerWaterChunk: 1
   contaminatedWaterPerGrowthChunk: 50
   contaminatedWaterStored: 0
---- !u!114 &-6297035761363044397
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8759996726081740987}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 2274837049
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 0
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0
 --- !u!114 &-709727385245710581
 MonoBehaviour:
   m_ObjectHideFlags: 0
