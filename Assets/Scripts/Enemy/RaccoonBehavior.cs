@@ -616,7 +616,7 @@ public class RaccoonBehavior : NetworkBehaviour
         carriedItem.gameObject.SetActive(true);
         carriedItem.SetPresentationState(Item.PresentationState.Carried);
 
-        if (IsNetworkSessionRunning())
+        if (IsNetworkSessionRunning() || ShouldAvoidOfflineTransformParenting(carriedItem))
             ApplyNetworkCarriedItemPose(carriedItem);
         else
             ParentCarriedItemToCarryPoint(carriedItem);
@@ -630,6 +630,12 @@ public class RaccoonBehavior : NetworkBehaviour
     {
         if (item == null)
             return;
+
+        if (ShouldAvoidOfflineTransformParenting(item))
+        {
+            ApplyCarriedItemWorldPose(item);
+            return;
+        }
 
         Transform parent = carryPoint != null ? carryPoint : transform;
         item.transform.SetParent(parent, false);
@@ -834,7 +840,8 @@ public class RaccoonBehavior : NetworkBehaviour
             return;
         }
 
-        item.transform.SetParent(null, true);
+        if (!ShouldAvoidOfflineTransformParenting(item))
+            item.transform.SetParent(null, true);
     }
 
     void SetItemPhysicsForDrop(Item item)
@@ -893,6 +900,11 @@ public class RaccoonBehavior : NetworkBehaviour
     {
         NetworkManager networkManager = NetworkManager.Singleton;
         return networkManager != null && networkManager.IsListening;
+    }
+
+    bool ShouldAvoidOfflineTransformParenting(Item item)
+    {
+        return !IsNetworkSessionRunning() && TryGetNetworkObject(item, out _);
     }
 
     bool TryGetNetworkObjectReference(
@@ -1072,6 +1084,12 @@ public class RaccoonBehavior : NetworkBehaviour
         if (IsNetworkSessionRunning())
         {
             ApplyNetworkCarriedItemPose(carriedItem);
+            return;
+        }
+
+        if (ShouldAvoidOfflineTransformParenting(carriedItem))
+        {
+            ApplyCarriedItemWorldPose(carriedItem);
             return;
         }
 

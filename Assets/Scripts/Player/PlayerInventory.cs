@@ -566,7 +566,7 @@ public class PlayerInventory : NetworkBehaviour
             return;
 
         item.SetPresentationState(Item.PresentationState.HiddenInInventory);
-        item.transform.SetParent(null, true);
+        DetachItemTransformIfSafe(item);
 
         Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
         for (int i = 0; i < renderers.Length; i++)
@@ -602,7 +602,7 @@ public class PlayerInventory : NetworkBehaviour
             return;
 
         item.SetPresentationState(Item.PresentationState.World);
-        item.transform.SetParent(null, true);
+        DetachItemTransformIfSafe(item);
         item.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
 
         Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
@@ -628,6 +628,28 @@ public class PlayerInventory : NetworkBehaviour
         itemBody.linearVelocity = Vector3.zero;
         itemBody.angularVelocity = Vector3.zero;
         itemBody.AddForce(impulse, ForceMode.VelocityChange);
+    }
+
+    void DetachItemTransformIfSafe(Item item)
+    {
+        if (item == null)
+            return;
+
+        NetworkObject networkObject = item.GetComponentInParent<NetworkObject>();
+        if (networkObject == null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
+
+        if (networkObject == null)
+        {
+            item.transform.SetParent(null, true);
+            return;
+        }
+
+        if (!IsNetworkSessionRunning())
+            return;
+
+        if (IsServer && networkObject.IsSpawned)
+            networkObject.TryRemoveParent(worldPositionStays: true);
     }
 
     bool TryGetNetworkObjectReference(

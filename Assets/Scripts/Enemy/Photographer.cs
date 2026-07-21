@@ -553,6 +553,9 @@ public class Photographer : MonoBehaviour
             return;
         }
 
+        if (photoNetworkObject != null)
+            return;
+
         activeCapturedPhoto.transform.SetParent(transform, true);
     }
 
@@ -583,8 +586,7 @@ public class Photographer : MonoBehaviour
 
     void FinishAdmiring()
     {
-        if (activeCapturedPhoto != null)
-            activeCapturedPhoto.transform.SetParent(null, true);
+        DetachCapturedPhotoIfSafe();
 
         activeCapturedPhoto = null;
 
@@ -596,6 +598,22 @@ public class Photographer : MonoBehaviour
 
         currentState = State.Wandering;
         SetNewDestination();
+    }
+
+    void DetachCapturedPhotoIfSafe()
+    {
+        if (activeCapturedPhoto == null)
+            return;
+
+        NetworkObject photoNetworkObject = activeCapturedPhoto.GetComponent<NetworkObject>();
+        if (photoNetworkObject == null)
+        {
+            activeCapturedPhoto.transform.SetParent(null, true);
+            return;
+        }
+
+        if (IsNetworkSessionRunning() && IsServer() && photoNetworkObject.IsSpawned)
+            photoNetworkObject.TryRemoveParent(worldPositionStays: true);
     }
 
     void FaceTarget(Vector3 target)
