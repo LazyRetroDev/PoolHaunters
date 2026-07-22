@@ -30,8 +30,10 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     private TMP_Text resultText;
     private Button closeButton;
     private PlayerStatus lockedPlayerStatus;
+    private CursorLockController cursorLockController;
     private CursorLockMode previousLockState;
     private bool previousCursorVisible;
+    private bool previousCursorLockControllerEnabled;
     private bool isPlaying;
     private bool controlLocked;
     private int score;
@@ -40,7 +42,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
     public void Interact(PlayerInventory inventory)
     {
-        if (isPlaying)
+        if (IsCanvasOpen())
             return;
 
         PlayerStatus playerStatus = inventory != null
@@ -52,14 +54,19 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
     void Update()
     {
-        if (!isPlaying)
+        if (!IsCanvasOpen())
             return;
 
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
-            EndGame(false);
+            CloseGame();
             return;
         }
+
+        KeepArcadeCursorUnlocked();
+
+        if (!isPlaying)
+            return;
 
         timeRemaining -= Time.unscaledDeltaTime;
         targetTimer -= Time.unscaledDeltaTime;
@@ -78,10 +85,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
     void OnDisable()
     {
-        if (isPlaying)
-            EndGame(false);
-        else
-            ReleasePlayerControl();
+        ReleasePlayerControl();
     }
 
     public void StartGame(PlayerStatus playerStatus)
@@ -140,7 +144,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     void EndGame(bool won)
     {
         isPlaying = false;
-        ReleasePlayerControl();
+        KeepArcadeCursorUnlocked();
 
         if (targetButton != null)
             targetButton.gameObject.SetActive(false);
@@ -174,9 +178,15 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     {
         previousLockState = Cursor.lockState;
         previousCursorVisible = Cursor.visible;
+        cursorLockController = lockedPlayerStatus != null
+            ? lockedPlayerStatus.GetComponent<CursorLockController>()
+            : null;
+        previousCursorLockControllerEnabled = cursorLockController != null && cursorLockController.enabled;
 
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        if (cursorLockController != null)
+            cursorLockController.enabled = false;
+
+        KeepArcadeCursorUnlocked();
 
         if (!lockPlayerWhilePlaying ||
             lockedPlayerStatus == null ||
@@ -194,11 +204,26 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         Cursor.lockState = previousLockState;
         Cursor.visible = previousCursorVisible;
 
+        if (cursorLockController != null)
+            cursorLockController.enabled = previousCursorLockControllerEnabled;
+
         if (lockedPlayerStatus != null && controlLocked)
             lockedPlayerStatus.RemoveExternalControlLock();
 
         controlLocked = false;
         lockedPlayerStatus = null;
+        cursorLockController = null;
+    }
+
+    bool IsCanvasOpen()
+    {
+        return canvas != null && canvas.gameObject.activeSelf;
+    }
+
+    void KeepArcadeCursorUnlocked()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     void EnsureCanvas()
