@@ -15,6 +15,15 @@ public class WaterSourceVisuals : MonoBehaviour
     public bool fadeToDryColorAsWaterLowers = true;
     [Range(0f, 1f)] public float dryColorBlendAtEmpty = 0.65f;
     public Renderer[] colorRenderers;
+    public bool useStandardColorProperties = true;
+    public string customColorProperty;
+
+    [Header("Quality Materials")]
+    public bool swapMaterialsByQuality = false;
+    public Material cleanMaterial;
+    public Material contaminatedMaterial;
+    public Material chemicallyEnhancedMaterial;
+    public Material dryMaterial;
 
     [Header("Amount Scaling")]
     public Transform[] amountScaleTargets;
@@ -168,7 +177,7 @@ public class WaterSourceVisuals : MonoBehaviour
         bool hasWater = source.HasWater;
         Color qualityColor = GetDisplayColor(waterPercent, hasWater);
 
-        ApplyRendererColors(qualityColor);
+        ApplyRendererVisuals(qualityColor, hasWater);
         ApplyScale(waterPercent, hasWater);
         ApplyParticleColors(qualityColor, hasWater);
         ApplyParticleAmount(waterPercent, hasWater);
@@ -198,10 +207,58 @@ public class WaterSourceVisuals : MonoBehaviour
         }
     }
 
-    void ApplyRendererColors(Color color)
+    void ApplyRendererVisuals(Color color, bool hasWater)
     {
         if (colorRenderers == null)
             return;
+
+        ApplyRendererMaterials(hasWater);
+        ApplyRendererColors(color);
+    }
+
+    void ApplyRendererMaterials(bool hasWater)
+    {
+        if (!swapMaterialsByQuality)
+            return;
+
+        Material displayMaterial = GetDisplayMaterial(hasWater);
+        if (displayMaterial == null)
+            return;
+
+        for (int i = 0; i < colorRenderers.Length; i++)
+        {
+            Renderer targetRenderer = colorRenderers[i];
+            if (targetRenderer == null)
+                continue;
+
+            if (targetRenderer.sharedMaterial != displayMaterial)
+                targetRenderer.sharedMaterial = displayMaterial;
+        }
+    }
+
+    Material GetDisplayMaterial(bool hasWater)
+    {
+        if (!hasWater)
+            return dryMaterial != null ? dryMaterial : cleanMaterial;
+
+        switch (source.waterQuality)
+        {
+            case WaterQuality.Contaminated:
+                return contaminatedMaterial != null ? contaminatedMaterial : cleanMaterial;
+            case WaterQuality.ChemicallyEnhanced:
+                return chemicallyEnhancedMaterial != null ? chemicallyEnhancedMaterial : cleanMaterial;
+            default:
+                return cleanMaterial;
+        }
+    }
+
+    void ApplyRendererColors(Color color)
+    {
+        if ((!useStandardColorProperties && string.IsNullOrWhiteSpace(customColorProperty)) ||
+            colorRenderers == null)
+        {
+            return;
+        }
 
         if (propertyBlock == null)
             propertyBlock = new MaterialPropertyBlock();
@@ -213,8 +270,16 @@ public class WaterSourceVisuals : MonoBehaviour
                 continue;
 
             targetRenderer.GetPropertyBlock(propertyBlock);
-            propertyBlock.SetColor(BaseColorProperty, color);
-            propertyBlock.SetColor(ColorProperty, color);
+
+            if (useStandardColorProperties)
+            {
+                propertyBlock.SetColor(BaseColorProperty, color);
+                propertyBlock.SetColor(ColorProperty, color);
+            }
+
+            if (!string.IsNullOrWhiteSpace(customColorProperty))
+                propertyBlock.SetColor(customColorProperty, color);
+
             targetRenderer.SetPropertyBlock(propertyBlock);
         }
     }
