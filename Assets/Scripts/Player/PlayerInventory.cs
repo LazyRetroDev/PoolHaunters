@@ -59,6 +59,14 @@ public class PlayerInventory : NetworkBehaviour
         if (Physics.Raycast(ray, out RaycastHit hit, pickupRange))
         {
             Debug.Log("Hit: " + hit.collider.gameObject.name);
+
+            IPlayerInteractable interactable = hit.collider.GetComponentInParent<IPlayerInteractable>();
+            if (interactable != null)
+            {
+                interactable.Interact(this);
+                return;
+            }
+
             Item item = hit.collider.GetComponentInParent<Item>();
             if (item != null) TryPickup(item);
         }
