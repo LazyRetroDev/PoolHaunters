@@ -21,7 +21,7 @@ public class WaterSourceVisuals : MonoBehaviour
     public bool scaleOnlyY = true;
     [Range(0f, 1f)] public float minimumVisibleScale = 0.08f;
     public bool hideScaleTargetsWhenDry = false;
-    public AnimationCurve amountToScale = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+    public AnimationCurve amountToScale;
 
     [Header("Particle Visuals")]
     public bool useSourceParticlesWhenEmpty = true;
@@ -44,7 +44,7 @@ public class WaterSourceVisuals : MonoBehaviour
     private const string BaseColorProperty = "_BaseColor";
     private const string ColorProperty = "_Color";
 
-    private readonly MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+    private MaterialPropertyBlock propertyBlock;
     private Vector3[] initialScales;
     private ParticleVisualState[] tintParticleStates;
     private ParticleVisualState[] amountParticleStates;
@@ -203,6 +203,9 @@ public class WaterSourceVisuals : MonoBehaviour
         if (colorRenderers == null)
             return;
 
+        if (propertyBlock == null)
+            propertyBlock = new MaterialPropertyBlock();
+
         for (int i = 0; i < colorRenderers.Length; i++)
         {
             Renderer targetRenderer = colorRenderers[i];
@@ -224,7 +227,7 @@ public class WaterSourceVisuals : MonoBehaviour
         if (initialScales == null || initialScales.Length != amountScaleTargets.Length)
             CacheScaleTargets();
 
-        float scalePercent = Mathf.Clamp01(amountToScale.Evaluate(waterPercent));
+        float scalePercent = Mathf.Clamp01(EvaluateAmountScale(waterPercent));
         if (hasWater)
             scalePercent = Mathf.Max(minimumVisibleScale, scalePercent);
 
@@ -243,6 +246,14 @@ public class WaterSourceVisuals : MonoBehaviour
                 ? new Vector3(baseScale.x, baseScale.y * scalePercent, baseScale.z)
                 : baseScale * scalePercent;
         }
+    }
+
+    float EvaluateAmountScale(float waterPercent)
+    {
+        if (amountToScale == null || amountToScale.length == 0)
+            return waterPercent;
+
+        return amountToScale.Evaluate(waterPercent);
     }
 
     void ApplyParticleColors(Color color, bool hasWater)
