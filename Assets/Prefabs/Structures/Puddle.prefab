@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 7433664822822774785}
   - component: {fileID: 8102868743757356293}
   - component: {fileID: 3944402896632689712}
+  - component: {fileID: 238164129783856622}
   m_Layer: 0
   m_Name: Puddle
   m_TagString: WaterSource
@@ -180,3 +181,75 @@ MonoBehaviour:
   collidersToDisableWhenDry: []
   disableObjectWhenDry: 0
   extraObjectsToDisableWhenDry: []
+--- !u!114 &238164129783856622
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3822121108961349732}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d33928c7d3c4cb79a84747b1322fcb3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaterSourceVisuals
+  source: {fileID: 3944402896632689712}
+  refreshInterval: 0.1
+  cleanColor: {r: 0.35, g: 0.75, b: 1, a: 1}
+  contaminatedColor: {r: 0.35, g: 0.9, b: 0.25, a: 1}
+  chemicallyEnhancedColor: {r: 0.65, g: 0.95, b: 1, a: 1}
+  dryColor: {r: 0.28, g: 0.28, b: 0.28, a: 1}
+  fadeToDryColorAsWaterLowers: 1
+  dryColorBlendAtEmpty: 0.65
+  colorRenderers:
+  - {fileID: 6738988847798341511}
+  useStandardColorProperties: 1
+  customColorProperty: _WaterTint
+  swapMaterialsByQuality: 0
+  cleanMaterial: {fileID: 0}
+  contaminatedMaterial: {fileID: 0}
+  chemicallyEnhancedMaterial: {fileID: 0}
+  dryMaterial: {fileID: 0}
+  amountScaleTargets:
+  - {fileID: 8992698186772232954}
+  scaleOnlyY: 0
+  minimumVisibleScale: 0.08
+  hideScaleTargetsWhenDry: 0
+  amountToScale:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 1
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 1
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  useSourceParticlesWhenEmpty: 1
+  autoFindChildParticles: 0
+  particlesToTint: []
+  particlesToScaleWithAmount: []
+  tintParticles: 1
+  scaleParticleEmission: 1
+  scaleParticleSize: 0
+  stopParticlesWhenDry: 1
+  playParticlesWhenWet: 1
+  cleanCueRoot: {fileID: 0}
+  contaminatedCueRoot: {fileID: 0}
+  chemicallyEnhancedCueRoot: {fileID: 0}
+  lowWaterCueRoot: {fileID: 0}
+  lowWaterThreshold: 0.25
