@@ -59,10 +59,18 @@ public class PlayerInventory : NetworkBehaviour
         if (Physics.Raycast(ray, out RaycastHit hit, pickupRange))
         {
             Debug.Log("Hit: " + hit.collider.gameObject.name);
+
             WaterValve waterValve = hit.collider.GetComponentInParent<WaterValve>();
             if (waterValve != null)
             {
                 waterValve.Interact(this);
+                return;
+            }
+
+            IPlayerInteractable interactable = hit.collider.GetComponentInParent<IPlayerInteractable>();
+            if (interactable != null)
+            {
+                interactable.Interact(this);
                 return;
             }
 
