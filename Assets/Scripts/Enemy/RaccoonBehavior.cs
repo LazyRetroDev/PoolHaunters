@@ -930,6 +930,9 @@ public class RaccoonBehavior : NetworkBehaviour
         if (networkObject == null && item != null)
             networkObject = item.GetComponentInParent<NetworkObject>();
 
+        if (networkObject == null && item != null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
+
         return networkObject != null;
     }
 

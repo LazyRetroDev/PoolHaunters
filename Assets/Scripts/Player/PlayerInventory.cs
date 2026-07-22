@@ -660,6 +660,9 @@ public class PlayerInventory : NetworkBehaviour
             ? item.GetComponentInParent<NetworkObject>()
             : null;
 
+        if (networkObject == null && item != null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
+
         if (networkObject == null)
         {
             itemReference = default;
