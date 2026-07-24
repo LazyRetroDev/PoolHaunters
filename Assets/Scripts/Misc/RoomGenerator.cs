@@ -340,6 +340,7 @@ public class RoomGenerator : MonoBehaviour
     private FullMapGenerationReport lastCompletedGenerationReport;
     private BranchGenerationReport currentBranchReport;
     private NetworkManager mapSyncNetworkManager;
+    private Coroutine initialGenerationCoroutine;
     private Coroutine mapSyncRegistrationCoroutine;
     private Coroutine roomContentFlushCoroutine;
     private bool mapMessageHandlersRegistered;
@@ -353,6 +354,7 @@ public class RoomGenerator : MonoBehaviour
 
     void OnDisable()
     {
+        StopInitialGenerationCoroutine();
         StopRoomContentFlushCoroutine();
         UnregisterMapSyncMessaging();
     }
@@ -464,6 +466,36 @@ public class RoomGenerator : MonoBehaviour
 
     void Start()
     {
+        if (IsMultiplayerRun())
+        {
+            initialGenerationCoroutine = StartCoroutine(
+                GenerateInitialRoomsWhenNetworkReady());
+            return;
+        }
+
+        GenerateInitialRooms();
+    }
+
+    IEnumerator GenerateInitialRoomsWhenNetworkReady()
+    {
+        while (isActiveAndEnabled)
+        {
+            NetworkManager networkManager = NetworkManager.Singleton;
+            if (networkManager != null && networkManager.IsListening)
+            {
+                initialGenerationCoroutine = null;
+                GenerateInitialRooms();
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        initialGenerationCoroutine = null;
+    }
+
+    void GenerateInitialRooms()
+    {
         if (!CanGenerateRooms())
         {
             Debug.Log("RoomGenerator skipped procedural generation because this instance is a multiplayer client.");
@@ -484,6 +516,15 @@ public class RoomGenerator : MonoBehaviour
             GenerateNextRoom();
 
         NotifyGeneratedMapSnapshotReady();
+    }
+
+    void StopInitialGenerationCoroutine()
+    {
+        if (initialGenerationCoroutine == null)
+            return;
+
+        StopCoroutine(initialGenerationCoroutine);
+        initialGenerationCoroutine = null;
     }
 
     void ResolveRunSeed()
@@ -527,12 +568,22 @@ public class RoomGenerator : MonoBehaviour
     {
         NetworkManager networkManager = NetworkManager.Singleton;
 
+        if (IsMultiplayerRun())
+        {
+            return networkManager != null &&
+                networkManager.IsListening &&
+                networkManager.IsServer;
+        }
+
         if (networkManager != null && networkManager.IsListening)
             return networkManager.IsServer;
 
-        return !RegionRunState.HasSelectedRegion ||
-            RegionRunState.IsSinglePlayer ||
-            RegionRunState.IsHost;
+        return true;
+    }
+
+    static bool IsMultiplayerRun()
+    {
+        return RegionRunState.HasSelectedRegion && RegionRunState.IsMultiplayer;
     }
 
     GameObject GenerateNextRoom(DoorTrigger trigger)

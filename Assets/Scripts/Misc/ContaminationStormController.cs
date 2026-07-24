@@ -280,7 +280,15 @@ public class ContaminationStormController : MonoBehaviour
 
         NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager == null || !networkManager.IsListening)
+        {
+            if (IsMultiplayerRun())
+            {
+                Destroy(dirtSpot.gameObject);
+                return false;
+            }
+
             return true;
+        }
 
         if (!networkManager.IsServer)
         {
@@ -358,14 +366,24 @@ public class ContaminationStormController : MonoBehaviour
 
     bool CanRunStorm()
     {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (IsMultiplayerRun())
+        {
+            return networkManager != null &&
+                networkManager.IsListening &&
+                (!runOnlyOnServer || networkManager.IsServer);
+        }
+
         if (!runOnlyOnServer) return true;
 
-        NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager != null && networkManager.IsListening)
             return networkManager.IsServer;
 
-        return !RegionRunState.HasSelectedRegion ||
-            RegionRunState.IsSinglePlayer ||
-            RegionRunState.IsHost;
+        return true;
+    }
+
+    static bool IsMultiplayerRun()
+    {
+        return RegionRunState.HasSelectedRegion && RegionRunState.IsMultiplayer;
     }
 }

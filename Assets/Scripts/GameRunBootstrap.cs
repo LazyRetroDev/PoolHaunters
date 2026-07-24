@@ -1,5 +1,11 @@
+using System;
+using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
+using Unity.Services.Authentication;
+using Unity.Services.Core;
+using Unity.Services.Relay;
+using Unity.Services.Relay.Models;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -18,9 +24,12 @@ public class GameRunBootstrap : MonoBehaviour
 
     [Header("Debug")]
     [SerializeField] private bool logBootstrap = true;
+    [SerializeField] private bool showRelayJoinCodeOverlay = true;
 
     private int approvedPlayerCount;
     private bool registeredConnectionApprovalCallback;
+    private bool multiplayerStartInProgress;
+    private GUIStyle relayJoinCodeStyle;
 
     private void Awake()
     {
@@ -46,6 +55,33 @@ public class GameRunBootstrap : MonoBehaviour
             networkManager.ConnectionApprovalCallback = null;
     }
 
+    private void OnGUI()
+    {
+        if (!showRelayJoinCodeOverlay ||
+            !RegionRunState.UsesRelay ||
+            !RegionRunState.IsHost ||
+            string.IsNullOrWhiteSpace(RegionRunState.RelayJoinCode))
+        {
+            return;
+        }
+
+        if (relayJoinCodeStyle == null)
+        {
+            relayJoinCodeStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 22,
+                wordWrap = false
+            };
+            relayJoinCodeStyle.normal.textColor = Color.white;
+        }
+
+        GUI.Box(
+            new Rect(16f, 16f, 360f, 64f),
+            $"Relay Join Code: {RegionRunState.RelayJoinCode}",
+            relayJoinCodeStyle);
+    }
+
     private void StartSinglePlayer()
     {
         if (networkManager != null && networkManager.IsListening)
@@ -57,29 +93,57 @@ public class GameRunBootstrap : MonoBehaviour
             Debug.Log("GameRunBootstrap started Game scene as single player.");
     }
 
-    private void StartMultiplayer()
+    private async void StartMultiplayer()
     {
-        if (networkManager == null)
-        {
-            Debug.LogError("GameRunBootstrap cannot start multiplayer because no NetworkManager was found.");
+        if (multiplayerStartInProgress)
             return;
-        }
 
-        ConfigureConnectionApproval();
-        ConfigureTransport();
+        multiplayerStartInProgress = true;
 
-        bool started = RegionRunState.IsHost
-            ? networkManager.StartHost()
-            : networkManager.StartClient();
-
-        if (!started)
+        try
         {
-            Debug.LogError($"GameRunBootstrap failed to start {RegionRunState.LaunchMode}.");
-            return;
-        }
+            if (networkManager == null)
+            {
+                Debug.LogError("GameRunBootstrap cannot start multiplayer because no NetworkManager was found.");
+                return;
+            }
 
-        if (logBootstrap)
-            Debug.Log($"GameRunBootstrap started {RegionRunState.LaunchMode}.");
+            ConfigureConnectionApproval();
+
+            bool transportConfigured = RegionRunState.UsesRelay
+                ? await ConfigureRelayTransportAsync()
+                : ConfigureDirectTransport();
+
+            if (!transportConfigured)
+                return;
+
+            bool started = RegionRunState.IsHost
+                ? networkManager.StartHost()
+                : networkManager.StartClient();
+
+            if (!started)
+            {
+                Debug.LogError($"GameRunBootstrap failed to start {RegionRunState.LaunchMode} using {RegionRunState.NetworkMode}.");
+                return;
+            }
+
+            if (logBootstrap)
+            {
+                string message = $"GameRunBootstrap started {RegionRunState.LaunchMode} using {RegionRunState.NetworkMode}.";
+                if (RegionRunState.UsesRelay && RegionRunState.IsHost)
+                    message += $" Relay join code: {RegionRunState.RelayJoinCode}";
+
+                Debug.Log(message);
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError($"GameRunBootstrap failed to start multiplayer: {exception}");
+        }
+        finally
+        {
+            multiplayerStartInProgress = false;
+        }
     }
 
     private void SpawnOfflinePlayer()
@@ -109,13 +173,15 @@ public class GameRunBootstrap : MonoBehaviour
         approvedPlayerCount = 0;
     }
 
-    private void ConfigureTransport()
+    private bool ConfigureDirectTransport()
     {
         if (unityTransport == null)
             unityTransport = networkManager.NetworkConfig.NetworkTransport as UnityTransport;
 
         if (unityTransport == null)
-            return;
+            return true;
+
+        unityTransport.UseWebSockets = false;
 
         if (RegionRunState.IsHost)
         {
@@ -123,12 +189,96 @@ public class GameRunBootstrap : MonoBehaviour
                 RegionRunState.ConnectionAddress,
                 RegionRunState.ConnectionPort,
                 hostListenAddress);
-            return;
+            return true;
         }
 
         unityTransport.SetConnectionData(
             RegionRunState.ConnectionAddress,
             RegionRunState.ConnectionPort);
+        return true;
+    }
+
+    private async Task<bool> ConfigureRelayTransportAsync()
+    {
+        if (unityTransport == null)
+            unityTransport = networkManager.NetworkConfig.NetworkTransport as UnityTransport;
+
+        if (unityTransport == null)
+        {
+            Debug.LogError("GameRunBootstrap cannot start Relay because no UnityTransport was found.");
+            return false;
+        }
+
+        await EnsureUnityServicesSignedInAsync();
+
+        string connectionType = RegionRunState.RelayConnectionType;
+        unityTransport.UseWebSockets = UsesWebSockets(connectionType);
+
+        if (RegionRunState.IsHost)
+        {
+            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(
+                Mathf.Max(1, RegionRunState.RelayMaxConnections));
+            unityTransport.SetRelayServerData(
+                AllocationUtils.ToRelayServerData(allocation, connectionType));
+
+            string joinCode = await RelayService.Instance.GetJoinCodeAsync(
+                allocation.AllocationId);
+            RegionRunState.SetRelayJoinCode(joinCode);
+
+            Debug.Log($"Relay host allocation ready. Join code: {RegionRunState.RelayJoinCode}");
+            return true;
+        }
+
+        string relayJoinCode = RegionRunState.RelayJoinCode;
+        if (string.IsNullOrWhiteSpace(relayJoinCode))
+        {
+            Debug.LogError("GameRunBootstrap cannot start Relay client because the join code is empty.");
+            return false;
+        }
+
+        JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(
+            relayJoinCode);
+        unityTransport.SetRelayServerData(
+            AllocationUtils.ToRelayServerData(joinAllocation, connectionType));
+
+        return true;
+    }
+
+    private async Task EnsureUnityServicesSignedInAsync()
+    {
+        if (UnityServices.State != ServicesInitializationState.Initialized)
+        {
+            InitializationOptions options = new InitializationOptions();
+            options.SetProfile(BuildAuthenticationProfile());
+            await UnityServices.InitializeAsync(options);
+        }
+
+        if (!AuthenticationService.Instance.IsSignedIn)
+        {
+            AuthenticationService.Instance.SwitchProfile(BuildAuthenticationProfile());
+            await AuthenticationService.Instance.SignInAnonymouslyAsync();
+        }
+    }
+
+    private static bool UsesWebSockets(string connectionType)
+    {
+        return connectionType == "wss";
+    }
+
+    private static string BuildAuthenticationProfile()
+    {
+        int processId = 0;
+
+        try
+        {
+            processId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        }
+        catch
+        {
+            processId = Mathf.Abs(SystemInfo.deviceUniqueIdentifier.GetHashCode());
+        }
+
+        return $"ph_{Mathf.Abs(processId) % 1000000}";
     }
 
     private void ApproveConnection(
