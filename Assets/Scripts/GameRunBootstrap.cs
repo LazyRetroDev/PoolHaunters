@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -7,10 +8,14 @@ using Unity.Services.Core;
 using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 [DisallowMultipleComponent]
 public class GameRunBootstrap : MonoBehaviour
 {
+    [Header("Scene")]
+    [SerializeField] private string gameSceneName = "Game";
+
     [Header("Player")]
     [SerializeField] private GameObject playerPrefab;
     [SerializeField] private Transform playerSpawn;
@@ -29,6 +34,7 @@ public class GameRunBootstrap : MonoBehaviour
     private int approvedPlayerCount;
     private bool registeredConnectionApprovalCallback;
     private bool multiplayerStartInProgress;
+    private bool bootstrapStartedInGameScene;
     private GUIStyle relayJoinCodeStyle;
 
     private void Awake()
@@ -40,9 +46,20 @@ public class GameRunBootstrap : MonoBehaviour
     {
         ResolveReferences();
 
+        if (!ShouldRunInActiveScene())
+            return;
+
+        bootstrapStartedInGameScene = true;
+
         if (!RegionRunState.HasSelectedRegion || RegionRunState.IsSinglePlayer)
         {
             StartSinglePlayer();
+            return;
+        }
+
+        if (networkManager != null && networkManager.IsListening)
+        {
+            ContinueExistingMultiplayerSession();
             return;
         }
 
@@ -57,6 +74,9 @@ public class GameRunBootstrap : MonoBehaviour
 
     private void OnGUI()
     {
+        if (!bootstrapStartedInGameScene)
+            return;
+
         if (!showRelayJoinCodeOverlay ||
             !RegionRunState.UsesRelay ||
             !RegionRunState.IsHost ||
@@ -80,6 +100,19 @@ public class GameRunBootstrap : MonoBehaviour
             new Rect(16f, 16f, 360f, 64f),
             $"Relay Join Code: {RegionRunState.RelayJoinCode}",
             relayJoinCodeStyle);
+    }
+
+    private bool ShouldRunInActiveScene()
+    {
+        string expectedSceneName = RegionRunState.HasSelectedRegion &&
+            !string.IsNullOrWhiteSpace(RegionRunState.SceneName)
+                ? RegionRunState.SceneName
+                : gameSceneName;
+
+        if (string.IsNullOrWhiteSpace(expectedSceneName))
+            return true;
+
+        return SceneManager.GetActiveScene().name == expectedSceneName;
     }
 
     private void StartSinglePlayer()
@@ -108,6 +141,7 @@ public class GameRunBootstrap : MonoBehaviour
                 return;
             }
 
+            ConfigurePlayerPrefab();
             ConfigureConnectionApproval();
 
             bool transportConfigured = RegionRunState.UsesRelay
@@ -146,6 +180,79 @@ public class GameRunBootstrap : MonoBehaviour
         }
     }
 
+    private void ContinueExistingMultiplayerSession()
+    {
+        ConfigurePlayerPrefab();
+        ConfigureConnectionApproval();
+
+        if (networkManager != null && networkManager.IsServer)
+            StartCoroutine(SpawnConnectedPlayersWhenReady());
+
+        if (logBootstrap)
+            Debug.Log("GameRunBootstrap continued an existing multiplayer lobby session in Game scene.");
+    }
+
+    private IEnumerator SpawnConnectedPlayersWhenReady()
+    {
+        yield return null;
+        yield return null;
+
+        SpawnMissingNetworkPlayers();
+    }
+
+    private void SpawnMissingNetworkPlayers()
+    {
+        if (networkManager == null || !networkManager.IsServer)
+            return;
+
+        GameObject prefab = playerPrefab != null
+            ? playerPrefab
+            : networkManager.NetworkConfig.PlayerPrefab;
+
+        if (prefab == null)
+        {
+            Debug.LogError("GameRunBootstrap cannot spawn lobby players because playerPrefab is missing.");
+            return;
+        }
+
+        approvedPlayerCount = 0;
+
+        foreach (ulong clientId in networkManager.ConnectedClientsIds)
+        {
+            if (networkManager.ConnectedClients.TryGetValue(clientId, out NetworkClient client) &&
+                client.PlayerObject != null)
+            {
+                approvedPlayerCount++;
+                continue;
+            }
+
+            SpawnNetworkPlayerForClient(clientId, approvedPlayerCount, prefab);
+            approvedPlayerCount++;
+        }
+    }
+
+    private void SpawnNetworkPlayerForClient(ulong clientId, int spawnIndex, GameObject prefab)
+    {
+        Transform spawn = GetPlayerSpawn();
+        Vector3 spawnPosition = spawn != null ? spawn.position : Vector3.zero;
+        Quaternion spawnRotation = spawn != null ? spawn.rotation : Quaternion.identity;
+
+        GameObject player = Instantiate(
+            prefab,
+            spawnPosition + GetMultiplayerSpawnOffset(spawnIndex),
+            spawnRotation);
+
+        NetworkObject networkObject = player.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogError($"GameRunBootstrap cannot spawn '{prefab.name}' as a player because it has no NetworkObject.");
+            Destroy(player);
+            return;
+        }
+
+        networkObject.SpawnAsPlayerObject(clientId, true);
+    }
+
     private void SpawnOfflinePlayer()
     {
         if (playerPrefab == null)
@@ -167,10 +274,19 @@ public class GameRunBootstrap : MonoBehaviour
 
     private void ConfigureConnectionApproval()
     {
+        ConfigurePlayerPrefab();
         networkManager.NetworkConfig.ConnectionApproval = true;
         networkManager.ConnectionApprovalCallback = ApproveConnection;
         registeredConnectionApprovalCallback = true;
         approvedPlayerCount = 0;
+    }
+
+    private void ConfigurePlayerPrefab()
+    {
+        if (networkManager == null || playerPrefab == null)
+            return;
+
+        networkManager.NetworkConfig.PlayerPrefab = playerPrefab;
     }
 
     private bool ConfigureDirectTransport()
@@ -329,17 +445,21 @@ public class GameRunBootstrap : MonoBehaviour
 
     private void ResolveReferences()
     {
+        NetworkManager singleton = NetworkManager.Singleton;
+        if (singleton != null && singleton.IsListening)
+            networkManager = singleton;
+
         if (networkManager == null)
             networkManager = GetComponent<NetworkManager>();
 
         if (networkManager == null)
             networkManager = NetworkManager.Singleton;
 
-        if (unityTransport == null)
-            unityTransport = GetComponent<UnityTransport>();
-
         if (unityTransport == null && networkManager != null)
             unityTransport = networkManager.NetworkConfig.NetworkTransport as UnityTransport;
+
+        if (unityTransport == null)
+            unityTransport = GetComponent<UnityTransport>();
 
         GetPlayerSpawn();
     }
