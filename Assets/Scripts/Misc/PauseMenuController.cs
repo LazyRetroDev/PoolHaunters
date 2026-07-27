@@ -237,8 +237,8 @@ public class PauseMenuController : MonoBehaviour
             Vector2.zero,
             Vector2.one);
 
-        mainPanel = CreatePanel("Pause Panel", background, new Vector2(0.36f, 0.18f), new Vector2(0.64f, 0.82f));
-        settingsPanel = CreatePanel("Settings Panel", background, new Vector2(0.18f, 0.1f), new Vector2(0.82f, 0.9f));
+        mainPanel = CreatePanel("Pause Panel", background, new Vector2(0.04f, 0.2f), new Vector2(0.31f, 0.82f));
+        settingsPanel = CreatePanel("Settings Panel", background, new Vector2(0.04f, 0.08f), new Vector2(0.56f, 0.92f));
 
         CreateTitle(mainPanel.transform, "PAUSED");
         CreateButton(mainPanel.transform, "CONTINUE", ResumeGame);
@@ -265,18 +265,28 @@ public class PauseMenuController : MonoBehaviour
     {
         CreateTitle(root, "SETTINGS");
 
-        GameObject tabs = CreateHorizontalGroup("Tabs", root, 8f);
+        GameObject body = CreateHorizontalGroup("Settings Body", root, 16f);
+        AddLayout(body, 600f, 1f);
+
+        GameObject tabs = CreateVerticalGroup("Tabs", body.transform, 8f);
+        AddLayout(tabs, 600f, 1f);
+        SetLayoutWidth(tabs, 190f);
+
+        GameObject pageRoot = CreateVerticalGroup("Settings Pages", body.transform, 8f);
+        AddLayout(pageRoot, 600f, 1f);
+        SetLayoutWidth(pageRoot, 560f, 1f);
+
         CreateButton(tabs.transform, "VIDEO", () => ShowSettingsPage(videoPage));
         CreateButton(tabs.transform, "INPUT", () => ShowSettingsPage(inputPage));
         CreateButton(tabs.transform, "AUDIO", () => ShowSettingsPage(audioPage));
         CreateButton(tabs.transform, "PLAYER", () => ShowSettingsPage(playerPage));
         CreateButton(tabs.transform, "ACCESS", () => ShowSettingsPage(accessibilityPage));
 
-        videoPage = CreateSettingsPage(root, "Video Page");
-        inputPage = CreateSettingsPage(root, "Input Page");
-        audioPage = CreateSettingsPage(root, "Audio Page");
-        playerPage = CreateSettingsPage(root, "Player Page");
-        accessibilityPage = CreateSettingsPage(root, "Accessibility Page");
+        videoPage = CreateSettingsPage(pageRoot.transform, "Video Page");
+        inputPage = CreateSettingsPage(pageRoot.transform, "Input Page");
+        audioPage = CreateSettingsPage(pageRoot.transform, "Audio Page");
+        playerPage = CreateSettingsPage(pageRoot.transform, "Player Page");
+        accessibilityPage = CreateSettingsPage(pageRoot.transform, "Accessibility Page");
 
         BuildVideoPage(videoPage.transform);
         BuildInputPage(inputPage.transform);
@@ -596,6 +606,8 @@ public class PauseMenuController : MonoBehaviour
         TMP_Text label = CreateText(parent, text);
         label.fontSize = 42f;
         label.alignment = TextAlignmentOptions.Center;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
     }
 
     TMP_Text CreateText(Transform parent, string text)
@@ -636,6 +648,7 @@ public class PauseMenuController : MonoBehaviour
         GameObject buttonObject = new GameObject(text, typeof(RectTransform), typeof(Image), typeof(Button));
         buttonObject.transform.SetParent(parent, false);
         AddLayout(buttonObject, 52f);
+        SetLayoutWidth(buttonObject, 170f, 1f);
 
         Image image = buttonObject.GetComponent<Image>();
         image.color = new Color(0.09f, 0.14f, 0.16f, 1f);
@@ -651,6 +664,11 @@ public class PauseMenuController : MonoBehaviour
         labelRect.offsetMax = Vector2.zero;
         label.alignment = TextAlignmentOptions.Center;
         label.fontSize = 24f;
+        label.enableWordWrapping = false;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 16f;
+        label.fontSizeMax = 24f;
+        label.overflowMode = TextOverflowModes.Ellipsis;
 
         return button;
     }
@@ -660,6 +678,8 @@ public class PauseMenuController : MonoBehaviour
         GameObject buttonObject = new GameObject(text, typeof(RectTransform), typeof(Image), typeof(Button));
         buttonObject.transform.SetParent(parent, false);
         buttonObject.GetComponent<RectTransform>().sizeDelta = new Vector2(width, height);
+        AddLayout(buttonObject, height);
+        SetLayoutWidth(buttonObject, width);
 
         Image image = buttonObject.GetComponent<Image>();
         image.color = new Color(0.12f, 0.18f, 0.2f, 1f);
@@ -674,6 +694,11 @@ public class PauseMenuController : MonoBehaviour
         labelRect.offsetMax = Vector2.zero;
         label.alignment = TextAlignmentOptions.Center;
         label.fontSize = 22f;
+        label.enableWordWrapping = false;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 14f;
+        label.fontSizeMax = 22f;
+        label.overflowMode = TextOverflowModes.Ellipsis;
 
         return button;
     }
@@ -687,6 +712,8 @@ public class PauseMenuController : MonoBehaviour
 
         RectTransform rect = toggleObject.GetComponent<RectTransform>();
         rect.sizeDelta = new Vector2(40f, 40f);
+        AddLayout(toggleObject, 40f);
+        SetLayoutWidth(toggleObject, 40f);
 
         Toggle toggle = toggleObject.GetComponent<Toggle>();
         Image toggleImage = toggleObject.GetComponent<Image>();
@@ -735,6 +762,7 @@ public class PauseMenuController : MonoBehaviour
         GameObject row = CreateRow(parent, labelText);
         Button button = CreateCompactButton(row.transform, string.Empty, 280f, 42f);
         TMP_Text buttonText = button.GetComponentInChildren<TMP_Text>();
+        SetLayoutWidth(button.gameObject, 320f);
         int currentIndex = Mathf.Clamp(value, 0, Mathf.Max(0, options.Count - 1));
 
         void ApplyIndex(int index)
@@ -764,6 +792,8 @@ public class PauseMenuController : MonoBehaviour
         AddLayout(row, 48f);
 
         TMP_Text label = CreateText(row.transform, labelText);
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
         LayoutElement labelLayout = label.GetComponent<LayoutElement>();
         labelLayout.flexibleWidth = 1f;
         labelLayout.preferredHeight = 42f;
@@ -780,6 +810,19 @@ public class PauseMenuController : MonoBehaviour
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = false;
         layout.childAlignment = TextAnchor.MiddleCenter;
+        AddLayout(group, 52f);
+        return group;
+    }
+
+    GameObject CreateVerticalGroup(string objectName, Transform parent, float spacing)
+    {
+        GameObject group = new GameObject(objectName, typeof(RectTransform), typeof(VerticalLayoutGroup));
+        group.transform.SetParent(parent, false);
+        VerticalLayoutGroup layout = group.GetComponent<VerticalLayoutGroup>();
+        layout.spacing = spacing;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+        layout.childAlignment = TextAnchor.UpperCenter;
         AddLayout(group, 52f);
         return group;
     }
@@ -801,6 +844,8 @@ public class PauseMenuController : MonoBehaviour
         GameObject sliderObject = new GameObject("Slider", typeof(RectTransform), typeof(Slider));
         sliderObject.transform.SetParent(parent, false);
         sliderObject.GetComponent<RectTransform>().sizeDelta = new Vector2(280f, 38f);
+        AddLayout(sliderObject, 38f);
+        SetLayoutWidth(sliderObject, 320f);
 
         RectTransform background = CreateImage("Background", sliderObject.transform, new Color(0.08f, 0.1f, 0.12f, 1f), Vector2.zero, Vector2.one);
         RectTransform fill = CreateImage("Fill", sliderObject.transform, new Color(0.32f, 0.78f, 0.85f, 1f), Vector2.zero, Vector2.one);
@@ -837,6 +882,16 @@ public class PauseMenuController : MonoBehaviour
 
         layout.preferredHeight = preferredHeight;
         layout.flexibleHeight = flexibleHeight;
+    }
+
+    void SetLayoutWidth(GameObject target, float preferredWidth, float flexibleWidth = 0f)
+    {
+        LayoutElement layout = target.GetComponent<LayoutElement>();
+        if (layout == null)
+            layout = target.AddComponent<LayoutElement>();
+
+        layout.preferredWidth = preferredWidth;
+        layout.flexibleWidth = flexibleWidth;
     }
 
     void EnsureEventSystem()
