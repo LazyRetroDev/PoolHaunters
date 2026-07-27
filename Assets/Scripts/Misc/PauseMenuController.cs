@@ -35,6 +35,7 @@ public class PauseMenuController : MonoBehaviour
     private Canvas canvas;
     private Canvas fpsCanvas;
     private CanvasScaler menuCanvasScaler;
+    private CanvasScaler fpsCanvasScaler;
     private GameObject mainPanel;
     private GameObject selfDestructConfirmPanel;
     private GameObject settingsPanel;
@@ -52,6 +53,8 @@ public class PauseMenuController : MonoBehaviour
     private bool paused;
     private bool controlLocked;
     private float previousTimeScale = 1f;
+    private float currentHudScale = 1f;
+    private float currentMenuScale = 0.85f;
     private float fpsTimer;
     private int fpsFrames;
     private RectTransformState defaultItemHudState;
@@ -302,10 +305,10 @@ public class PauseMenuController : MonoBehaviour
         fpsCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         fpsCanvas.sortingOrder = 210;
 
-        CanvasScaler scaler = fpsCanvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
+        fpsCanvasScaler = fpsCanvasObject.AddComponent<CanvasScaler>();
+        fpsCanvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        fpsCanvasScaler.referenceResolution = new Vector2(1920f, 1080f);
+        fpsCanvasScaler.matchWidthOrHeight = 0.5f;
 
         fpsText = CreateFloatingText(
             fpsCanvasObject.transform,
@@ -503,14 +506,18 @@ public class PauseMenuController : MonoBehaviour
 
     void ApplyHudScale(float value)
     {
-        if (hudScalers == null)
-            return;
+        currentHudScale = Mathf.Clamp(value, 0.45f, 2f);
 
-        for (int i = 0; i < hudScalers.Length; i++)
+        if (hudScalers != null)
         {
-            if (hudScalers[i] != null)
-                hudScalers[i].scaleFactor = value;
+            for (int i = 0; i < hudScalers.Length; i++)
+            {
+                if (hudScalers[i] != null)
+                    hudScalers[i].scaleFactor = currentHudScale;
+            }
         }
+
+        ApplyGeneratedCanvasScales();
     }
 
     void ApplyBrightness(float value)
@@ -527,11 +534,23 @@ public class PauseMenuController : MonoBehaviour
 
     void ApplyMenuScale(float value)
     {
-        if (menuCanvasScaler == null)
+        currentMenuScale = Mathf.Clamp(value, 0.45f, 1.35f);
+        ApplyGeneratedCanvasScales();
+    }
+
+    void ApplyGeneratedCanvasScales()
+    {
+        ApplyScalerMultiplier(menuCanvasScaler, currentHudScale * currentMenuScale);
+        ApplyScalerMultiplier(fpsCanvasScaler, currentHudScale);
+    }
+
+    void ApplyScalerMultiplier(CanvasScaler scaler, float scale)
+    {
+        if (scaler == null)
             return;
 
-        float clamped = Mathf.Clamp(value, 0.45f, 1.35f);
-        menuCanvasScaler.referenceResolution = new Vector2(
+        float clamped = Mathf.Clamp(scale, 0.25f, 3f);
+        scaler.referenceResolution = new Vector2(
             1920f / clamped,
             1080f / clamped);
     }
