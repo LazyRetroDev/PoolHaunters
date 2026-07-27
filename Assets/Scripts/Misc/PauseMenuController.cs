@@ -27,9 +27,13 @@ public class PauseMenuController : MonoBehaviour
     public Transform leftHandToolRoot;
     public Transform rightSideItemsRoot;
     public Transform leftSideItemsRoot;
+    public RectTransform itemHudRoot;
+    public RectTransform minimapHudRoot;
+    public bool swapItemAndMinimapAnchorsForLeftHanded = true;
 
     private Canvas canvas;
     private GameObject mainPanel;
+    private GameObject selfDestructConfirmPanel;
     private GameObject settingsPanel;
     private GameObject videoPage;
     private GameObject inputPage;
@@ -47,6 +51,9 @@ public class PauseMenuController : MonoBehaviour
     private float previousTimeScale = 1f;
     private float fpsTimer;
     private int fpsFrames;
+    private RectTransformState defaultItemHudState;
+    private RectTransformState defaultMinimapHudState;
+    private bool cachedHudAnchorStates;
 
     static readonly int[] FpsCaps = { -1, 30, 60, 90, 120, 144, 165, 240 };
     static readonly Vector2Int[] CommonResolutions =
@@ -163,7 +170,7 @@ public class PauseMenuController : MonoBehaviour
             ResolveReferences();
 
         if (playerStatus != null)
-            playerStatus.TakeDamage(playerStatus.GetMaxHealth() * 10f);
+            playerStatus.RequestImmediateDeath();
 
         ResumeGame();
     }
@@ -187,11 +194,45 @@ public class PauseMenuController : MonoBehaviour
 
     void ResolveReferences()
     {
+        PlayerStatus foundPlayer = FindLocalPlayerStatus();
+        if (foundPlayer != null && foundPlayer != playerStatus)
+        {
+            playerStatus = foundPlayer;
+            cursorLockController = null;
+        }
+
         if (playerStatus == null)
-            playerStatus = FindFirstObjectByType<PlayerStatus>();
+            playerStatus = FindLocalPlayerStatus();
 
         if (cursorLockController == null && playerStatus != null)
             cursorLockController = playerStatus.GetComponent<CursorLockController>();
+    }
+
+    PlayerStatus FindLocalPlayerStatus()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null && networkManager.IsListening)
+        {
+            NetworkObject localPlayerObject = networkManager.SpawnManager != null
+                ? networkManager.SpawnManager.GetLocalPlayerObject()
+                : null;
+
+            if (localPlayerObject != null)
+            {
+                PlayerStatus localStatus = localPlayerObject.GetComponent<PlayerStatus>();
+                if (localStatus != null)
+                    return localStatus;
+            }
+
+            PlayerStatus[] players = FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < players.Length; i++)
+            {
+                if (players[i] != null && players[i].IsOwner)
+                    return players[i];
+            }
+        }
+
+        return FindFirstObjectByType<PlayerStatus>();
     }
 
     bool IsMultiplayerSessionRunning()
@@ -243,9 +284,18 @@ public class PauseMenuController : MonoBehaviour
         CreateTitle(mainPanel.transform, "PAUSED");
         CreateButton(mainPanel.transform, "CONTINUE", ResumeGame);
         CreateButton(mainPanel.transform, "SETTINGS", ShowSettingsPanel);
-        CreateButton(mainPanel.transform, "SELF-DESTRUCT", SelfDestruct);
+        CreateButton(mainPanel.transform, "SELF-DESTRUCT", ShowSelfDestructConfirm);
         CreateButton(mainPanel.transform, "MAIN MENU", LoadMainMenu);
         CreateButton(mainPanel.transform, "QUIT GAME", QuitGame);
+
+        selfDestructConfirmPanel = CreatePanel("Self Destruct Confirm", background, new Vector2(0.04f, 0.2f), new Vector2(0.31f, 0.82f));
+        CreateTitle(selfDestructConfirmPanel.transform, "CONFIRM");
+        TMP_Text confirmText = CreateText(selfDestructConfirmPanel.transform, "Self-destruct sends you straight to spectator mode.");
+        confirmText.alignment = TextAlignmentOptions.Center;
+        confirmText.fontSize = 22f;
+        AddLayout(confirmText.gameObject, 90f);
+        CreateButton(selfDestructConfirmPanel.transform, "SELF-DESTRUCT", SelfDestruct);
+        CreateButton(selfDestructConfirmPanel.transform, "CANCEL", ShowMainPanel);
 
         BuildSettingsPanel(settingsPanel.transform);
 
@@ -438,6 +488,7 @@ public class PauseMenuController : MonoBehaviour
     {
         SwapSideRoots(rightHandToolRoot, leftHandToolRoot, value);
         SwapSideRoots(rightSideItemsRoot, leftSideItemsRoot, value);
+        SwapHudAnchors(value);
     }
 
     void SwapSideRoots(Transform rightRoot, Transform leftRoot, bool useLeft)
@@ -447,6 +498,35 @@ public class PauseMenuController : MonoBehaviour
 
         if (leftRoot != null)
             leftRoot.gameObject.SetActive(useLeft);
+    }
+
+    void SwapHudAnchors(bool useLeftHanded)
+    {
+        if (!swapItemAndMinimapAnchorsForLeftHanded || itemHudRoot == null || minimapHudRoot == null)
+            return;
+
+        CacheHudAnchorStates();
+
+        if (useLeftHanded)
+        {
+            defaultMinimapHudState.ApplyTo(itemHudRoot);
+            defaultItemHudState.ApplyTo(minimapHudRoot);
+        }
+        else
+        {
+            defaultItemHudState.ApplyTo(itemHudRoot);
+            defaultMinimapHudState.ApplyTo(minimapHudRoot);
+        }
+    }
+
+    void CacheHudAnchorStates()
+    {
+        if (cachedHudAnchorStates || itemHudRoot == null || minimapHudRoot == null)
+            return;
+
+        defaultItemHudState = new RectTransformState(itemHudRoot);
+        defaultMinimapHudState = new RectTransformState(minimapHudRoot);
+        cachedHudAnchorStates = true;
     }
 
     void ApplyLargeText(bool enabled)
@@ -558,12 +638,21 @@ public class PauseMenuController : MonoBehaviour
     void ShowMainPanel()
     {
         SetActive(mainPanel, true);
+        SetActive(selfDestructConfirmPanel, false);
+        SetActive(settingsPanel, false);
+    }
+
+    void ShowSelfDestructConfirm()
+    {
+        SetActive(mainPanel, false);
+        SetActive(selfDestructConfirmPanel, true);
         SetActive(settingsPanel, false);
     }
 
     void ShowSettingsPanel()
     {
         SetActive(mainPanel, false);
+        SetActive(selfDestructConfirmPanel, false);
         SetActive(settingsPanel, true);
         ShowSettingsPage(videoPage);
     }
@@ -892,6 +981,32 @@ public class PauseMenuController : MonoBehaviour
 
         layout.preferredWidth = preferredWidth;
         layout.flexibleWidth = flexibleWidth;
+    }
+
+    struct RectTransformState
+    {
+        readonly Vector2 anchorMin;
+        readonly Vector2 anchorMax;
+        readonly Vector2 pivot;
+        readonly Vector2 anchoredPosition;
+
+        public RectTransformState(RectTransform rect)
+        {
+            anchorMin = rect.anchorMin;
+            anchorMax = rect.anchorMax;
+            pivot = rect.pivot;
+            anchoredPosition = rect.anchoredPosition;
+        }
+
+        public void ApplyTo(RectTransform rect)
+        {
+            if (rect == null) return;
+
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition;
+        }
     }
 
     void EnsureEventSystem()

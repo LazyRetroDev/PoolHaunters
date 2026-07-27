@@ -330,6 +330,17 @@ public class PlayerStatus : NetworkBehaviour
         ApplyDeath(false);
     }
 
+    public void RequestImmediateDeath()
+    {
+        if (IsClientReplica())
+        {
+            RequestImmediateDeathServerRpc();
+            return;
+        }
+
+        ApplyDeath(false);
+    }
+
     public void ApplyDeathTransformation()
     {
         if (!CanWriteState())
@@ -969,6 +980,12 @@ public class PlayerStatus : NetworkBehaviour
     void TakeDamageServerRpc(float damage)
     {
         ApplyDamage(damage);
+    }
+
+    [ServerRpc]
+    void RequestImmediateDeathServerRpc()
+    {
+        ApplyDeath(false);
     }
 
     [ServerRpc]
