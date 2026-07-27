@@ -37,6 +37,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     private bool previousCursorLockControllerEnabled;
     private bool isPlaying;
     private bool controlLocked;
+    private bool cursorUnlockRequested;
     private int score;
     private float timeRemaining;
     private float targetTimer;
@@ -193,6 +194,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         if (cursorLockController != null)
             cursorLockController.enabled = false;
 
+        RequestCursorUnlock();
         KeepArcadeCursorUnlocked();
 
         if (!lockPlayerWhilePlaying ||
@@ -210,6 +212,8 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     {
         Cursor.lockState = previousLockState;
         Cursor.visible = previousCursorVisible;
+
+        ReleaseCursorUnlock();
 
         if (cursorLockController != null)
             cursorLockController.enabled = previousCursorLockControllerEnabled;
@@ -229,8 +233,27 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
     void KeepArcadeCursorUnlocked()
     {
+        RequestCursorUnlock();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    void RequestCursorUnlock()
+    {
+        if (cursorUnlockRequested)
+            return;
+
+        CursorLockController.RequestCursorUnlocked();
+        cursorUnlockRequested = true;
+    }
+
+    void ReleaseCursorUnlock()
+    {
+        if (!cursorUnlockRequested)
+            return;
+
+        CursorLockController.ReleaseCursorUnlocked();
+        cursorUnlockRequested = false;
     }
 
     void EnsureCanvas()

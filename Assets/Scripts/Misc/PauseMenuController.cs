@@ -52,6 +52,7 @@ public class PauseMenuController : MonoBehaviour
     private bool previousCursorLockControllerEnabled;
     private bool paused;
     private bool controlLocked;
+    private bool cursorUnlockRequested;
     private float previousTimeScale = 1f;
     private float currentHudScale = 1f;
     private float currentMenuScale = 0.85f;
@@ -138,6 +139,8 @@ public class PauseMenuController : MonoBehaviour
         if (cursorLockController != null)
             cursorLockController.enabled = false;
 
+        RequestCursorUnlock();
+
         if (lockPlayerWhilePaused && playerStatus != null)
         {
             playerStatus.AddExternalControlLock();
@@ -164,6 +167,8 @@ public class PauseMenuController : MonoBehaviour
 
         if (cursorLockController != null)
             cursorLockController.enabled = previousCursorLockControllerEnabled;
+
+        ReleaseCursorUnlock();
 
         if (cursorLockController != null && previousCursorLockControllerEnabled)
             cursorLockController.ForceLockCursor();
@@ -258,17 +263,38 @@ public class PauseMenuController : MonoBehaviour
 
     void KeepCursorUnlocked()
     {
+        RequestCursorUnlock();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
 
     void UnlockCursorForMenuScene()
     {
+        RequestCursorUnlock();
+
         if (cursorLockController != null)
             cursorLockController.enabled = false;
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    void RequestCursorUnlock()
+    {
+        if (cursorUnlockRequested)
+            return;
+
+        CursorLockController.RequestCursorUnlocked();
+        cursorUnlockRequested = true;
+    }
+
+    void ReleaseCursorUnlock()
+    {
+        if (!cursorUnlockRequested)
+            return;
+
+        CursorLockController.ReleaseCursorUnlocked();
+        cursorUnlockRequested = false;
     }
 
     void EnsureCanvas()

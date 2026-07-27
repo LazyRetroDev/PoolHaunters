@@ -62,6 +62,7 @@ public class MainMenu : MonoBehaviour
     private bool lobbyStartInProgress;
     private bool suppressReadyToggleEvent;
     private bool gameStartInProgress;
+    private bool cursorUnlockRequested;
 
     public void StartSinglePlayer()
     {
@@ -345,6 +346,7 @@ public class MainMenu : MonoBehaviour
 
     private void OnDestroy()
     {
+        ReleaseCursorUnlock();
         UnregisterNetworkCallbacks();
         UnregisterMessageHandlers();
     }
@@ -959,13 +961,33 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        ReleaseCursorUnlock();
         SceneManager.LoadScene(gameSceneName);
     }
 
-    private static void UnlockCursorForMenu()
+    private void UnlockCursorForMenu()
     {
+        RequestCursorUnlock();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    private void RequestCursorUnlock()
+    {
+        if (cursorUnlockRequested)
+            return;
+
+        CursorLockController.RequestCursorUnlocked();
+        cursorUnlockRequested = true;
+    }
+
+    private void ReleaseCursorUnlock()
+    {
+        if (!cursorUnlockRequested)
+            return;
+
+        CursorLockController.ReleaseCursorUnlocked();
+        cursorUnlockRequested = false;
     }
 
     private static bool UsesWebSockets(string connectionType)
