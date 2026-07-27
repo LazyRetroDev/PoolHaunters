@@ -28,10 +28,13 @@ public class PauseMenuController : MonoBehaviour
     public Transform rightSideItemsRoot;
     public Transform leftSideItemsRoot;
     public RectTransform itemHudRoot;
+    public RectTransform itemHighlightHudRoot;
     public RectTransform minimapHudRoot;
     public bool swapItemAndMinimapAnchorsForLeftHanded = true;
 
     private Canvas canvas;
+    private Canvas fpsCanvas;
+    private CanvasScaler menuCanvasScaler;
     private GameObject mainPanel;
     private GameObject selfDestructConfirmPanel;
     private GameObject settingsPanel;
@@ -52,7 +55,9 @@ public class PauseMenuController : MonoBehaviour
     private float fpsTimer;
     private int fpsFrames;
     private RectTransformState defaultItemHudState;
+    private RectTransformState defaultItemHighlightHudState;
     private RectTransformState defaultMinimapHudState;
+    private Vector2 defaultHighlightOffsetFromItems;
     private bool cachedHudAnchorStates;
 
     static readonly int[] FpsCaps = { -1, 30, 60, 90, 120, 144, 165, 240 };
@@ -157,8 +162,13 @@ public class PauseMenuController : MonoBehaviour
         if (cursorLockController != null)
             cursorLockController.enabled = previousCursorLockControllerEnabled;
 
-        Cursor.lockState = previousLockState;
-        Cursor.visible = previousCursorVisible;
+        if (cursorLockController != null && previousCursorLockControllerEnabled)
+            cursorLockController.ForceLockCursor();
+        else
+        {
+            Cursor.lockState = previousLockState;
+            Cursor.visible = previousCursorVisible;
+        }
 
         if (canvas != null)
             canvas.gameObject.SetActive(false);
@@ -178,6 +188,7 @@ public class PauseMenuController : MonoBehaviour
     public void LoadMainMenu()
     {
         Time.timeScale = 1f;
+        UnlockCursorForMenuScene();
 
         NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager != null && networkManager.IsListening)
@@ -189,6 +200,7 @@ public class PauseMenuController : MonoBehaviour
     public void QuitGame()
     {
         Time.timeScale = 1f;
+        UnlockCursorForMenuScene();
         Application.Quit();
     }
 
@@ -247,6 +259,15 @@ public class PauseMenuController : MonoBehaviour
         Cursor.visible = true;
     }
 
+    void UnlockCursorForMenuScene()
+    {
+        if (cursorLockController != null)
+            cursorLockController.enabled = false;
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
     void EnsureCanvas()
     {
         if (canvas != null)
@@ -261,12 +282,38 @@ public class PauseMenuController : MonoBehaviour
         canvas.sortingOrder = 200;
         canvasObject.AddComponent<GraphicRaycaster>();
 
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        menuCanvasScaler = canvasObject.AddComponent<CanvasScaler>();
+        menuCanvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        menuCanvasScaler.referenceResolution = new Vector2(1920f, 1080f);
+        menuCanvasScaler.matchWidthOrHeight = 0.5f;
+
+        BuildUi(canvasObject.transform);
+        EnsureFpsCanvas();
+    }
+
+    void EnsureFpsCanvas()
+    {
+        if (fpsCanvas != null)
+            return;
+
+        GameObject fpsCanvasObject = new GameObject("FPS Counter Canvas");
+        fpsCanvasObject.transform.SetParent(transform, false);
+        fpsCanvas = fpsCanvasObject.AddComponent<Canvas>();
+        fpsCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        fpsCanvas.sortingOrder = 210;
+
+        CanvasScaler scaler = fpsCanvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
 
-        BuildUi(canvasObject.transform);
+        fpsText = CreateFloatingText(
+            fpsCanvasObject.transform,
+            "FPS",
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(18f, -18f));
+        fpsText.gameObject.SetActive(PlayerPrefs.GetInt(PrefPrefix + "FpsCounter", 0) == 1);
     }
 
     void BuildUi(Transform root)
@@ -298,9 +345,6 @@ public class PauseMenuController : MonoBehaviour
         CreateButton(selfDestructConfirmPanel.transform, "CANCEL", ShowMainPanel);
 
         BuildSettingsPanel(settingsPanel.transform);
-
-        fpsText = CreateFloatingText(root, "FPS", new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -18f));
-        fpsText.gameObject.SetActive(PlayerPrefs.GetInt(PrefPrefix + "FpsCounter", 0) == 1);
 
         brightnessOverlay = CreateImage(
             "Brightness Overlay",
@@ -430,11 +474,7 @@ public class PauseMenuController : MonoBehaviour
     {
         CreateToggle(root, "REDUCE FLASHING", PrefPrefix + "ReduceFlashing", false, value => ReduceFlashing = value);
         CreateToggle(root, "REDUCE CAMERA SHAKE", PrefPrefix + "ReduceCameraShake", false, value => ReduceCameraShake = value);
-        CreateSlider(root, "MENU SCALE", PrefPrefix + "MenuScale", 1f, 0.85f, 1.35f, value =>
-        {
-            if (canvas != null)
-                canvas.scaleFactor = value;
-        });
+        CreateSlider(root, "MENU SCALE", PrefPrefix + "MenuScale", 0.85f, 0.45f, 1.35f, ApplyMenuScale);
         CreateToggle(root, "LARGE TEXT", PrefPrefix + "LargeText", false, value => ApplyLargeText(value));
     }
 
@@ -457,6 +497,7 @@ public class PauseMenuController : MonoBehaviour
         ColorblindMode = PlayerPrefs.GetInt(PrefPrefix + "ColorblindMode", 0);
         ReduceFlashing = PlayerPrefs.GetInt(PrefPrefix + "ReduceFlashing", 0) == 1;
         ReduceCameraShake = PlayerPrefs.GetInt(PrefPrefix + "ReduceCameraShake", 0) == 1;
+        ApplyMenuScale(PlayerPrefs.GetFloat(PrefPrefix + "MenuScale", 0.85f));
         ApplyLeftHandedMode(LeftHandedMode);
     }
 
@@ -482,6 +523,17 @@ public class PauseMenuController : MonoBehaviour
         brightnessOverlay.color = darkness > 0f
             ? new Color(0f, 0f, 0f, darkness * 0.55f)
             : new Color(1f, 1f, 1f, whiteness * 0.18f);
+    }
+
+    void ApplyMenuScale(float value)
+    {
+        if (menuCanvasScaler == null)
+            return;
+
+        float clamped = Mathf.Clamp(value, 0.45f, 1.35f);
+        menuCanvasScaler.referenceResolution = new Vector2(
+            1920f / clamped,
+            1080f / clamped);
     }
 
     void ApplyLeftHandedMode(bool value)
@@ -510,11 +562,15 @@ public class PauseMenuController : MonoBehaviour
         if (useLeftHanded)
         {
             defaultMinimapHudState.ApplyTo(itemHudRoot);
+            if (itemHighlightHudRoot != null)
+                defaultMinimapHudState.ApplyToWithPositionOffset(itemHighlightHudRoot, defaultHighlightOffsetFromItems);
             defaultItemHudState.ApplyTo(minimapHudRoot);
         }
         else
         {
             defaultItemHudState.ApplyTo(itemHudRoot);
+            if (itemHighlightHudRoot != null)
+                defaultItemHighlightHudState.ApplyTo(itemHighlightHudRoot);
             defaultMinimapHudState.ApplyTo(minimapHudRoot);
         }
     }
@@ -525,6 +581,11 @@ public class PauseMenuController : MonoBehaviour
             return;
 
         defaultItemHudState = new RectTransformState(itemHudRoot);
+        if (itemHighlightHudRoot != null)
+        {
+            defaultItemHighlightHudState = new RectTransformState(itemHighlightHudRoot);
+            defaultHighlightOffsetFromItems = itemHighlightHudRoot.anchoredPosition - itemHudRoot.anchoredPosition;
+        }
         defaultMinimapHudState = new RectTransformState(minimapHudRoot);
         cachedHudAnchorStates = true;
     }
@@ -709,6 +770,7 @@ public class PauseMenuController : MonoBehaviour
         label.fontSize = 24f;
         label.alignment = TextAlignmentOptions.Left;
         label.enableWordWrapping = true;
+        label.raycastTarget = false;
         AddLayout(textObject, 48f);
         return label;
     }
@@ -729,6 +791,7 @@ public class PauseMenuController : MonoBehaviour
         label.color = Color.white;
         label.fontSize = 24f;
         label.alignment = TextAlignmentOptions.Left;
+        label.raycastTarget = false;
         return label;
     }
 
@@ -1006,6 +1069,16 @@ public class PauseMenuController : MonoBehaviour
             rect.anchorMax = anchorMax;
             rect.pivot = pivot;
             rect.anchoredPosition = anchoredPosition;
+        }
+
+        public void ApplyToWithPositionOffset(RectTransform rect, Vector2 positionOffset)
+        {
+            if (rect == null) return;
+
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition + positionOffset;
         }
     }
 

@@ -331,12 +331,14 @@ public class MainMenu : MonoBehaviour
 
     private void Awake()
     {
+        UnlockCursorForMenu();
         ResolveReferences();
         RegisterUiListeners();
     }
 
     private void Start()
     {
+        UnlockCursorForMenu();
         ResolveReferences();
         ResetLobbyToInitialState();
     }
@@ -958,6 +960,12 @@ public class MainMenu : MonoBehaviour
         }
 
         SceneManager.LoadScene(gameSceneName);
+    }
+
+    private static void UnlockCursorForMenu()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     private static bool UsesWebSockets(string connectionType)

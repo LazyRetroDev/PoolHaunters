@@ -29,6 +29,16 @@ public class CursorLockController : MonoBehaviour
             SetCursorLocked(true);
     }
 
+    public void ForceLockCursor()
+    {
+        SetCursorLocked(true);
+    }
+
+    public void ForceUnlockCursor()
+    {
+        SetCursorLocked(false);
+    }
+
     void SetCursorLocked(bool locked)
     {
         Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;

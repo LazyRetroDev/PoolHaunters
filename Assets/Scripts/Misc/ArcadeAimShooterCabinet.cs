@@ -13,6 +13,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
     public float targetLifetime = 1.25f;
     public float targetSize = 72f;
     public float targetPadding = 64f;
+    public float targetClickPadding = 10f;
     public bool lockPlayerWhilePlaying = true;
 
     [Header("Style")]
@@ -67,6 +68,12 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
         if (!isPlaying)
             return;
+
+        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && IsPointerOverTarget())
+        {
+            HitTarget();
+            return;
+        }
 
         timeRemaining -= Time.unscaledDeltaTime;
         targetTimer -= Time.unscaledDeltaTime;
@@ -275,7 +282,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         resultText.fontSize = 54f;
 
         targetButton = CreateButton("Target", playArea, targetColor, targetSize, targetSize);
-        targetButton.onClick.AddListener(HitTarget);
+        targetButton.GetComponent<Image>().raycastTarget = false;
 
         Image ring = CreateImage(
             "Ring",
@@ -378,8 +385,31 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         label.fontSize = 24f;
         label.alignment = TextAlignmentOptions.Center;
         label.enableWordWrapping = false;
+        label.raycastTarget = false;
 
         return button;
+    }
+
+    bool IsPointerOverTarget()
+    {
+        if (targetButton == null || !targetButton.gameObject.activeInHierarchy || Mouse.current == null)
+            return false;
+
+        RectTransform targetRect = targetButton.GetComponent<RectTransform>();
+        if (targetRect == null)
+            return false;
+
+        Vector2 mousePosition = Mouse.current.position.ReadValue();
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(targetRect, mousePosition, null, out Vector2 localPosition))
+            return false;
+
+        Rect hitRect = targetRect.rect;
+        float padding = Mathf.Max(0f, targetClickPadding);
+        hitRect.xMin -= padding;
+        hitRect.xMax += padding;
+        hitRect.yMin -= padding;
+        hitRect.yMax += padding;
+        return hitRect.Contains(localPosition);
     }
 
     void EnsureEventSystem()
