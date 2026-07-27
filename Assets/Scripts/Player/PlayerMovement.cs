@@ -1072,6 +1072,11 @@ public class PlayerMovement : NetworkBehaviour
             GetComponentInHierarchy<BathroomBlondeDrain>(target);
         if (bathroomDrain != null)
             bathroomDrain.ReceiveWaterHit(sourcePosition);
+
+        TubaraoBehavior tubarao =
+            GetComponentInHierarchy<TubaraoBehavior>(target);
+        if (tubarao != null)
+            tubarao.ReceiveWaterHit(sourcePosition);
     }
 
     T GetComponentInHierarchy<T>(GameObject target) where T : Component

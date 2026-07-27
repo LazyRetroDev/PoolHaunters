@@ -63,6 +63,7 @@ public class WaterCannon : MonoBehaviour
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
+    private readonly HashSet<TubaraoBehavior> tubaraoHits = new HashSet<TubaraoBehavior>();
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
@@ -440,6 +441,7 @@ public class WaterCannon : MonoBehaviour
 
         dirtHits.Clear();
         goldenMouthHits.Clear();
+        tubaraoHits.Clear();
 
         bool handledContaminatedDirt = false;
         RaycastHit? contaminationSurfaceHit = null;
@@ -486,10 +488,31 @@ public class WaterCannon : MonoBehaviour
                 goldenMouthHits.Add(goldenMouth);
                 ApplyWaterToGoldenMouth(goldenMouth, waterQuality, cleanAmount);
             }
+
+            TubaraoBehavior tubarao = hits[i].collider.GetComponentInParent<TubaraoBehavior>();
+            if (tubarao != null && !tubaraoHits.Contains(tubarao))
+            {
+                tubaraoHits.Add(tubarao);
+                ApplyWaterToTubarao(tubarao, sprayOrigin.position);
+            }
         }
 
         if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
             CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    void ApplyWaterToTubarao(TubaraoBehavior tubarao, Vector3 sourcePosition)
+    {
+        if (tubarao == null)
+            return;
+
+        if (playerMovement != null)
+        {
+            playerMovement.RequestEnemyWaterHit(tubarao.gameObject, sourcePosition);
+            return;
+        }
+
+        tubarao.ReceiveWaterHit(sourcePosition);
     }
 
     void ApplyWaterToGoldenMouth(
