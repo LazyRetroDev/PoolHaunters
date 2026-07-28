@@ -16,6 +16,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     [Header("Objectives")]
     [Range(0f, 1f)] public float requiredCleanPercent = 0.8f;
+    public bool requireAllPoolsCleanForCompletion = true;
     public bool requireFinalRoomDiscovered = true;
     public bool requireAllWaterSourcesClean = false;
     public bool completeOnlyOnce = true;
@@ -49,6 +50,7 @@ public class LevelObjectiveManager : MonoBehaviour
     [SerializeField] private int cleanedDirtSpotCount;
     [SerializeField] private int requiredPoolCount;
     [SerializeField] private int cleanedPoolCount;
+    [SerializeField] private bool usingPoolObjectives;
     [SerializeField] private bool levelCompleted;
 
     public event Action<RoomDefinition, int> OnRoomDiscovered;
@@ -57,6 +59,8 @@ public class LevelObjectiveManager : MonoBehaviour
 
     private readonly List<RoomDefinition> discoveredRooms = new List<RoomDefinition>();
     private readonly HashSet<RoomDefinition> discoveredRoomSet = new HashSet<RoomDefinition>();
+    private readonly HashSet<PoolCleaningZone> registeredPools = new HashSet<PoolCleaningZone>();
+    private readonly HashSet<PoolCleaningZone> cleanedPools = new HashSet<PoolCleaningZone>();
     private readonly HashSet<DirtSpot> registeredDirtSpots = new HashSet<DirtSpot>();
     private readonly HashSet<DirtSpot> cleanedDirtSpots = new HashSet<DirtSpot>();
     private float discoveryTimer;
@@ -83,6 +87,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void OnDestroy()
     {
+        UnregisterPoolEvents();
         UnregisterDirtSpotEvents();
 
         if (Instance == this)
@@ -141,7 +146,9 @@ public class LevelObjectiveManager : MonoBehaviour
         RefreshPoolProgress();
         bool waterSourcesReady = !requireAllWaterSourcesClean || AreAllWaterSourcesClean();
         bool finalReady = !requireFinalRoomDiscovered || finalRoomDiscovered;
-        bool cleanReady = currentCleanPercent >= requiredCleanPercent;
+        bool cleanReady = usingPoolObjectives && requireAllPoolsCleanForCompletion
+            ? cleanedPoolCount >= requiredPoolCount
+            : currentCleanPercent >= requiredCleanPercent;
         bool completedNow = cleanReady && finalReady && waterSourcesReady;
 
         if (completedNow && (!levelCompleted || !completeOnlyOnce))
@@ -188,6 +195,14 @@ public class LevelObjectiveManager : MonoBehaviour
 
     float CalculateCleanPercent()
     {
+        PoolCleaningZone[] pools = FindObjectsOfType<PoolCleaningZone>();
+        if (pools != null && pools.Length > 0)
+        {
+            usingPoolObjectives = true;
+            return CalculatePoolCleanPercent(pools);
+        }
+
+        usingPoolObjectives = false;
         RegisterKnownDirtSpots();
 
         if (registeredDirtSpots.Count == 0)
@@ -211,6 +226,71 @@ public class LevelObjectiveManager : MonoBehaviour
 
         UpdateDirtDebugCounts();
         return Mathf.Clamp01(cleanedAmount / registeredDirtSpots.Count);
+    }
+
+    float CalculatePoolCleanPercent(PoolCleaningZone[] pools)
+    {
+        float cleanedAmount = 0f;
+        int validPoolCount = 0;
+
+        for (int i = 0; i < pools.Length; i++)
+        {
+            PoolCleaningZone pool = pools[i];
+            if (pool == null) continue;
+
+            RegisterPool(pool);
+            validPoolCount++;
+            cleanedAmount += pool.IsCleaned
+                ? 1f
+                : Mathf.Clamp01(pool.CleanPercent);
+        }
+
+        requiredPoolCount = Mathf.Max(1, validPoolCount);
+        cleanedPoolCount = CountCleanedPools(pools);
+
+        if (validPoolCount == 0)
+            return 1f;
+
+        return Mathf.Clamp01(cleanedAmount / validPoolCount);
+    }
+
+    void RegisterPool(PoolCleaningZone pool)
+    {
+        if (pool == null || registeredPools.Contains(pool))
+            return;
+
+        registeredPools.Add(pool);
+        pool.OnCleaned += HandlePoolCleaned;
+        pool.OnProgressChanged += HandlePoolProgressChanged;
+
+        if (pool.IsCleaned)
+            cleanedPools.Add(pool);
+    }
+
+    void HandlePoolCleaned(PoolCleaningZone pool)
+    {
+        if (pool != null)
+            cleanedPools.Add(pool);
+
+        RefreshObjectiveState();
+    }
+
+    void HandlePoolProgressChanged(PoolCleaningZone pool)
+    {
+        RefreshObjectiveState();
+    }
+
+    int CountCleanedPools(PoolCleaningZone[] pools)
+    {
+        int count = 0;
+        for (int i = 0; i < pools.Length; i++)
+        {
+            PoolCleaningZone pool = pools[i];
+            if (pool != null && pool.IsCleaned)
+                count++;
+        }
+
+        return count;
     }
 
     void RegisterKnownDirtSpots()
@@ -253,6 +333,17 @@ public class LevelObjectiveManager : MonoBehaviour
         {
             if (dirt != null)
                 dirt.OnCleaned -= HandleDirtSpotCleaned;
+        }
+    }
+
+    void UnregisterPoolEvents()
+    {
+        foreach (PoolCleaningZone pool in registeredPools)
+        {
+            if (pool == null) continue;
+
+            pool.OnCleaned -= HandlePoolCleaned;
+            pool.OnProgressChanged -= HandlePoolProgressChanged;
         }
     }
 
@@ -309,6 +400,16 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void RefreshPoolProgress()
     {
+        PoolCleaningZone[] pools = FindObjectsOfType<PoolCleaningZone>();
+        if (pools != null && pools.Length > 0)
+        {
+            usingPoolObjectives = true;
+            requiredPoolCount = Mathf.Max(1, pools.Length);
+            cleanedPoolCount = CountCleanedPools(pools);
+            return;
+        }
+
+        usingPoolObjectives = false;
         requiredPoolCount = Mathf.Max(0, requiredPoolCountOverride);
 
         if (requiredPoolCount <= 0 && countGeneratedPoolRooms)

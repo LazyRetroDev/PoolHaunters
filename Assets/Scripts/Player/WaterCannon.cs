@@ -62,6 +62,7 @@ public class WaterCannon : MonoBehaviour
     private PlayerPetrify playerPetrify;
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
+    private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
     private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
     private readonly HashSet<TubaraoBehavior> tubaraoHits = new HashSet<TubaraoBehavior>();
     private Transform ownerRoot;
@@ -440,6 +441,7 @@ public class WaterCannon : MonoBehaviour
         if (sprayOrigin == null || waterAmount <= 0f) return;
 
         dirtHits.Clear();
+        poolHits.Clear();
         goldenMouthHits.Clear();
         tubaraoHits.Clear();
 
@@ -459,6 +461,22 @@ public class WaterCannon : MonoBehaviour
                 continue;
 
             DirtSpot dirtSpot = hits[i].collider.GetComponentInParent<DirtSpot>();
+            PoolCleaningZone pool = hits[i].collider.GetComponentInParent<PoolCleaningZone>();
+
+            if (pool != null && !poolHits.Contains(pool))
+            {
+                poolHits.Add(pool);
+                pool.ApplyWaterAtWorldPoint(
+                    hits[i].point,
+                    cleanContactRadius,
+                    cleanAmount,
+                    waterAmount,
+                    waterQuality);
+
+                if (waterQuality == WaterQuality.Contaminated)
+                    handledContaminatedDirt = true;
+            }
+
             if (waterQuality == WaterQuality.Contaminated)
             {
                 if (dirtSpot != null)
