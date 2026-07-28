@@ -694,6 +694,85 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!1001 &54697812
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 12.427924
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.0000001219496
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 18.22
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_ConstrainProportionsScale
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+      propertyPath: m_Name
+      value: SmallPool
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects:
+    - {fileID: 7298216830123526530, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    - {fileID: 2579912730480323204, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    - {fileID: -6905140777799410164, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    - {fileID: -901893036888321632, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    - {fileID: -8700617353114198275, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    - {fileID: 65702495048144492, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 2e8f640b51c34cb43b94277be7c2267f, type: 3}
 --- !u!1 &102115640
 GameObject:
   m_ObjectHideFlags: 0
@@ -1844,7 +1923,7 @@ Light:
   serializedVersion: 13
   m_Type: 1
   m_Color: {r: 0, g: 0, b: 0, a: 1}
-  m_Intensity: 2
+  m_Intensity: 4.4
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -1887,7 +1966,7 @@ Light:
   m_LightShadowCasterMode: 0
   m_AreaSize: {x: 1, y: 1}
   m_BounceIntensity: 1
-  m_ColorTemperature: 4563
+  m_ColorTemperature: 1500
   m_UseColorTemperature: 1
   m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
   m_UseBoundingSphereOverride: 0
@@ -2159,10 +2238,10 @@ RectTransform:
   - {fileID: 1684075507}
   m_Father: {fileID: 353593404}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0.5}
-  m_AnchorMax: {x: 0, y: 0.5}
-  m_AnchoredPosition: {x: 78.28589, y: 268.9}
-  m_SizeDelta: {x: 129.8838, y: 22.0587}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 78.286, y: -131.9}
+  m_SizeDelta: {x: 129.8838, y: 22.058716}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &641031490
 CanvasRenderer:
@@ -5252,6 +5331,65 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1694875661}
   m_CullTransparentMesh: 1
+--- !u!1 &1701793999
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1701794001}
+  - component: {fileID: 1701794000}
+  m_Layer: 0
+  m_Name: PauseMenu
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1701794000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1701793999}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7322a725e6a4139abb26c50e1d97ac3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PauseMenuController
+  mainMenuSceneName: Menu
+  pauseSinglePlayerTime: 1
+  lockPlayerWhilePaused: 1
+  playerStatus: {fileID: 0}
+  cursorLockController: {fileID: 0}
+  hudScalers:
+  - {fileID: 353593402}
+  rightHandToolRoot: {fileID: 0}
+  leftHandToolRoot: {fileID: 0}
+  rightSideItemsRoot: {fileID: 0}
+  leftSideItemsRoot: {fileID: 0}
+  itemHudRoot: {fileID: 0}
+  itemHighlightHudRoot: {fileID: 0}
+  minimapHudRoot: {fileID: 0}
+  swapItemAndMinimapAnchorsForLeftHanded: 1
+--- !u!4 &1701794001
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1701793999}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 667.1943, y: 384.12042, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1721222586
 GameObject:
   m_ObjectHideFlags: 0
@@ -6028,7 +6166,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 64.9419, y: -11.029358}
+  m_AnchoredPosition: {x: 78.28601, y: -11.029358}
   m_SizeDelta: {x: 129.8838, y: 22.058716}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1894449007
@@ -6205,13 +6343,28 @@ MonoBehaviour:
   completeOnlyOnce: 1
   objectiveText: {fileID: 6143981}
   progressText: {fileID: 902106067}
+  cleaningProgressText: {fileID: 17031038}
+  cleaningProgressBar: {fileID: 1495560686}
+  cleaningProgressFill: {fileID: 1433921889}
+  poolCounterText: {fileID: 102115642}
+  levelInfoText: {fileID: 1761152863}
+  autoBindNewHudFields: 1
   activeObjectiveLabel: Clean the pools and reach the exit
   completedObjectiveLabel: Objectives complete
+  cleaningProgressFormat: 'Cleaning: {0}%'
+  poolCounterFormat: Pools {0}/{1}
+  levelInfoFormat: Level {0}
+  regionLevelInfoFormat: Level {0} - {1}
+  levelNumber: 1
+  requiredPoolCountOverride: 0
+  countGeneratedPoolRooms: 1
   discoveredRoomCount: 0
   finalRoomDiscovered: 0
   currentCleanPercent: 0
   registeredDirtSpotCount: 0
   cleanedDirtSpotCount: 0
+  requiredPoolCount: 0
+  cleanedPoolCount: 0
   levelCompleted: 0
 --- !u!1 &1976208331
 GameObject:
@@ -7996,3 +8149,5 @@ SceneRoots:
   - {fileID: 1835621536}
   - {fileID: 919030707}
   - {fileID: 179717989}
+  - {fileID: 1701794001}
+  - {fileID: 54697812}
