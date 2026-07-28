@@ -46,6 +46,8 @@ public class LevelObjectiveManager : MonoBehaviour
     [SerializeField] private int discoveredRoomCount;
     [SerializeField] private bool finalRoomDiscovered;
     [SerializeField] private float currentCleanPercent;
+    [SerializeField] private float poolCleanPercent;
+    [SerializeField] private float sceneCleanPercent;
     [SerializeField] private int registeredDirtSpotCount;
     [SerializeField] private int cleanedDirtSpotCount;
     [SerializeField] private int requiredPoolCount;
@@ -69,6 +71,8 @@ public class LevelObjectiveManager : MonoBehaviour
     public int DiscoveredRoomCount => discoveredRoomCount;
     public bool FinalRoomDiscovered => finalRoomDiscovered;
     public float CurrentCleanPercent => currentCleanPercent;
+    public float PoolCleanPercent => poolCleanPercent;
+    public float SceneCleanPercent => sceneCleanPercent;
     public int RequiredPoolCount => requiredPoolCount;
     public int CleanedPoolCount => cleanedPoolCount;
     public bool LevelCompleted => levelCompleted;
@@ -142,7 +146,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     public void RefreshObjectiveState()
     {
-        currentCleanPercent = CalculateCleanPercent();
+        RefreshCleanPercents();
         RefreshPoolProgress();
         bool waterSourcesReady = !requireAllWaterSourcesClean || AreAllWaterSourcesClean();
         bool finalReady = !requireFinalRoomDiscovered || finalRoomDiscovered;
@@ -193,16 +197,26 @@ public class LevelObjectiveManager : MonoBehaviour
         }
     }
 
-    float CalculateCleanPercent()
+    void RefreshCleanPercents()
     {
         PoolCleaningZone[] pools = FindObjectsOfType<PoolCleaningZone>();
+        sceneCleanPercent = CalculateDirtCleanPercent();
+
         if (pools != null && pools.Length > 0)
         {
             usingPoolObjectives = true;
-            return CalculatePoolCleanPercent(pools);
+            poolCleanPercent = CalculatePoolCleanPercent(pools);
+            currentCleanPercent = poolCleanPercent;
+            return;
         }
 
         usingPoolObjectives = false;
+        poolCleanPercent = 0f;
+        currentCleanPercent = sceneCleanPercent;
+    }
+
+    float CalculateDirtCleanPercent()
+    {
         RegisterKnownDirtSpots();
 
         if (registeredDirtSpots.Count == 0)
@@ -369,6 +383,7 @@ public class LevelObjectiveManager : MonoBehaviour
             objectiveText.text = levelCompleted ? completedObjectiveLabel : activeObjectiveLabel;
 
         int cleanPercent = Mathf.RoundToInt(currentCleanPercent * 100f);
+        int scenePercent = Mathf.RoundToInt(sceneCleanPercent * 100f);
 
         if (cleaningProgressText != null)
             cleaningProgressText.text = string.Format(cleaningProgressFormat, cleanPercent);
@@ -395,7 +410,7 @@ public class LevelObjectiveManager : MonoBehaviour
             ? finalRoomDiscovered ? "Exit found" : "Find exit"
             : "Exit optional";
 
-        progressText.text = $"Clean {cleanPercent}% / {requiredPercent}% - Rooms {discoveredRoomCount} - {finalText}";
+        progressText.text = $"Scene {scenePercent}% / {requiredPercent}% - Rooms {discoveredRoomCount} - {finalText}";
     }
 
     void RefreshPoolProgress()
