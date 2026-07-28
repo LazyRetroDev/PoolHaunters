@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class LevelObjectiveManager : MonoBehaviour
 {
@@ -22,8 +23,23 @@ public class LevelObjectiveManager : MonoBehaviour
     [Header("HUD")]
     public TMP_Text objectiveText;
     public TMP_Text progressText;
+    public TMP_Text cleaningProgressText;
+    public Slider cleaningProgressBar;
+    public Image cleaningProgressFill;
+    public TMP_Text poolCounterText;
+    public TMP_Text levelInfoText;
+    public bool autoBindNewHudFields = true;
     public string activeObjectiveLabel = "Clean the pools and reach the exit";
     public string completedObjectiveLabel = "Objectives complete";
+    public string cleaningProgressFormat = "Cleaning: {0}%";
+    public string poolCounterFormat = "Pools {0}/{1}";
+    public string levelInfoFormat = "Level {0}";
+    public string regionLevelInfoFormat = "Level {0} - {1}";
+
+    [Header("Level Info")]
+    [Min(1)] public int levelNumber = 1;
+    [Min(0)] public int requiredPoolCountOverride;
+    public bool countGeneratedPoolRooms = true;
 
     [Header("Debug")]
     [SerializeField] private int discoveredRoomCount;
@@ -31,6 +47,8 @@ public class LevelObjectiveManager : MonoBehaviour
     [SerializeField] private float currentCleanPercent;
     [SerializeField] private int registeredDirtSpotCount;
     [SerializeField] private int cleanedDirtSpotCount;
+    [SerializeField] private int requiredPoolCount;
+    [SerializeField] private int cleanedPoolCount;
     [SerializeField] private bool levelCompleted;
 
     public event Action<RoomDefinition, int> OnRoomDiscovered;
@@ -47,6 +65,8 @@ public class LevelObjectiveManager : MonoBehaviour
     public int DiscoveredRoomCount => discoveredRoomCount;
     public bool FinalRoomDiscovered => finalRoomDiscovered;
     public float CurrentCleanPercent => currentCleanPercent;
+    public int RequiredPoolCount => requiredPoolCount;
+    public int CleanedPoolCount => cleanedPoolCount;
     public bool LevelCompleted => levelCompleted;
     public IReadOnlyList<RoomDefinition> DiscoveredRooms => discoveredRooms;
 
@@ -71,6 +91,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void Start()
     {
+        AutoBindHudFields();
         RefreshObjectiveState();
         UpdateObjectiveHUD();
     }
@@ -117,6 +138,7 @@ public class LevelObjectiveManager : MonoBehaviour
     public void RefreshObjectiveState()
     {
         currentCleanPercent = CalculateCleanPercent();
+        RefreshPoolProgress();
         bool waterSourcesReady = !requireAllWaterSourcesClean || AreAllWaterSourcesClean();
         bool finalReady = !requireFinalRoomDiscovered || finalRoomDiscovered;
         bool cleanReady = currentCleanPercent >= requiredCleanPercent;
@@ -250,17 +272,145 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void UpdateObjectiveHUD()
     {
+        AutoBindHudFields();
+
         if (objectiveText != null)
             objectiveText.text = levelCompleted ? completedObjectiveLabel : activeObjectiveLabel;
 
+        int cleanPercent = Mathf.RoundToInt(currentCleanPercent * 100f);
+
+        if (cleaningProgressText != null)
+            cleaningProgressText.text = string.Format(cleaningProgressFormat, cleanPercent);
+
+        if (cleaningProgressBar != null)
+            cleaningProgressBar.value = currentCleanPercent;
+
+        if (cleaningProgressFill != null)
+            cleaningProgressFill.fillAmount = currentCleanPercent;
+
+        if (poolCounterText != null)
+            poolCounterText.text = string.Format(
+                poolCounterFormat,
+                cleanedPoolCount,
+                requiredPoolCount);
+
+        if (levelInfoText != null)
+            levelInfoText.text = GetLevelInfoText();
+
         if (progressText == null) return;
 
-        int cleanPercent = Mathf.RoundToInt(currentCleanPercent * 100f);
         int requiredPercent = Mathf.RoundToInt(requiredCleanPercent * 100f);
         string finalText = requireFinalRoomDiscovered
             ? finalRoomDiscovered ? "Exit found" : "Find exit"
             : "Exit optional";
 
         progressText.text = $"Clean {cleanPercent}% / {requiredPercent}% - Rooms {discoveredRoomCount} - {finalText}";
+    }
+
+    void RefreshPoolProgress()
+    {
+        requiredPoolCount = Mathf.Max(0, requiredPoolCountOverride);
+
+        if (requiredPoolCount <= 0 && countGeneratedPoolRooms)
+            requiredPoolCount = CountGeneratedPoolRooms();
+
+        if (requiredPoolCount <= 0)
+            requiredPoolCount = 1;
+
+        cleanedPoolCount = Mathf.Clamp(
+            Mathf.FloorToInt(currentCleanPercent * requiredPoolCount + 0.001f),
+            0,
+            requiredPoolCount);
+
+        if (levelCompleted)
+            cleanedPoolCount = requiredPoolCount;
+    }
+
+    int CountGeneratedPoolRooms()
+    {
+        int count = 0;
+        RoomDefinition[] rooms = FindObjectsOfType<RoomDefinition>();
+        for (int i = 0; i < rooms.Length; i++)
+        {
+            if (rooms[i] != null && rooms[i].category == RoomCategory.Pool)
+                count++;
+        }
+
+        return count;
+    }
+
+    string GetLevelInfoText()
+    {
+        string regionName = RegionRunState.HasSelectedRegion
+            ? RegionRunState.RegionName
+            : string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(regionName))
+            return string.Format(regionLevelInfoFormat, levelNumber, regionName);
+
+        return string.Format(levelInfoFormat, levelNumber);
+    }
+
+    void AutoBindHudFields()
+    {
+        if (!autoBindNewHudFields)
+            return;
+
+        if (cleaningProgressText != null &&
+            cleaningProgressBar != null &&
+            poolCounterText != null &&
+            levelInfoText != null)
+        {
+            return;
+        }
+
+        if (cleaningProgressBar == null)
+        {
+            Slider[] sliders = FindObjectsOfType<Slider>(true);
+            for (int i = 0; i < sliders.Length; i++)
+            {
+                Slider slider = sliders[i];
+                if (slider != null && slider.gameObject.name.Contains("Progress Bar"))
+                {
+                    cleaningProgressBar = slider;
+                    break;
+                }
+            }
+        }
+
+        TMP_Text[] texts = FindObjectsOfType<TMP_Text>(true);
+        for (int i = 0; i < texts.Length; i++)
+        {
+            TMP_Text text = texts[i];
+            if (text == null) continue;
+
+            string objectName = text.gameObject.name;
+            string parentName = text.transform.parent != null
+                ? text.transform.parent.name
+                : string.Empty;
+            string textValue = text.text;
+
+            if (cleaningProgressText == null &&
+                (objectName.Contains("Cleaning") ||
+                 parentName.Contains("Progress Bar") ||
+                 textValue.Contains("Cleaning")))
+            {
+                cleaningProgressText = text;
+            }
+            else if (poolCounterText == null &&
+                (objectName.Contains("Pools") ||
+                 parentName.Contains("Pools") ||
+                 textValue.Contains("Pools")))
+            {
+                poolCounterText = text;
+            }
+            else if (levelInfoText == null &&
+                (objectName.Contains("Level") ||
+                 parentName.Contains("Level") ||
+                 textValue.Contains("Level Info")))
+            {
+                levelInfoText = text;
+            }
+        }
     }
 }
