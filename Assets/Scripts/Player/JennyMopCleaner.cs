@@ -27,6 +27,15 @@ public class JennyMopCleaner : MonoBehaviour
     public float contaminatedCleaningMultiplier = 0.25f;
     public float chemicallyEnhancedCleaningMultiplier = 1.35f;
 
+    [Header("Contaminated Mop Trail")]
+    public bool spreadContaminatedWaterOnCleanSurfaces = true;
+    public float contaminatedTrailInterval = 0.08f;
+    public float contaminatedTrailContactRadius = 0.28f;
+    public int contaminatedTrailWidthSamples = 3;
+    public int contaminatedTrailLengthSamples = 2;
+    public float contaminatedTrailRayHeight = 0.45f;
+    public float contaminatedTrailRayDistance = 1.2f;
+
     [Header("Surface Slide")]
     public bool snapMopToSurface = true;
     public LayerMask surfaceMask = ~0;
@@ -60,6 +69,7 @@ public class JennyMopCleaner : MonoBehaviour
     private PlayerInput playerInput;
     private PlayerMovement movement;
     private PlayerStatus playerStatus;
+    private WaterCannon contaminationDirtSource;
     private PlayerPetrify petrify;
     private InputAction attackAction;
     private InputAction abilityAction;
@@ -69,6 +79,7 @@ public class JennyMopCleaner : MonoBehaviour
     private bool hasCachedMopScale;
     private float dashTimer;
     private float nextDashTime;
+    private float nextContaminatedTrailTime;
 
     void Awake()
     {
@@ -76,6 +87,7 @@ public class JennyMopCleaner : MonoBehaviour
         playerInput = GetComponent<PlayerInput>();
         movement = GetComponent<PlayerMovement>();
         playerStatus = GetComponent<PlayerStatus>();
+        contaminationDirtSource = GetComponentInChildren<WaterCannon>(true);
         petrify = GetComponent<PlayerPetrify>();
 
         if (playerInput != null)
@@ -164,6 +176,10 @@ public class JennyMopCleaner : MonoBehaviour
         Vector3 center = GetMopWorldPosition();
         Quaternion rotation = GetMopWorldRotation();
         Vector3 halfExtents = IsDashing() ? dashMopHalfExtents : mopHalfExtents;
+
+        if (waterQuality == WaterQuality.Contaminated)
+            StampContaminatedMopTrail(center, rotation, halfExtents, waterThisFrame);
+
         Collider[] hits = Physics.OverlapBox(
             center,
             halfExtents,
@@ -213,6 +229,138 @@ public class JennyMopCleaner : MonoBehaviour
                     waterQuality);
             }
         }
+    }
+
+    void StampContaminatedMopTrail(
+        Vector3 center,
+        Quaternion rotation,
+        Vector3 halfExtents,
+        float waterAmount)
+    {
+        if (!spreadContaminatedWaterOnCleanSurfaces || waterAmount <= 0f)
+            return;
+
+        if (Time.time < nextContaminatedTrailTime)
+            return;
+
+        nextContaminatedTrailTime =
+            Time.time + Mathf.Max(0.01f, contaminatedTrailInterval);
+
+        int widthSamples = Mathf.Max(1, contaminatedTrailWidthSamples);
+        int lengthSamples = Mathf.Max(1, contaminatedTrailLengthSamples);
+        int totalSamples = widthSamples * lengthSamples;
+        float waterPerSample = waterAmount / totalSamples;
+
+        Vector3 right = rotation * Vector3.right;
+        Vector3 forward = rotation * Vector3.forward;
+
+        for (int x = 0; x < widthSamples; x++)
+        {
+            float widthT = widthSamples == 1
+                ? 0f
+                : Mathf.Lerp(-1f, 1f, x / (float)(widthSamples - 1));
+
+            for (int z = 0; z < lengthSamples; z++)
+            {
+                float lengthT = lengthSamples == 1
+                    ? 0f
+                    : Mathf.Lerp(-1f, 1f, z / (float)(lengthSamples - 1));
+
+                Vector3 sampleCenter =
+                    center +
+                    right * (widthT * halfExtents.x) +
+                    forward * (lengthT * halfExtents.z);
+
+                if (TryGetContaminationSurface(
+                    sampleCenter,
+                    out Vector3 contactPoint,
+                    out Vector3 surfaceNormal))
+                {
+                    CreateOrGrowContaminatedDirt(
+                        contactPoint,
+                        surfaceNormal,
+                        waterPerSample);
+                }
+            }
+        }
+    }
+
+    bool TryGetContaminationSurface(
+        Vector3 sampleCenter,
+        out Vector3 contactPoint,
+        out Vector3 surfaceNormal)
+    {
+        Vector3 rayOrigin = sampleCenter + Vector3.up * contaminatedTrailRayHeight;
+        if (Physics.Raycast(
+            rayOrigin,
+            Vector3.down,
+            out RaycastHit hit,
+            contaminatedTrailRayDistance,
+            cleanMask,
+            QueryTriggerInteraction.Ignore))
+        {
+            if (IsValidContaminationSurface(hit.collider))
+            {
+                contactPoint = hit.point;
+                surfaceNormal = hit.normal;
+                return true;
+            }
+        }
+
+        contactPoint = Vector3.zero;
+        surfaceNormal = Vector3.up;
+        return false;
+    }
+
+    bool IsValidContaminationSurface(Collider collider)
+    {
+        if (collider == null || collider.isTrigger)
+            return false;
+
+        if (collider.transform.IsChildOf(transform))
+            return false;
+
+        if (collider.GetComponentInParent<PlayerStatus>() != null)
+            return false;
+
+        return true;
+    }
+
+    void CreateOrGrowContaminatedDirt(
+        Vector3 contactPoint,
+        Vector3 surfaceNormal,
+        float waterAmount)
+    {
+        if (contaminationDirtSource == null)
+            contaminationDirtSource = GetComponentInChildren<WaterCannon>(true);
+
+        float contactRadius = Mathf.Max(0.01f, contaminatedTrailContactRadius);
+
+        if (ShouldRequestServerContaminatedDirt())
+        {
+            movement.RequestCreateOrGrowContaminatedDirt(
+                contactPoint,
+                surfaceNormal,
+                contactRadius,
+                waterAmount);
+            return;
+        }
+
+        if (contaminationDirtSource != null)
+        {
+            contaminationDirtSource.CreateOrGrowContaminatedDirtFromNetwork(
+                contactPoint,
+                surfaceNormal,
+                contactRadius,
+                waterAmount);
+        }
+    }
+
+    bool ShouldRequestServerContaminatedDirt()
+    {
+        return movement != null &&
+            movement.IsSpawned &&
+            !movement.IsServer;
     }
 
     void TryStartDash()
