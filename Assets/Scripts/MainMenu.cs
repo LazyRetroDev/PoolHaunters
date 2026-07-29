@@ -44,6 +44,8 @@ public class MainMenu : MonoBehaviour
 
     [Header("Lobby UI")]
     [SerializeField] private LobbyUI lobbyUI;
+    [SerializeField] private CharacterSelectMenu characterSelectMenu;
+    [SerializeField] private bool showCharacterSelectBeforeRun = true;
     [SerializeField] private Button hostButton;
     [SerializeField] private Button joinButton;
     [SerializeField] private Button playButton;
@@ -63,9 +65,16 @@ public class MainMenu : MonoBehaviour
     private bool suppressReadyToggleEvent;
     private bool gameStartInProgress;
     private bool cursorUnlockRequested;
+    private bool characterSelectConfirmed;
 
     public void StartSinglePlayer()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartSinglePlayer);
+            return;
+        }
+
         ShutdownActiveLobby(false);
         RegionRunState.SelectSinglePlayerRegion(regionName, gameSceneName, CreateRunSeed());
         LoadGameScene();
@@ -73,6 +82,12 @@ public class MainMenu : MonoBehaviour
 
     public void StartHost()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartHost);
+            return;
+        }
+
         RegionRunState.SelectMultiplayerHostRegion(
             regionName,
             gameSceneName,
@@ -84,6 +99,12 @@ public class MainMenu : MonoBehaviour
 
     public void StartClient()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartClient);
+            return;
+        }
+
         RegionRunState.SelectMultiplayerClientRegion(
             regionName,
             gameSceneName,
@@ -96,6 +117,12 @@ public class MainMenu : MonoBehaviour
 
     public async void StartRelayHost()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartRelayHost);
+            return;
+        }
+
         if (networkManager != null && networkManager.IsListening && networkManager.IsHost)
         {
             StartLobbyGame();
@@ -156,6 +183,12 @@ public class MainMenu : MonoBehaviour
 
     public async void StartRelayClient()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartRelayClient);
+            return;
+        }
+
         if (lobbyStartInProgress || networkManager != null && networkManager.IsListening)
             return;
 
@@ -795,6 +828,7 @@ public class MainMenu : MonoBehaviour
     {
         lobbyStartInProgress = false;
         gameStartInProgress = false;
+        characterSelectConfirmed = false;
         lobbyReadyByClientId.Clear();
 
         if (lobbyUI != null)
@@ -906,6 +940,12 @@ public class MainMenu : MonoBehaviour
         if (lobbyUI == null)
             lobbyUI = FindAnyObjectByType<LobbyUI>(FindObjectsInactive.Include);
 
+        if (characterSelectMenu == null)
+            characterSelectMenu = FindAnyObjectByType<CharacterSelectMenu>(FindObjectsInactive.Include);
+
+        if (characterSelectMenu == null)
+            characterSelectMenu = gameObject.AddComponent<CharacterSelectMenu>();
+
         Transform multiplayerMenu = FindChildByName(null, "MultiplayerMenu");
         Transform root = multiplayerMenu != null ? multiplayerMenu : transform.root;
 
@@ -962,7 +1002,32 @@ public class MainMenu : MonoBehaviour
         }
 
         ReleaseCursorUnlock();
+        characterSelectConfirmed = false;
         SceneManager.LoadScene(gameSceneName);
+    }
+
+    private bool ShouldShowCharacterSelect()
+    {
+        return showCharacterSelectBeforeRun &&
+            !characterSelectConfirmed &&
+            characterSelectMenu != null;
+    }
+
+    private void ShowCharacterSelectThen(Action onConfirmed)
+    {
+        ResolveReferences();
+        if (characterSelectMenu == null)
+        {
+            characterSelectConfirmed = true;
+            onConfirmed?.Invoke();
+            return;
+        }
+
+        characterSelectMenu.Show(() =>
+        {
+            characterSelectConfirmed = true;
+            onConfirmed?.Invoke();
+        });
     }
 
     private void UnlockCursorForMenu()

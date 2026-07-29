@@ -241,6 +241,7 @@ public class GameRunBootstrap : MonoBehaviour
             prefab,
             spawnPosition + GetMultiplayerSpawnOffset(spawnIndex),
             spawnRotation);
+        ApplyAgentLoadout(player);
 
         NetworkObject networkObject = player.GetComponent<NetworkObject>();
         if (networkObject == null)
@@ -270,6 +271,19 @@ public class GameRunBootstrap : MonoBehaviour
 
         GameObject player = Instantiate(playerPrefab, spawnPosition, spawnRotation);
         player.name = playerPrefab.name;
+        ApplyAgentLoadout(player);
+    }
+
+    private void ApplyAgentLoadout(GameObject player)
+    {
+        if (player == null)
+            return;
+
+        PlayerAgentLoadout loadout = player.GetComponent<PlayerAgentLoadout>();
+        if (loadout == null)
+            loadout = player.AddComponent<PlayerAgentLoadout>();
+
+        loadout.ApplySelectedAgent();
     }
 
     private void ConfigureConnectionApproval()
