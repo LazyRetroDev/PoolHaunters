@@ -27,6 +27,7 @@ public class CharacterSelectMenu : MonoBehaviour
     private Action confirmCallback;
     private PlayerAgentType selectedAgent;
     private Canvas generatedCanvas;
+    private bool cursorUnlockRequested;
 
     void Awake()
     {
@@ -50,7 +51,7 @@ public class CharacterSelectMenu : MonoBehaviour
         if (panelRoot != null)
             panelRoot.SetActive(true);
 
-        CursorLockController.RequestCursorUnlocked();
+        RequestCursorUnlock();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
@@ -60,6 +61,12 @@ public class CharacterSelectMenu : MonoBehaviour
         if (panelRoot != null)
             panelRoot.SetActive(false);
 
+        ReleaseCursorUnlock();
+    }
+
+    void OnDestroy()
+    {
+        ReleaseCursorUnlock();
     }
 
     public void SelectJennyPie()
@@ -100,6 +107,24 @@ public class CharacterSelectMenu : MonoBehaviour
     {
         selectedAgent = agent;
         Refresh();
+    }
+
+    void RequestCursorUnlock()
+    {
+        if (cursorUnlockRequested)
+            return;
+
+        CursorLockController.RequestCursorUnlocked();
+        cursorUnlockRequested = true;
+    }
+
+    void ReleaseCursorUnlock()
+    {
+        if (!cursorUnlockRequested)
+            return;
+
+        CursorLockController.ReleaseCursorUnlocked();
+        cursorUnlockRequested = false;
     }
 
     void EnsureUi()
