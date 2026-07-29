@@ -133,7 +133,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
         appliedOwnershipState = true;
         lastAppliedLocalControl = isOwner;
         bool canAcceptInput = isOwner && CanPlayerAcceptLocalInput();
-        bool canUseWaterCannon = isOwner && CanPlayerUseTools();
+        bool canUseWaterCannon = isOwner && CanPlayerUseWaterCannon();
 
         if (movement != null)
         {
@@ -201,7 +201,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
     {
         CacheReferences();
         bool canAcceptInput = CanPlayerAcceptLocalInput();
-        bool canUseWaterCannon = CanPlayerUseTools();
+        bool canUseWaterCannon = CanPlayerUseWaterCannon();
 
         if (movement != null && !movement.enabled)
             return true;
@@ -239,6 +239,12 @@ public class NetworkPlayerSetup : NetworkBehaviour
     private bool CanPlayerUseTools()
     {
         return playerStatus == null || playerStatus.CanAct();
+    }
+
+    private bool CanPlayerUseWaterCannon()
+    {
+        return CanPlayerUseTools() &&
+            !PlayerAgentLoadout.ShouldDisableWaterCannonFor(gameObject);
     }
 
     private static NetworkObject GetLocalPlayerObject()

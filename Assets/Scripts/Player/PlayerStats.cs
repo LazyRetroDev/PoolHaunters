@@ -768,7 +768,7 @@ public class PlayerStatus : NetworkBehaviour
         if (inventory != null)
             inventory.enabled = CanAct();
         if (waterCannon != null)
-            waterCannon.enabled = CanAct();
+            waterCannon.enabled = CanUseWaterCannon();
     }
 
     void ApplyLocalControlState()
@@ -785,7 +785,13 @@ public class PlayerStatus : NetworkBehaviour
         if (inventory != null)
             inventory.enabled = canUseTools;
         if (waterCannon != null)
-            waterCannon.enabled = canUseTools;
+            waterCannon.enabled = CanUseWaterCannon();
+    }
+
+    bool CanUseWaterCannon()
+    {
+        return CanAct() &&
+            !PlayerAgentLoadout.ShouldDisableWaterCannonFor(gameObject);
     }
 
     bool ShouldApplyOwnerLocalState()

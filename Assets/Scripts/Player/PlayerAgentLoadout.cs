@@ -10,6 +10,7 @@ public class PlayerAgentLoadout : MonoBehaviour
 
     [Header("Jenny Pie")]
     public bool jennyUsesMopInsteadOfWaterCannon = true;
+    public bool hideWaterCannonObjectForJenny = true;
     public bool enforceToolState = true;
     public JennyMopCleaner jennyMop;
 
@@ -17,6 +18,7 @@ public class PlayerAgentLoadout : MonoBehaviour
     public TMP_Text agentNameText;
 
     private WaterCannon[] waterCannons;
+    private bool[] originalWaterCannonObjectStates;
 
     void Awake()
     {
@@ -76,6 +78,20 @@ public class PlayerAgentLoadout : MonoBehaviour
             bool shouldEnable = !isJenny;
             if (waterCannons[i].enabled != shouldEnable)
                 waterCannons[i].enabled = shouldEnable;
+
+            if (!hideWaterCannonObjectForJenny ||
+                waterCannons[i].gameObject == gameObject)
+            {
+                continue;
+            }
+
+            bool originalActive = originalWaterCannonObjectStates != null &&
+                originalWaterCannonObjectStates.Length > i
+                    ? originalWaterCannonObjectStates[i]
+                    : true;
+            bool shouldBeActive = isJenny ? false : originalActive;
+            if (waterCannons[i].gameObject.activeSelf != shouldBeActive)
+                waterCannons[i].gameObject.SetActive(shouldBeActive);
         }
     }
 
@@ -85,5 +101,30 @@ public class PlayerAgentLoadout : MonoBehaviour
             jennyMop = GetComponent<JennyMopCleaner>();
 
         waterCannons = GetComponentsInChildren<WaterCannon>(true);
+        if (originalWaterCannonObjectStates == null ||
+            originalWaterCannonObjectStates.Length != waterCannons.Length)
+        {
+            originalWaterCannonObjectStates = new bool[waterCannons.Length];
+            for (int i = 0; i < waterCannons.Length; i++)
+            {
+                originalWaterCannonObjectStates[i] =
+                    waterCannons[i] != null && waterCannons[i].gameObject.activeSelf;
+            }
+        }
+    }
+
+    public bool ShouldDisableWaterCannon()
+    {
+        return jennyUsesMopInsteadOfWaterCannon &&
+            currentAgent == PlayerAgentType.JennyPie;
+    }
+
+    public static bool ShouldDisableWaterCannonFor(GameObject player)
+    {
+        if (player == null)
+            return false;
+
+        PlayerAgentLoadout loadout = player.GetComponent<PlayerAgentLoadout>();
+        return loadout != null && loadout.ShouldDisableWaterCannon();
     }
 }
