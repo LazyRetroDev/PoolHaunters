@@ -46,10 +46,13 @@ public class JennyMopCleaner : MonoBehaviour
     public float dashDuration = 0.45f;
     public float dashCooldown = 1.1f;
     public float dashStaminaCost = 18f;
-    public float dashWaterCost = 10f;
-    public float dashWaterUsagePerSecond = 16f;
+    public float dashWaterCost = 4f;
+    public float dashWaterUsagePerSecond = 8f;
     public float dashCleanMultiplier = 1.4f;
     public Vector3 dashMopHalfExtents = new Vector3(1.1f, 0.22f, 0.65f);
+    public bool dashCleansWithoutAttack = true;
+    public bool scaleMopVisualDuringDash = true;
+    public float dashVisualScaleSpeed = 18f;
 
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
@@ -62,6 +65,8 @@ public class JennyMopCleaner : MonoBehaviour
     private InputAction abilityAction;
     private InputAction moveAction;
     private Renderer placeholderRenderer;
+    private Vector3 normalMopHeadScale = Vector3.one;
+    private bool hasCachedMopScale;
     private float dashTimer;
     private float nextDashTime;
 
@@ -82,6 +87,8 @@ public class JennyMopCleaner : MonoBehaviour
 
         if (mopHead == null)
             mopHead = CreateMopHead();
+
+        CacheMopScale();
     }
 
     void Update()
@@ -118,7 +125,12 @@ public class JennyMopCleaner : MonoBehaviour
             return false;
 
         if (attackAction == null || !attackAction.IsPressed())
+        {
+            if (dashCleansWithoutAttack && IsDashing())
+                return true;
+
             return false;
+        }
 
         if (!requireMovement || moveAction == null)
             return true;
@@ -324,6 +336,47 @@ public class JennyMopCleaner : MonoBehaviour
 
         mopHead.position = GetMopWorldPosition();
         mopHead.rotation = GetMopWorldRotation();
+        UpdateMopVisualScale();
+    }
+
+    void UpdateMopVisualScale()
+    {
+        if (!scaleMopVisualDuringDash || mopHead == null)
+            return;
+
+        CacheMopScale();
+
+        Vector3 targetScale = IsDashing()
+            ? Vector3.Scale(normalMopHeadScale, GetDashVisualScale())
+            : normalMopHeadScale;
+
+        float blend = 1f - Mathf.Exp(-dashVisualScaleSpeed * Time.deltaTime);
+        mopHead.localScale = Vector3.Lerp(mopHead.localScale, targetScale, blend);
+    }
+
+    Vector3 GetDashVisualScale()
+    {
+        return new Vector3(
+            SafeRatio(dashMopHalfExtents.x, mopHalfExtents.x),
+            SafeRatio(dashMopHalfExtents.y, mopHalfExtents.y),
+            SafeRatio(dashMopHalfExtents.z, mopHalfExtents.z));
+    }
+
+    float SafeRatio(float value, float baseline)
+    {
+        if (Mathf.Abs(baseline) <= 0.001f)
+            return 1f;
+
+        return Mathf.Max(0.01f, value / baseline);
+    }
+
+    void CacheMopScale()
+    {
+        if (hasCachedMopScale || mopHead == null)
+            return;
+
+        normalMopHeadScale = mopHead.localScale;
+        hasCachedMopScale = true;
     }
 
     Vector3 GetMopWorldPosition()
@@ -361,6 +414,7 @@ public class JennyMopCleaner : MonoBehaviour
     {
         GameObject mopObject = new GameObject("JennyMopHead");
         mopObject.transform.SetParent(transform, false);
+        mopObject.transform.localScale = Vector3.one;
 
         if (createPlaceholderMop)
         {
