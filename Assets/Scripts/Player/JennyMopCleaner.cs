@@ -7,6 +7,8 @@ public class JennyMopCleaner : MonoBehaviour
 {
     [Header("Input")]
     public string attackActionName = "Attack";
+    public string abilityActionName = "Ability";
+    public Key fallbackDashKey = Key.Q;
     public bool requireMovement = true;
 
     [Header("Sweep")]
@@ -18,6 +20,12 @@ public class JennyMopCleaner : MonoBehaviour
     public float cleanContactRadius = 0.5f;
     public LayerMask cleanMask = ~0;
     public QueryTriggerInteraction triggerInteraction = QueryTriggerInteraction.Collide;
+
+    [Header("Water Usage")]
+    public bool consumeWaterToClean = true;
+    public float waterUsagePerSecond = 7.5f;
+    public float contaminatedCleaningMultiplier = 0.25f;
+    public float chemicallyEnhancedCleaningMultiplier = 1.35f;
 
     [Header("Surface Slide")]
     public bool snapMopToSurface = true;
@@ -32,18 +40,34 @@ public class JennyMopCleaner : MonoBehaviour
     public Vector3 placeholderSize = new Vector3(1.25f, 0.12f, 0.35f);
     public Color placeholderColor = new Color(0.65f, 0.85f, 1f, 1f);
 
+    [Header("Surf Dash")]
+    public bool enableSurfDash = true;
+    public float dashSpeed = 13f;
+    public float dashDuration = 0.45f;
+    public float dashCooldown = 1.1f;
+    public float dashStaminaCost = 18f;
+    public float dashWaterCost = 10f;
+    public float dashWaterUsagePerSecond = 16f;
+    public float dashCleanMultiplier = 1.4f;
+    public Vector3 dashMopHalfExtents = new Vector3(1.1f, 0.22f, 0.65f);
+
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
+    private Rigidbody rb;
     private PlayerInput playerInput;
     private PlayerMovement movement;
     private PlayerStatus playerStatus;
     private PlayerPetrify petrify;
     private InputAction attackAction;
+    private InputAction abilityAction;
     private InputAction moveAction;
     private Renderer placeholderRenderer;
+    private float dashTimer;
+    private float nextDashTime;
 
     void Awake()
     {
+        rb = GetComponent<Rigidbody>();
         playerInput = GetComponent<PlayerInput>();
         movement = GetComponent<PlayerMovement>();
         playerStatus = GetComponent<PlayerStatus>();
@@ -52,6 +76,7 @@ public class JennyMopCleaner : MonoBehaviour
         if (playerInput != null)
         {
             attackAction = playerInput.actions.FindAction(attackActionName, false);
+            abilityAction = playerInput.actions.FindAction(abilityActionName, false);
             moveAction = playerInput.actions.FindAction("Move", false);
         }
 
@@ -62,11 +87,17 @@ public class JennyMopCleaner : MonoBehaviour
     void Update()
     {
         UpdateMopPose();
+        TryStartDash();
 
         if (!CanMop())
             return;
 
         SweepClean();
+    }
+
+    void FixedUpdate()
+    {
+        UpdateDashMovement();
     }
 
     void OnEnable()
@@ -103,14 +134,27 @@ public class JennyMopCleaner : MonoBehaviour
 
     void SweepClean()
     {
+        float waterThisFrame = GetWaterUsageThisFrame();
+        WaterQuality waterQuality = playerStatus != null
+            ? playerStatus.GetWaterQuality()
+            : WaterQuality.Clean;
+
+        if (consumeWaterToClean && (playerStatus == null || !playerStatus.ConsumeWater(waterThisFrame)))
+            return;
+
+        float cleanMultiplier = GetCleaningMultiplier(waterQuality);
+        if (IsDashing())
+            cleanMultiplier *= dashCleanMultiplier;
+
         dirtHits.Clear();
         poolHits.Clear();
 
         Vector3 center = GetMopWorldPosition();
         Quaternion rotation = GetMopWorldRotation();
+        Vector3 halfExtents = IsDashing() ? dashMopHalfExtents : mopHalfExtents;
         Collider[] hits = Physics.OverlapBox(
             center,
-            mopHalfExtents,
+            halfExtents,
             rotation,
             cleanMask,
             triggerInteraction);
@@ -129,18 +173,147 @@ public class JennyMopCleaner : MonoBehaviour
             if (dirt != null && !dirtHits.Contains(dirt))
             {
                 dirtHits.Add(dirt);
-                dirt.CleanAtWorldPoint(
-                    contactPoint,
-                    cleanContactRadius,
-                    cleanPowerPerSecond * Time.deltaTime);
+                if (waterQuality == WaterQuality.Contaminated)
+                {
+                    dirt.ApplyContaminatedWaterAtWorldPoint(
+                        contactPoint,
+                        cleanContactRadius,
+                        waterThisFrame);
+                }
+                else
+                {
+                    dirt.CleanAtWorldPoint(
+                        contactPoint,
+                        cleanContactRadius,
+                        cleanPowerPerSecond * cleanMultiplier * Time.deltaTime);
+                }
             }
 
             PoolCleaningZone pool = hit.GetComponentInParent<PoolCleaningZone>();
             if (pool != null && !poolHits.Contains(pool))
             {
                 poolHits.Add(pool);
-                pool.Clean(poolCleanPowerPerSecond * Time.deltaTime);
+                pool.ApplyWaterAtWorldPoint(
+                    contactPoint,
+                    cleanContactRadius,
+                    poolCleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
+                    waterThisFrame,
+                    waterQuality);
             }
+        }
+    }
+
+    void TryStartDash()
+    {
+        if (!enableSurfDash || Time.time < nextDashTime || IsDashing())
+            return;
+
+        if (!DashPressedThisFrame())
+            return;
+
+        if (!CanUseDashResources())
+            return;
+
+        if (movement != null && !movement.ConsumeStamina(dashStaminaCost))
+            return;
+
+        if (playerStatus != null && !playerStatus.ConsumeWater(dashWaterCost))
+            return;
+
+        dashTimer = dashDuration;
+        nextDashTime = Time.time + dashCooldown;
+    }
+
+    bool DashPressedThisFrame()
+    {
+        if (abilityAction != null && abilityAction.WasPressedThisFrame())
+            return true;
+
+        return Keyboard.current != null &&
+            fallbackDashKey != Key.None &&
+            Keyboard.current[fallbackDashKey].wasPressedThisFrame;
+    }
+
+    bool CanUseDashResources()
+    {
+        if (playerStatus != null && !playerStatus.CanAct())
+            return false;
+
+        if (movement != null && !movement.AcceptsInput)
+            return false;
+
+        if (movement != null && !movement.HasStamina(dashStaminaCost))
+            return false;
+
+        return playerStatus == null || playerStatus.GetCurrentWater() >= dashWaterCost;
+    }
+
+    void UpdateDashMovement()
+    {
+        if (!IsDashing())
+            return;
+
+        dashTimer = Mathf.Max(0f, dashTimer - Time.fixedDeltaTime);
+
+        Vector3 direction = GetDashDirection();
+        Vector3 delta = direction * dashSpeed * Time.fixedDeltaTime;
+
+        if (rb != null)
+            rb.MovePosition(rb.position + delta);
+        else
+            transform.position += delta;
+    }
+
+    Vector3 GetDashDirection()
+    {
+        Vector3 direction = transform.forward;
+
+        if (moveAction != null)
+        {
+            Vector2 move = moveAction.ReadValue<Vector2>();
+            if (move.sqrMagnitude > 0.05f && Camera.main != null)
+            {
+                Vector3 camForward = Camera.main.transform.forward;
+                Vector3 camRight = Camera.main.transform.right;
+                camForward.y = 0f;
+                camRight.y = 0f;
+                camForward.Normalize();
+                camRight.Normalize();
+                direction = camForward * move.y + camRight * move.x;
+            }
+        }
+
+        direction.y = 0f;
+        if (direction.sqrMagnitude <= 0.001f)
+            direction = transform.forward;
+
+        return direction.normalized;
+    }
+
+    bool IsDashing()
+    {
+        return dashTimer > 0f;
+    }
+
+    float GetWaterUsageThisFrame()
+    {
+        if (!consumeWaterToClean)
+            return 0f;
+
+        float usage = IsDashing() ? dashWaterUsagePerSecond : waterUsagePerSecond;
+        return usage * Time.deltaTime;
+    }
+
+    float GetCleaningMultiplier(WaterQuality waterQuality)
+    {
+        switch (waterQuality)
+        {
+            case WaterQuality.Contaminated:
+                return contaminatedCleaningMultiplier;
+            case WaterQuality.ChemicallyEnhanced:
+                return chemicallyEnhancedCleaningMultiplier;
+            default:
+                return 1f;
         }
     }
 
@@ -232,7 +405,7 @@ public class JennyMopCleaner : MonoBehaviour
             GetMopWorldPosition(),
             GetMopWorldRotation(),
             Vector3.one);
-        Gizmos.DrawCube(Vector3.zero, mopHalfExtents * 2f);
+        Gizmos.DrawCube(Vector3.zero, (IsDashing() ? dashMopHalfExtents : mopHalfExtents) * 2f);
         Gizmos.matrix = previousMatrix;
     }
 }

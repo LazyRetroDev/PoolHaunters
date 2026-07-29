@@ -1111,6 +1111,24 @@ public class PlayerMovement : NetworkBehaviour
         staminaDrainMultiplierTimer = Mathf.Max(0f, duration);
     }
 
+    public bool ConsumeStamina(float amount)
+    {
+        if (amount <= 0f)
+            return true;
+
+        if (currentStamina < amount)
+            return false;
+
+        currentStamina = Mathf.Clamp(currentStamina - amount, 0f, maxStamina);
+        regenTimer = 0f;
+        return true;
+    }
+
+    public bool HasStamina(float amount)
+    {
+        return amount <= 0f || currentStamina >= amount;
+    }
+
     void UpdateTimedStaminaMultiplier()
     {
         if (staminaDrainMultiplierTimer <= 0f) return;
