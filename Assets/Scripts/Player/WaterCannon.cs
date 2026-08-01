@@ -45,6 +45,8 @@ public class WaterCannon : MonoBehaviour
     public float contaminatedDirtWaterPerGrowthChunk = 50f;
     public float contaminatedDirtSurfaceOffset = 0.01f;
     public float contaminatedDirtSearchRadius = 0.35f;
+    [Range(-1f, 1f)]
+    public float minimumContaminatedDirtSurfaceUpDot = -0.2f;
 
     [Header("Aiming")]
     public Camera aimCamera;
@@ -524,7 +526,20 @@ public class WaterCannon : MonoBehaviour
         if (hit.collider == null || hit.collider.isTrigger) return false;
         if (ownerRoot != null && hit.collider.transform.IsChildOf(ownerRoot)) return false;
         if (hit.collider.GetComponentInParent<PlayerStatus>() != null) return false;
+        if (!IsValidContaminatedDirtSurfaceNormal(hit.normal)) return false;
         return true;
+    }
+
+    bool IsValidContaminatedDirtSurfaceNormal(Vector3 surfaceNormal)
+    {
+        if (!IsFiniteVector3(surfaceNormal))
+            return false;
+
+        if (surfaceNormal.sqrMagnitude <= 0.0001f)
+            return false;
+
+        float upDot = Vector3.Dot(surfaceNormal.normalized, Vector3.up);
+        return upDot >= minimumContaminatedDirtSurfaceUpDot;
     }
 
     void CreateOrGrowContaminatedDirt(RaycastHit hit, float waterAmount)
@@ -555,6 +570,7 @@ public class WaterCannon : MonoBehaviour
     {
         if (!IsFiniteVector3(contactPoint) ||
             !IsFiniteVector3(surfaceNormal) ||
+            !IsValidContaminatedDirtSurfaceNormal(surfaceNormal) ||
             !HasValidAmount(contactRadius) ||
             !HasValidAmount(waterAmount))
         {
@@ -616,6 +632,9 @@ public class WaterCannon : MonoBehaviour
 
     DirtSpot SpawnContaminatedDirt(Vector3 position, Vector3 surfaceNormal)
     {
+        if (!IsValidContaminatedDirtSurfaceNormal(surfaceNormal))
+            return null;
+
         Quaternion rotation = Quaternion.LookRotation(-surfaceNormal);
         GameObject dirtObject = null;
 
@@ -698,7 +717,7 @@ public class WaterCannon : MonoBehaviour
             return true;
         }
 
-        dirtTemplate = FindObjectOfType<DirtSpot>();
+        dirtTemplate = FindAnyObjectByType<DirtSpot>();
         template = dirtTemplate;
         return template != null;
     }

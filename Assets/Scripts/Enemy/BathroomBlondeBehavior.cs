@@ -345,7 +345,11 @@ public class BathroomBlondeBehavior : MonoBehaviour
     void TrySpawnMirror()
     {
         if (mirrorPrefab == null) return;
-        if (FindObjectsOfType<BathroomBlondeMirror>().Length >= maxActiveMirrors) return;
+        if (FindObjectsByType<BathroomBlondeMirror>(
+                FindObjectsInactive.Exclude).Length >= maxActiveMirrors)
+        {
+            return;
+        }
 
         Vector3 position;
         if (!TryChooseHazardPosition(out position)) return;
@@ -357,7 +361,11 @@ public class BathroomBlondeBehavior : MonoBehaviour
     void TrySpawnDrain()
     {
         if (drainPrefab == null) return;
-        if (FindObjectsOfType<BathroomBlondeDrain>().Length >= maxActiveDrains) return;
+        if (FindObjectsByType<BathroomBlondeDrain>(
+                FindObjectsInactive.Exclude).Length >= maxActiveDrains)
+        {
+            return;
+        }
 
         Vector3 position;
         if (!TryChooseHazardPosition(out position)) return;
@@ -403,7 +411,8 @@ public class BathroomBlondeBehavior : MonoBehaviour
     bool TryChooseWaterSourcePosition(out Vector3 position)
     {
         position = transform.position;
-        WaterSourceDryable[] sources = FindObjectsOfType<WaterSourceDryable>();
+        WaterSourceDryable[] sources =
+            FindObjectsByType<WaterSourceDryable>(FindObjectsInactive.Exclude);
         if (sources == null || sources.Length == 0) return false;
 
         int start = Random.Range(0, sources.Length);
@@ -423,7 +432,8 @@ public class BathroomBlondeBehavior : MonoBehaviour
 
     PlayerStatus FindClosestPlayer()
     {
-        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
+        PlayerStatus[] players =
+            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
         PlayerStatus best = null;
         float bestDistance = float.PositiveInfinity;
 

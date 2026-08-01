@@ -2166,7 +2166,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MainMenu
   regionName: Submarino
   gameSceneName: Game
-  useRandomSeed: 1
+  useRandomSeed: 0
   fixedSeed: 0
   connectionAddress: 127.0.0.1
   connectionPort: 7777

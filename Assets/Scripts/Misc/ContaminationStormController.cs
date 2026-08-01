@@ -29,6 +29,11 @@ public class ContaminationStormController : MonoBehaviour
     public float spawnHeightOffset = 0.08f;
     public float navMeshSampleRadius = 6f;
     public float roomBoundsInset = 1f;
+    public float dirtSurfaceRaycastHeight = 1.5f;
+    public float dirtSurfaceRaycastDistance = 3f;
+    public LayerMask dirtSurfaceMask = ~0;
+    [Range(-1f, 1f)]
+    public float minimumDirtSurfaceUpDot = -0.2f;
 
     [Header("Multiplayer")]
     public bool runOnlyOnServer = true;
@@ -48,7 +53,7 @@ public class ContaminationStormController : MonoBehaviour
     void Start()
     {
         if (roomGenerator == null)
-            roomGenerator = FindObjectOfType<RoomGenerator>();
+            roomGenerator = FindAnyObjectByType<RoomGenerator>();
 
         CacheRoomGeneratorField();
         ResetSpreadTimerForStormStart();
@@ -132,7 +137,10 @@ public class ContaminationStormController : MonoBehaviour
         if (useRoomGeneratorOrder && TryReadRoomsFromGenerator())
             return;
 
-        RoomDefinition[] definitions = FindObjectsOfType<RoomDefinition>(includeInactiveRooms);
+        RoomDefinition[] definitions = FindObjectsByType<RoomDefinition>(
+            includeInactiveRooms
+                ? FindObjectsInactive.Include
+                : FindObjectsInactive.Exclude);
         List<RoomDefinition> sortedDefinitions = new List<RoomDefinition>(definitions);
         sortedDefinitions.Sort(CompareRoomsForFallbackOrder);
 
@@ -146,7 +154,7 @@ public class ContaminationStormController : MonoBehaviour
     bool TryReadRoomsFromGenerator()
     {
         if (roomGenerator == null)
-            roomGenerator = FindObjectOfType<RoomGenerator>();
+            roomGenerator = FindAnyObjectByType<RoomGenerator>();
 
         if (roomGenerator == null)
             return false;
@@ -260,9 +268,11 @@ public class ContaminationStormController : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             Vector3 position;
-            if (!TryGetRoomSpawnPosition(room, out position)) continue;
+            Quaternion rotation;
+            if (!TryGetRoomDirtSpawnPose(room, out position, out rotation))
+                continue;
 
-            DirtSpot dirtSpot = Instantiate(dirtSpotPrefab, position, Quaternion.identity);
+            DirtSpot dirtSpot = Instantiate(dirtSpotPrefab, position, rotation);
             if (!TrySpawnNetworkDirtSpot(dirtSpot))
                 continue;
 
@@ -309,6 +319,59 @@ public class ContaminationStormController : MonoBehaviour
             networkObject.Spawn(true);
 
         return true;
+    }
+
+    bool TryGetRoomDirtSpawnPose(
+        GameObject room,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        rotation = Quaternion.identity;
+
+        for (int attempt = 0; attempt < 12; attempt++)
+        {
+            if (!TryGetRoomSpawnPosition(room, out position))
+                return false;
+
+            Vector3 rayOrigin = position + Vector3.up * dirtSurfaceRaycastHeight;
+            float rayDistance =
+                Mathf.Max(0.01f, dirtSurfaceRaycastHeight + dirtSurfaceRaycastDistance);
+
+            if (!Physics.Raycast(
+                    rayOrigin,
+                    Vector3.down,
+                    out RaycastHit hit,
+                    rayDistance,
+                    dirtSurfaceMask,
+                    QueryTriggerInteraction.Ignore))
+            {
+                continue;
+            }
+
+            if (!IsValidDirtSurfaceNormal(hit.normal))
+                continue;
+
+            position = hit.point + hit.normal * spawnHeightOffset;
+            rotation = Quaternion.LookRotation(-hit.normal);
+            return true;
+        }
+
+        position = room != null ? room.transform.position : transform.position;
+        return false;
+    }
+
+    bool IsValidDirtSurfaceNormal(Vector3 surfaceNormal)
+    {
+        if (float.IsNaN(surfaceNormal.x) ||
+            float.IsNaN(surfaceNormal.y) ||
+            float.IsNaN(surfaceNormal.z) ||
+            surfaceNormal.sqrMagnitude <= 0.0001f)
+        {
+            return false;
+        }
+
+        float upDot = Vector3.Dot(surfaceNormal.normalized, Vector3.up);
+        return upDot >= minimumDirtSurfaceUpDot;
     }
 
     bool TryGetRoomSpawnPosition(GameObject room, out Vector3 position)

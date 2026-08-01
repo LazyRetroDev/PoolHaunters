@@ -90,7 +90,7 @@ public class WaterValve : NetworkBehaviour
         ActivateAuthoritative();
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void ActivateServerRpc()
     {
         ActivateAuthoritative();

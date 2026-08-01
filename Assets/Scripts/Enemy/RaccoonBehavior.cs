@@ -619,7 +619,7 @@ public class RaccoonBehavior : NetworkBehaviour
         if (IsNetworkSessionRunning())
             ApplyNetworkCarriedItemPose(carriedItem);
         else
-            ParentCarriedItemToCarryPoint(carriedItem);
+            ApplyCarriedItemWorldPose(carriedItem);
 
         SetItemRenderersEnabled(carriedItem, true);
         SetItemCollidersEnabled(carriedItem, false);
@@ -631,10 +631,8 @@ public class RaccoonBehavior : NetworkBehaviour
         if (item == null)
             return;
 
-        Transform parent = carryPoint != null ? carryPoint : transform;
-        item.transform.SetParent(parent, false);
-        item.transform.localPosition = carryPoint != null ? Vector3.zero : carryOffset;
-        item.transform.localRotation = Quaternion.identity;
+        item.transform.SetParent(transform, false);
+        ApplyCarriedItemLocalNetworkPose(item);
     }
 
     void ApplyCarriedItemWorldPose(Item item)
@@ -1075,9 +1073,7 @@ public class RaccoonBehavior : NetworkBehaviour
             return;
         }
 
-        Transform parent = carryPoint != null ? carryPoint : transform;
-        if (carriedItem.transform.parent != parent)
-            ParentCarriedItemToCarryPoint(carriedItem);
+        ApplyCarriedItemWorldPose(carriedItem);
     }
 
     void TryAttackPlayer()

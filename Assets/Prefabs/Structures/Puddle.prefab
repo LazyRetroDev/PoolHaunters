@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 7433664822822774785}
   - component: {fileID: 8102868743757356293}
   - component: {fileID: 3944402896632689712}
+  - component: {fileID: 7459032964617674769}
   m_Layer: 0
   m_Name: Puddle
   m_TagString: WaterSource
@@ -31,7 +32,7 @@ Transform:
   m_GameObject: {fileID: 3822121108961349732}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.99, z: 0}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 2.8121917, y: 0.2777, z: 4.168701}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -180,3 +181,28 @@ MonoBehaviour:
   collidersToDisableWhenDry: []
   disableObjectWhenDry: 0
   extraObjectsToDisableWhenDry: []
+--- !u!114 &7459032964617674769
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3822121108961349732}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 0
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0

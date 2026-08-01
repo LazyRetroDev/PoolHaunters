@@ -255,9 +255,8 @@ public class PlayerInventory : NetworkBehaviour
     {
         if (item == null) return false;
 
-        PlayerInventory[] inventories = FindObjectsByType<PlayerInventory>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+        PlayerInventory[] inventories =
+            FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
         for (int inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
         {
             PlayerInventory inventory = inventories[inventoryIndex];
@@ -699,12 +698,12 @@ public class PlayerInventory : NetworkBehaviour
         };
     }
 
-    bool CanProcessClientInventoryRequest(ServerRpcParams serverRpcParams)
+    bool CanProcessClientInventoryRequest(RpcParams rpcParams)
     {
         if (!IsNetworkSessionRunning())
             return true;
 
-        ulong senderClientId = serverRpcParams.Receive.SenderClientId;
+        ulong senderClientId = rpcParams.Receive.SenderClientId;
         if (senderClientId == OwnerClientId)
             return true;
 
@@ -735,13 +734,13 @@ public class PlayerInventory : NetworkBehaviour
         return !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void RequestPickupServerRpc(
         NetworkObjectReference itemReference,
         Vector3 requesterPosition,
-        ServerRpcParams serverRpcParams = default)
+        RpcParams rpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(serverRpcParams))
+        if (!CanProcessClientInventoryRequest(rpcParams))
             return;
         if (!TryResolveItem(itemReference, out Item item))
             return;
@@ -752,27 +751,27 @@ public class PlayerInventory : NetworkBehaviour
             networkPickupPositionTolerance);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void RequestUseSelectedItemServerRpc(
         int slotIndex,
-        ServerRpcParams serverRpcParams = default)
+        RpcParams rpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(serverRpcParams))
+        if (!CanProcessClientInventoryRequest(rpcParams))
             return;
 
         selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
         UseSelectedItemAuthoritative(selectedSlot);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void RequestThrowSelectedItemServerRpc(
         int slotIndex,
         Vector3 spawnPosition,
         Quaternion spawnRotation,
         Vector3 impulse,
-        ServerRpcParams serverRpcParams = default)
+        RpcParams rpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(serverRpcParams))
+        if (!CanProcessClientInventoryRequest(rpcParams))
             return;
 
         selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
@@ -783,12 +782,12 @@ public class PlayerInventory : NetworkBehaviour
             impulse);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void SelectSlotServerRpc(
         int slotIndex,
-        ServerRpcParams serverRpcParams = default)
+        RpcParams rpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(serverRpcParams))
+        if (!CanProcessClientInventoryRequest(rpcParams))
             return;
 
         EnsureSlots();

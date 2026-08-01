@@ -171,7 +171,8 @@ public class DiscoveredRoomMinimap : MonoBehaviour
             }
         }
 
-        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
+        PlayerStatus[] players =
+            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
         for (int i = 0; i < players.Length; i++)
         {
             if (players[i] != null && !players[i].IsDead())

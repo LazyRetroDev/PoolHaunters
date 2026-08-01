@@ -67,6 +67,7 @@ public class DirtSpot : NetworkBehaviour
     private Vector3 lastHitPoint;
     private float lastHitTime = -1f;
     private bool isFadingOut = false;
+    private SwimmingPoolObjective poolObjective;
 
     private Vector3[] dirtNodes;
     private bool[] nodeIsClean;
@@ -84,6 +85,7 @@ public class DirtSpot : NetworkBehaviour
     {
         if (targetRenderer == null) targetRenderer = GetComponentInChildren<Renderer>();
         if (targetCollider == null) targetCollider = GetComponent<Collider>();
+        poolObjective = GetComponentInParent<SwimmingPoolObjective>();
 
         initialLocalScale = transform.localScale;
         propertyBlock = new MaterialPropertyBlock();
@@ -399,6 +401,16 @@ public class DirtSpot : NetworkBehaviour
 
         if (ShouldBroadcastNetworkState())
             CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
+
+        NotifyPoolCleanAtWorldPoint(worldPoint, worldRadius, amount);
+    }
+
+    public void ApplySynchronizedPoolCleanAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount)
+    {
+        CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
     }
 
     void CleanAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float amount)
@@ -485,6 +497,35 @@ public class DirtSpot : NetworkBehaviour
         return networkManager != null && networkManager.IsListening;
     }
 
+    void NotifyPoolCleanAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount)
+    {
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+
+        if (poolObjective == null ||
+            poolObjective.IsApplyingSynchronizedState ||
+            !IsNetworkSessionRunning())
+        {
+            return;
+        }
+
+        if (IsSpawned)
+            return;
+
+        if (LevelObjectiveManager.Instance != null)
+        {
+            LevelObjectiveManager.Instance.NotifyPoolDirtSpotCleaned(
+                poolObjective,
+                this,
+                worldPoint,
+                worldRadius,
+                amount);
+        }
+    }
+
     static bool IsFiniteVector3(Vector3 value)
     {
         return IsFiniteFloat(value.x) &&
@@ -502,7 +543,7 @@ public class DirtSpot : NetworkBehaviour
         return IsFiniteFloat(value) && value > 0f;
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void CleanServerRpc(float amount)
     {
         if (!HasValidAmount(amount))
@@ -512,7 +553,7 @@ public class DirtSpot : NetworkBehaviour
         CleanClientRpc(amount);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void CleanAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,
@@ -529,7 +570,7 @@ public class DirtSpot : NetworkBehaviour
         CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void ApplyContaminatedWaterAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,

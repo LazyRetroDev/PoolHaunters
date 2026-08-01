@@ -220,7 +220,11 @@ public class PlayerPetrify : NetworkBehaviour
 
         CacheReferences();
         if (movement != null)
+        {
             movement.enabled = true;
+            movement.SetAcceptsInput(playerStatus == null || playerStatus.AllowsLocalInput());
+        }
+
         if (inventory != null)
             inventory.enabled = playerStatus == null || playerStatus.CanAct();
     }
