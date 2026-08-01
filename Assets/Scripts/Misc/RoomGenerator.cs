@@ -257,6 +257,15 @@ public class RoomGenerator : MonoBehaviour
     [Header("Room Resources")]
     [SerializeField] private RoomResourceSpawner resourceSpawner;
 
+    [Header("Water Valve Objective")]
+    [SerializeField] private bool spawnWaterValveOnGeneratedMap = true;
+    [SerializeField] private GameObject waterValvePrefab;
+    [SerializeField, Min(0f)] private float waterValveWallHeight = 1.25f;
+    [SerializeField, Min(0f)] private float waterValveWallInset = 0.15f;
+    [SerializeField, Min(0f)] private float waterValveSidePadding = 1.25f;
+    [SerializeField, Min(1)] private int waterValveWallProbeAttempts = 16;
+    [SerializeField] private Vector3 waterValveRotationOffset;
+
     [Header("Run Progression")]
     [SerializeField] private RoomProgressionController progression;
 
@@ -346,6 +355,7 @@ public class RoomGenerator : MonoBehaviour
     private bool mapMessageHandlersRegistered;
     private bool generatedMapSnapshotReady;
     private bool clientPlayerTeleportedAfterInitialMapSync;
+    private GameObject spawnedWaterValve;
 
     void OnEnable()
     {
@@ -515,6 +525,7 @@ public class RoomGenerator : MonoBehaviour
         for (int i = 0; i < roomsToGenerate; i++)
             GenerateNextRoom();
 
+        TrySpawnWaterValve();
         NotifyGeneratedMapSnapshotReady();
     }
 
@@ -784,6 +795,7 @@ public class RoomGenerator : MonoBehaviour
                 if (logGenerationReport && !string.IsNullOrWhiteSpace(lastGenerationReport))
                     Debug.Log(lastGenerationReport);
 
+                TrySpawnWaterValve();
                 TrySpawnInitialTimeCamper();
                 NotifyGeneratedMapSnapshotReady();
                 return;
@@ -1598,6 +1610,12 @@ public class RoomGenerator : MonoBehaviour
         {
             DestroyGeneratedObject(navMeshLinkRoot.gameObject);
             navMeshLinkRoot = null;
+        }
+
+        if (spawnedWaterValve != null)
+        {
+            DestroyGeneratedObject(spawnedWaterValve);
+            spawnedWaterValve = null;
         }
 
         for (int i = 0; i < spawnedRooms.Count; i++)
@@ -3279,6 +3297,411 @@ public class RoomGenerator : MonoBehaviour
         EnemySpawner.Instance.SpawnTimeCamper();
         initialEnemySpawned = true;
         pendingInitialTimeCamperSpawn = false;
+    }
+
+    void TrySpawnWaterValve()
+    {
+        if (!spawnWaterValveOnGeneratedMap) return;
+        if (spawnedWaterValve != null) return;
+        if (waterValvePrefab == null)
+        {
+            Debug.LogWarning("RoomGenerator cannot spawn the water valve because no prefab is assigned.");
+            return;
+        }
+
+        if (!CanSpawnRoomContentNow())
+            return;
+
+        List<GameObject> eligibleRooms = GetWaterValveEligibleRooms();
+        if (eligibleRooms.Count == 0)
+        {
+            Debug.LogWarning("RoomGenerator found no eligible room for the water valve.");
+            return;
+        }
+
+        System.Random random = new System.Random(CreateWaterValveSeed());
+        for (int attempt = 0; attempt < eligibleRooms.Count; attempt++)
+        {
+            int index = random.Next(eligibleRooms.Count);
+            GameObject room = eligibleRooms[index];
+            eligibleRooms.RemoveAt(index);
+
+            Vector3 position;
+            Quaternion rotation;
+            if (!TryGetWaterValvePose(room, random, out position, out rotation))
+                continue;
+
+            SpawnWaterValve(position, rotation);
+            return;
+        }
+
+        Debug.LogWarning("RoomGenerator could not find a valid wall pose for the water valve.");
+    }
+
+    List<GameObject> GetWaterValveEligibleRooms()
+    {
+        List<GameObject> eligibleRooms = new List<GameObject>();
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject room = spawnedRooms[i];
+            if (room == null)
+                continue;
+
+            if (i == 0)
+                continue;
+
+            RoomDefinition definition = GetRoomDefinition(room);
+            if (definition == null)
+                continue;
+
+            if (definition.category == RoomCategory.SubmarineSpawn ||
+                definition.category == RoomCategory.Final)
+            {
+                continue;
+            }
+
+            eligibleRooms.Add(room);
+        }
+
+        return eligibleRooms;
+    }
+
+    bool TryGetWaterValvePose(
+        GameObject room,
+        System.Random random,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        position = Vector3.zero;
+        rotation = Quaternion.identity;
+        if (room == null)
+            return false;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition != null)
+        {
+            int attempts = Mathf.Max(1, waterValveWallProbeAttempts);
+            for (int attempt = 0; attempt < attempts; attempt++)
+            {
+                int wall = random.Next(4);
+                RaycastHit hit;
+                Vector3 rayDirection;
+                if (!TryGetWaterValveWallHit(
+                    room,
+                    definition,
+                    random,
+                    wall,
+                    out hit,
+                    out rayDirection))
+                {
+                    continue;
+                }
+
+                Vector3 wallNormal = Vector3.ProjectOnPlane(hit.normal, Vector3.up);
+                if (wallNormal.sqrMagnitude <= 0.0001f)
+                    wallNormal = -rayDirection;
+
+                wallNormal.Normalize();
+
+                if (Vector3.Dot(wallNormal, rayDirection) > 0f)
+                    wallNormal = -wallNormal;
+
+                BuildWaterValvePoseFromWall(hit.point, wallNormal, out position, out rotation);
+                return true;
+            }
+        }
+
+        return TryGetWaterValveBoundsPose(room, random, out position, out rotation);
+    }
+
+    bool TryGetWaterValveWallHit(
+        GameObject room,
+        RoomDefinition definition,
+        System.Random random,
+        int wall,
+        out RaycastHit selectedHit,
+        out Vector3 rayDirection)
+    {
+        selectedHit = default;
+        rayDirection = Vector3.forward;
+
+        if (room == null || definition == null)
+            return false;
+
+        Vector3 halfSize = definition.size * 0.5f;
+        if (halfSize.x <= 0.1f || halfSize.z <= 0.1f)
+            return false;
+
+        float minX = definition.boundsCenter.x - halfSize.x;
+        float maxX = definition.boundsCenter.x + halfSize.x;
+        float minZ = definition.boundsCenter.z - halfSize.z;
+        float maxZ = definition.boundsCenter.z + halfSize.z;
+        float paddedMinX = minX + waterValveSidePadding;
+        float paddedMaxX = maxX - waterValveSidePadding;
+        float paddedMinZ = minZ + waterValveSidePadding;
+        float paddedMaxZ = maxZ - waterValveSidePadding;
+        float localY = definition.boundsCenter.y - halfSize.y + waterValveWallHeight;
+        Vector3 localOrigin = new Vector3(definition.boundsCenter.x, localY, definition.boundsCenter.z);
+        float distance;
+
+        switch (wall)
+        {
+            case 0:
+                rayDirection = -room.transform.right;
+                localOrigin.z = RandomRange(random, paddedMinZ, paddedMaxZ, definition.boundsCenter.z);
+                distance = halfSize.x + waterValveWallInset + 0.5f;
+                break;
+            case 1:
+                rayDirection = room.transform.right;
+                localOrigin.z = RandomRange(random, paddedMinZ, paddedMaxZ, definition.boundsCenter.z);
+                distance = halfSize.x + waterValveWallInset + 0.5f;
+                break;
+            case 2:
+                rayDirection = -room.transform.forward;
+                localOrigin.x = RandomRange(random, paddedMinX, paddedMaxX, definition.boundsCenter.x);
+                distance = halfSize.z + waterValveWallInset + 0.5f;
+                break;
+            default:
+                rayDirection = room.transform.forward;
+                localOrigin.x = RandomRange(random, paddedMinX, paddedMaxX, definition.boundsCenter.x);
+                distance = halfSize.z + waterValveWallInset + 0.5f;
+                break;
+        }
+
+        Vector3 worldOrigin = room.transform.TransformPoint(localOrigin);
+        RaycastHit[] hits = Physics.RaycastAll(
+            worldOrigin,
+            rayDirection,
+            distance,
+            ~0,
+            QueryTriggerInteraction.Ignore);
+
+        if (hits == null || hits.Length == 0)
+            return false;
+
+        System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (!IsWaterValveWallHit(room, definition, wall, hit))
+                continue;
+
+            selectedHit = hit;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool IsWaterValveWallHit(
+        GameObject room,
+        RoomDefinition definition,
+        int wall,
+        RaycastHit hit)
+    {
+        if (room == null || definition == null || hit.collider == null)
+            return false;
+
+        Transform hitTransform = hit.collider.transform;
+        if (!hitTransform.IsChildOf(room.transform))
+            return false;
+
+        if (hit.collider.GetComponentInParent<RoomConnector>() != null ||
+            hit.collider.GetComponentInParent<DoorTrigger>() != null)
+        {
+            return false;
+        }
+
+        Vector3 halfSize = definition.size * 0.5f;
+        float minX = definition.boundsCenter.x - halfSize.x;
+        float maxX = definition.boundsCenter.x + halfSize.x;
+        float minZ = definition.boundsCenter.z - halfSize.z;
+        float maxZ = definition.boundsCenter.z + halfSize.z;
+        Vector3 localPoint = room.transform.InverseTransformPoint(hit.point);
+        float boundaryTolerance = Mathf.Max(0.35f, waterValveWallInset + 0.35f);
+
+        switch (wall)
+        {
+            case 0:
+                return Mathf.Abs(localPoint.x - minX) <= boundaryTolerance;
+            case 1:
+                return Mathf.Abs(localPoint.x - maxX) <= boundaryTolerance;
+            case 2:
+                return Mathf.Abs(localPoint.z - minZ) <= boundaryTolerance;
+            default:
+                return Mathf.Abs(localPoint.z - maxZ) <= boundaryTolerance;
+        }
+    }
+
+    bool TryGetWaterValveBoundsPose(
+        GameObject room,
+        System.Random random,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        position = Vector3.zero;
+        rotation = Quaternion.identity;
+        if (room == null)
+            return false;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        Bounds bounds = definition != null
+            ? definition.GetWorldBounds()
+            : new Bounds(room.transform.position, Vector3.one * 8f);
+
+        Vector3 extents = bounds.extents;
+        if (extents.x <= 0.1f || extents.z <= 0.1f)
+            return false;
+
+        int wall = random.Next(4);
+        float paddedMinX = bounds.min.x + waterValveSidePadding;
+        float paddedMaxX = bounds.max.x - waterValveSidePadding;
+        float paddedMinZ = bounds.min.z + waterValveSidePadding;
+        float paddedMaxZ = bounds.max.z - waterValveSidePadding;
+        float x = RandomRange(random, paddedMinX, paddedMaxX, bounds.center.x);
+        float z = RandomRange(random, paddedMinZ, paddedMaxZ, bounds.center.z);
+        float y = bounds.min.y + waterValveWallHeight;
+        Vector3 outwardNormal;
+
+        switch (wall)
+        {
+            case 0:
+                position = new Vector3(bounds.min.x + waterValveWallInset, y, z);
+                outwardNormal = Vector3.left;
+                break;
+            case 1:
+                position = new Vector3(bounds.max.x - waterValveWallInset, y, z);
+                outwardNormal = Vector3.right;
+                break;
+            case 2:
+                position = new Vector3(x, y, bounds.min.z + waterValveWallInset);
+                outwardNormal = Vector3.back;
+                break;
+            default:
+                position = new Vector3(x, y, bounds.max.z - waterValveWallInset);
+                outwardNormal = Vector3.forward;
+                break;
+        }
+
+        BuildWaterValvePoseFromWall(position, -outwardNormal, out position, out rotation);
+        return true;
+    }
+
+    void BuildWaterValvePoseFromWall(
+        Vector3 wallPoint,
+        Vector3 outwardNormal,
+        out Vector3 position,
+        out Quaternion rotation)
+    {
+        position = wallPoint;
+        rotation = Quaternion.identity;
+
+        if (outwardNormal.sqrMagnitude <= 0.0001f)
+            outwardNormal = Vector3.forward;
+
+        outwardNormal.Normalize();
+
+        Vector3 localBackPoint;
+        Vector3 localForward;
+        if (TryGetWaterValveMarkerData(out localBackPoint, out localForward))
+        {
+            rotation = Quaternion.FromToRotation(localForward, outwardNormal) *
+                Quaternion.Euler(waterValveRotationOffset);
+            position = wallPoint - rotation * localBackPoint;
+            return;
+        }
+
+        rotation = Quaternion.LookRotation(outwardNormal, Vector3.up) *
+            Quaternion.Euler(waterValveRotationOffset);
+        position = wallPoint + outwardNormal * waterValveWallInset;
+    }
+
+    bool TryGetWaterValveMarkerData(out Vector3 localBackPoint, out Vector3 localForward)
+    {
+        localBackPoint = Vector3.zero;
+        localForward = Vector3.forward;
+
+        if (waterValvePrefab == null)
+            return false;
+
+        Transform root = waterValvePrefab.transform;
+        Transform back = FindChildRecursive(root, "Back");
+        Transform front = FindChildRecursive(root, "Front");
+        if (back == null || front == null)
+            return false;
+
+        localBackPoint = root.InverseTransformPoint(back.position);
+        Vector3 localFrontPoint = root.InverseTransformPoint(front.position);
+        localForward = localFrontPoint - localBackPoint;
+
+        if (localForward.sqrMagnitude <= 0.0001f)
+            return false;
+
+        localForward.Normalize();
+        return true;
+    }
+
+    Transform FindChildRecursive(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(childName))
+            return null;
+
+        if (root.name == childName)
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            Transform result = FindChildRecursive(child, childName);
+            if (result != null)
+                return result;
+        }
+
+        return null;
+    }
+
+    float RandomRange(
+        System.Random random,
+        float min,
+        float max,
+        float fallback)
+    {
+        if (random == null || min >= max)
+            return fallback;
+
+        return Mathf.Lerp(min, max, (float)random.NextDouble());
+    }
+
+    void SpawnWaterValve(Vector3 position, Quaternion rotation)
+    {
+        spawnedWaterValve = Instantiate(waterValvePrefab, position, rotation);
+        spawnedWaterValve.name = waterValvePrefab.name;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager == null || !networkManager.IsListening)
+            return;
+
+        if (!networkManager.IsServer)
+            return;
+
+        NetworkObject networkObject = spawnedWaterValve.GetComponent<NetworkObject>();
+        if (networkObject == null)
+        {
+            Debug.LogWarning("Water valve prefab needs a NetworkObject for multiplayer spawning.");
+            return;
+        }
+
+        if (!networkObject.IsSpawned)
+            networkObject.Spawn(true);
+    }
+
+    int CreateWaterValveSeed()
+    {
+        unchecked
+        {
+            return seed * 397 ^ 0x4D61566;
+        }
     }
 
     bool AlignRoomToExpansion(

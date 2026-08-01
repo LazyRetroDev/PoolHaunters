@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public enum RunLaunchMode
@@ -15,6 +16,8 @@ public enum RunNetworkMode
 
 public static class RegionRunState
 {
+    public const int MaxPlayerNameLength = 20;
+
     public static bool HasSelectedRegion { get; private set; }
     public static string RegionName { get; private set; }
     public static string SceneName { get; private set; }
@@ -28,6 +31,9 @@ public static class RegionRunState
     public static string RelayJoinCode { get; private set; } = string.Empty;
     public static string RelayConnectionType { get; private set; } = "dtls";
     public static int RelayMaxConnections { get; private set; } = 3;
+
+    private static readonly Dictionary<ulong, string> multiplayerPlayerNames =
+        new Dictionary<ulong, string>();
 
     public static bool IsSinglePlayer
     {
@@ -191,6 +197,29 @@ public static class RegionRunState
         RelayJoinCode = SanitizeRelayJoinCode(joinCode);
     }
 
+    public static void SetMultiplayerPlayerNames(
+        IReadOnlyDictionary<ulong, string> playerNames)
+    {
+        multiplayerPlayerNames.Clear();
+
+        if (playerNames == null)
+            return;
+
+        foreach (KeyValuePair<ulong, string> playerName in playerNames)
+        {
+            multiplayerPlayerNames[playerName.Key] =
+                SanitizePlayerName(playerName.Value, playerName.Key);
+        }
+    }
+
+    public static string GetMultiplayerPlayerName(ulong clientId)
+    {
+        if (multiplayerPlayerNames.TryGetValue(clientId, out string playerName))
+            return SanitizePlayerName(playerName, clientId);
+
+        return GetFallbackPlayerName(clientId);
+    }
+
     public static void Clear()
     {
         HasSelectedRegion = false;
@@ -204,6 +233,7 @@ public static class RegionRunState
         RelayJoinCode = string.Empty;
         RelayConnectionType = "dtls";
         RelayMaxConnections = 3;
+        multiplayerPlayerNames.Clear();
     }
 
     static string SanitizeRelayJoinCode(string joinCode)
@@ -230,5 +260,31 @@ public static class RegionRunState
                     $"Unsupported Relay connection type '{connectionType}'. Use udp, dtls or wss. Falling back to dtls.");
                 return "dtls";
         }
+    }
+
+    public static string SanitizePlayerName(string playerName, ulong clientId)
+    {
+        string sanitized = string.IsNullOrWhiteSpace(playerName)
+            ? GetFallbackPlayerName(clientId)
+            : playerName.Trim();
+
+        sanitized = sanitized.Replace('\r', ' ').Replace('\n', ' ');
+
+        while (sanitized.Contains("  "))
+            sanitized = sanitized.Replace("  ", " ");
+
+        if (sanitized.Length > MaxPlayerNameLength)
+            sanitized = sanitized.Substring(0, MaxPlayerNameLength);
+
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? GetFallbackPlayerName(clientId)
+            : sanitized;
+    }
+
+    public static string GetFallbackPlayerName(ulong clientId)
+    {
+        return clientId == 0
+            ? "Host"
+            : $"Player {clientId}";
     }
 }

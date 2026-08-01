@@ -15,6 +15,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     [Header("Objectives")]
     [Range(0f, 1f)] public float requiredCleanPercent = 0.8f;
+    public bool requireWaterValveObjective = true;
     public bool requireFinalRoomDiscovered = true;
     public bool requireAllWaterSourcesClean = false;
     public bool completeOnlyOnce = true;
@@ -22,18 +23,22 @@ public class LevelObjectiveManager : MonoBehaviour
     [Header("HUD")]
     public TMP_Text objectiveText;
     public TMP_Text progressText;
-    public string activeObjectiveLabel = "Clean the pools and reach the exit";
-    public string completedObjectiveLabel = "Objectives complete";
+    public string findWaterValveObjectiveLabel = "Procure a válvula de água";
+    public string findWaterValveProgressLabel = "Acione a válvula para iniciar a limpeza";
+    public string activeObjectiveLabel = "Limpe as piscinas e encontre a saída";
+    public string completedObjectiveLabel = "Objetivos concluídos";
 
     [Header("Debug")]
     [SerializeField] private int discoveredRoomCount;
     [SerializeField] private bool finalRoomDiscovered;
+    [SerializeField] private bool waterValveActivated;
     [SerializeField] private float currentCleanPercent;
     [SerializeField] private int registeredDirtSpotCount;
     [SerializeField] private int cleanedDirtSpotCount;
     [SerializeField] private bool levelCompleted;
 
     public event Action<RoomDefinition, int> OnRoomDiscovered;
+    public event Action OnWaterValveActivated;
     public event Action OnObjectiveStateChanged;
     public event Action OnLevelCompleted;
 
@@ -46,6 +51,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
     public int DiscoveredRoomCount => discoveredRoomCount;
     public bool FinalRoomDiscovered => finalRoomDiscovered;
+    public bool WaterValveActivated => !requireWaterValveObjective || waterValveActivated;
     public float CurrentCleanPercent => currentCleanPercent;
     public bool LevelCompleted => levelCompleted;
     public IReadOnlyList<RoomDefinition> DiscoveredRooms => discoveredRooms;
@@ -114,13 +120,24 @@ public class LevelObjectiveManager : MonoBehaviour
         return room != null && discoveredRoomSet.Contains(room);
     }
 
+    public void ActivateWaterValve()
+    {
+        if (waterValveActivated)
+            return;
+
+        waterValveActivated = true;
+        OnWaterValveActivated?.Invoke();
+        RefreshObjectiveState();
+    }
+
     public void RefreshObjectiveState()
     {
-        currentCleanPercent = CalculateCleanPercent();
+        bool valveReady = WaterValveActivated;
+        currentCleanPercent = valveReady ? CalculateCleanPercent() : 0f;
         bool waterSourcesReady = !requireAllWaterSourcesClean || AreAllWaterSourcesClean();
         bool finalReady = !requireFinalRoomDiscovered || finalRoomDiscovered;
         bool cleanReady = currentCleanPercent >= requiredCleanPercent;
-        bool completedNow = cleanReady && finalReady && waterSourcesReady;
+        bool completedNow = valveReady && cleanReady && finalReady && waterSourcesReady;
 
         if (completedNow && (!levelCompleted || !completeOnlyOnce))
         {
@@ -251,16 +268,29 @@ public class LevelObjectiveManager : MonoBehaviour
     void UpdateObjectiveHUD()
     {
         if (objectiveText != null)
-            objectiveText.text = levelCompleted ? completedObjectiveLabel : activeObjectiveLabel;
+        {
+            if (levelCompleted)
+                objectiveText.text = completedObjectiveLabel;
+            else if (!WaterValveActivated)
+                objectiveText.text = findWaterValveObjectiveLabel;
+            else
+                objectiveText.text = activeObjectiveLabel;
+        }
 
         if (progressText == null) return;
+
+        if (!WaterValveActivated)
+        {
+            progressText.text = findWaterValveProgressLabel;
+            return;
+        }
 
         int cleanPercent = Mathf.RoundToInt(currentCleanPercent * 100f);
         int requiredPercent = Mathf.RoundToInt(requiredCleanPercent * 100f);
         string finalText = requireFinalRoomDiscovered
-            ? finalRoomDiscovered ? "Exit found" : "Find exit"
-            : "Exit optional";
+            ? finalRoomDiscovered ? "Saída encontrada" : "Encontre a saída"
+            : "Saída opcional";
 
-        progressText.text = $"Clean {cleanPercent}% / {requiredPercent}% - Rooms {discoveredRoomCount} - {finalText}";
+        progressText.text = $"Limpeza {cleanPercent}% / {requiredPercent}% - Salas {discoveredRoomCount} - {finalText}";
     }
 }

@@ -22,8 +22,6 @@ public class MainMenu : MonoBehaviour
     const string SnapshotMessageName = "PoolHaunters_LobbySnapshot";
     const string StartGameMessageName = "PoolHaunters_LobbyStartGame";
 
-    const int MaxPlayerNameLength = 20;
-
     [Header("Run")]
     [SerializeField] private string regionName = "Submarino";
     [SerializeField] private string gameSceneName = "Game";
@@ -271,6 +269,7 @@ public class MainMenu : MonoBehaviour
             relayMaxConnections,
             relayConnectionType);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
+        StoreLobbyPlayerNamesInRunState();
 
         SendStartGameMessage(runSeed);
         SetLobbyStatus("Iniciando partida...");
@@ -734,6 +733,7 @@ public class MainMenu : MonoBehaviour
             runSeed,
             relayJoinCode,
             relayConnectionType);
+        StoreLobbyPlayerNamesInRunState();
     }
 
     private void BroadcastLobbySnapshot()
@@ -1027,30 +1027,24 @@ public class MainMenu : MonoBehaviour
         return GetFallbackPlayerName(clientId);
     }
 
+    private void StoreLobbyPlayerNamesInRunState()
+    {
+        Dictionary<ulong, string> playerNames = new Dictionary<ulong, string>();
+
+        foreach (KeyValuePair<ulong, bool> player in lobbyReadyByClientId)
+            playerNames[player.Key] = GetLobbyPlayerName(player.Key);
+
+        RegionRunState.SetMultiplayerPlayerNames(playerNames);
+    }
+
     private static string SanitizePlayerName(string playerName, ulong clientId)
     {
-        string sanitized = string.IsNullOrWhiteSpace(playerName)
-            ? GetFallbackPlayerName(clientId)
-            : playerName.Trim();
-
-        sanitized = sanitized.Replace('\r', ' ').Replace('\n', ' ');
-
-        while (sanitized.Contains("  "))
-            sanitized = sanitized.Replace("  ", " ");
-
-        if (sanitized.Length > MaxPlayerNameLength)
-            sanitized = sanitized.Substring(0, MaxPlayerNameLength);
-
-        return string.IsNullOrWhiteSpace(sanitized)
-            ? GetFallbackPlayerName(clientId)
-            : sanitized;
+        return RegionRunState.SanitizePlayerName(playerName, clientId);
     }
 
     private static string GetFallbackPlayerName(ulong clientId)
     {
-        return clientId == NetworkManager.ServerClientId
-            ? "Host"
-            : $"Player {clientId}";
+        return RegionRunState.GetFallbackPlayerName(clientId);
     }
 
     private void RegisterUiListeners()
