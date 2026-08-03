@@ -45,10 +45,10 @@ public class LevelObjectiveManager : MonoBehaviour
     public bool showCleanGoalOnlyAfterWaterValve = true;
     public string cleanGoalObjectName = "CleanGoal";
     public string cleanGoalTextObjectName = "goaltext";
-    public string findWaterValveObjectiveLabel = "Procure a válvula de água";
-    public string findWaterValveProgressLabel = "Acione a válvula para iniciar a limpeza";
-    public string activeObjectiveLabel = "Limpe as piscinas e encontre a saída";
-    public string completedObjectiveLabel = "Objetivos concluídos";
+    public string findWaterValveObjectiveLabel = "Find the water valve";
+    public string findWaterValveProgressLabel = "Turn the water valve to start cleaning";
+    public string activeObjectiveLabel = "Clean the pools and find the exit";
+    public string completedObjectiveLabel = "Objectives complete";
     public string cleaningProgressFormat = "Cleaning: {0}%";
     public string poolCounterFormat = "Pools {0}/{1}";
     public string levelInfoFormat = "Level {0}";
@@ -1165,14 +1165,14 @@ public class LevelObjectiveManager : MonoBehaviour
 
         int requiredPercent = Mathf.RoundToInt(requiredCleanPercent * 100f);
         string finalText = requireFinalRoomDiscovered
-            ? finalRoomDiscovered ? "Saída encontrada" : "Encontre a saída"
-            : "Saída opcional";
+            ? finalRoomDiscovered ? "Exit found" : "Find the exit"
+            : "Exit optional";
 
         string poolText = requireAllRequiredPoolsClean && requiredPoolCount > 0
-            ? $" - Piscinas {cleanedRequiredPoolCount}/{requiredPoolCount}"
+            ? $" - Pools {cleanedRequiredPoolCount}/{requiredPoolCount}"
             : string.Empty;
 
-        progressText.text = $"Limpeza {cleanPercent}% / {requiredPercent}%{poolText} - Salas {discoveredRoomCount} - {finalText}";
+        progressText.text = $"Cleaning {cleanPercent}% / {requiredPercent}%{poolText} - Rooms {discoveredRoomCount} - {finalText}";
     }
 
     string GetLevelInfoText()
