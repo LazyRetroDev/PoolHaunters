@@ -49,6 +49,7 @@ public class PlayerMovement : NetworkBehaviour
     private CapsuleCollider bodyCollider;
     private PlayerInput playerInput;
     private PlayerStatus playerStatus;
+    private JennyMopCleaner jennyMopCleaner;
     private Vector2 moveInput;
     private bool isSprinting;
     private bool crouchRequested;
@@ -107,6 +108,7 @@ public class PlayerMovement : NetworkBehaviour
         bodyCollider = GetComponent<CapsuleCollider>();
         playerInput = GetComponent<PlayerInput>();
         playerStatus = GetComponent<PlayerStatus>();
+        jennyMopCleaner = GetComponent<JennyMopCleaner>();
         currentStamina = maxStamina;
 
         if (bodyCollider != null)
@@ -189,6 +191,11 @@ public class PlayerMovement : NetworkBehaviour
             UpdateLocalLocomotionState(false, false);
             return;
         }
+        if (IsMovementBlockedByCharacterAbility())
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
 
         bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
         UpdateCrouchState(knockedOut);
@@ -251,6 +258,14 @@ public class PlayerMovement : NetworkBehaviour
                 currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             }
         }
+    }
+
+    bool IsMovementBlockedByCharacterAbility()
+    {
+        if (jennyMopCleaner == null)
+            jennyMopCleaner = GetComponent<JennyMopCleaner>();
+
+        return jennyMopCleaner != null && jennyMopCleaner.IsSurfDashing;
     }
 
     void UpdateCrouchState(bool knockedOut)

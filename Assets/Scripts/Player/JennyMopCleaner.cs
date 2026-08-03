@@ -64,10 +64,6 @@ public class JennyMopCleaner : MonoBehaviour
     public float dashVisualScaleSpeed = 18f;
 
     [Header("Surf Dash Presentation")]
-    public bool useDashMopOffset = true;
-    public Vector3 dashMopLocalOffset = new Vector3(0f, 0.08f, 0.55f);
-    public bool faceDashDirection = true;
-    public float dashTurnSpeed = 18f;
     public ParticleSystem dashTrailParticles;
     public bool autoFindDashTrailParticles = true;
     public bool stopTrailWhenDashEnds = true;
@@ -89,7 +85,10 @@ public class JennyMopCleaner : MonoBehaviour
     private float dashTimer;
     private float nextDashTime;
     private float nextContaminatedTrailTime;
+    private Vector3 activeDashDirection;
     private bool dashTrailPlaying;
+
+    public bool IsSurfDashing => IsDashing();
 
     void Awake()
     {
@@ -395,6 +394,7 @@ public class JennyMopCleaner : MonoBehaviour
         if (playerStatus != null && !playerStatus.ConsumeWater(dashWaterCost))
             return;
 
+        activeDashDirection = GetDashDirection();
         dashTimer = dashDuration;
         nextDashTime = Time.time + dashCooldown;
         SetDashTrailPlaying(true);
@@ -434,7 +434,9 @@ public class JennyMopCleaner : MonoBehaviour
 
         dashTimer = Mathf.Max(0f, dashTimer - Time.fixedDeltaTime);
 
-        Vector3 direction = GetDashDirection();
+        Vector3 direction = activeDashDirection.sqrMagnitude > 0.001f
+            ? activeDashDirection
+            : transform.forward;
         Vector3 delta = direction * dashSpeed * Time.fixedDeltaTime;
 
         if (rb != null)
@@ -442,25 +444,8 @@ public class JennyMopCleaner : MonoBehaviour
         else
             transform.position += delta;
 
-        TurnTowardDashDirection(direction);
-
         if (!IsDashing())
             SetDashTrailPlaying(false);
-    }
-
-    void TurnTowardDashDirection(Vector3 direction)
-    {
-        if (!faceDashDirection || direction.sqrMagnitude <= 0.001f)
-            return;
-
-        Quaternion targetRotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
-        float blend = 1f - Mathf.Exp(-dashTurnSpeed * Time.fixedDeltaTime);
-        Quaternion nextRotation = Quaternion.Slerp(transform.rotation, targetRotation, blend);
-
-        if (rb != null)
-            rb.MoveRotation(nextRotation);
-        else
-            transform.rotation = nextRotation;
     }
 
     Vector3 GetDashDirection()
@@ -568,10 +553,7 @@ public class JennyMopCleaner : MonoBehaviour
 
     Vector3 GetMopWorldPosition()
     {
-        Vector3 localOffset = IsDashing() && useDashMopOffset
-            ? dashMopLocalOffset
-            : mopLocalOffset;
-        Vector3 basePosition = transform.TransformPoint(localOffset);
+        Vector3 basePosition = transform.TransformPoint(mopLocalOffset);
         if (!snapMopToSurface)
             return basePosition;
 
