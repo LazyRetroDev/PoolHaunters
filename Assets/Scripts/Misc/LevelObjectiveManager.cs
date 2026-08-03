@@ -449,6 +449,26 @@ public class LevelObjectiveManager : MonoBehaviour
         }
     }
 
+    float CalculateRequiredPoolCleanPercent()
+    {
+        RegisterKnownPoolObjectives();
+
+        float cleanAmount = 0f;
+        int requiredCount = 0;
+
+        foreach (SwimmingPoolObjective pool in registeredPools)
+        {
+            if (pool == null || !pool.RequiredForLevelCompletion)
+                continue;
+
+            requiredCount++;
+            cleanAmount += pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress);
+        }
+
+        UpdatePoolDebugCounts();
+        return requiredCount > 0 ? Mathf.Clamp01(cleanAmount / requiredCount) : 0f;
+    }
+
     void StartPoolSyncRegistration()
     {
         if (poolMessageHandlersRegistered || poolSyncRegistrationCoroutine != null)
@@ -1114,7 +1134,7 @@ public class LevelObjectiveManager : MonoBehaviour
                 objectiveText.text = activeObjectiveLabel;
         }
 
-        float cleanForHud = WaterValveActivated ? Mathf.Clamp01(currentCleanPercent) : 0f;
+        float cleanForHud = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
         int cleanPercent = Mathf.RoundToInt(cleanForHud * 100f);
 
         if (cleaningProgressText != null)
@@ -1304,7 +1324,7 @@ public class LevelObjectiveManager : MonoBehaviour
     void UpdateCleanGoalUI()
     {
         float required = Mathf.Clamp01(requiredCleanPercent);
-        float clean = WaterValveActivated ? Mathf.Clamp01(currentCleanPercent) : 0f;
+        float clean = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
         float normalizedGoal = required > 0f ? Mathf.Clamp01(clean / required) : 1f;
         bool shouldShow = !showCleanGoalOnlyAfterWaterValve || WaterValveActivated;
 
