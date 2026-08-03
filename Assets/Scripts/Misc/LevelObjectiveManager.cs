@@ -109,6 +109,16 @@ public class LevelObjectiveManager : MonoBehaviour
         Instance = this;
     }
 
+    void OnEnable()
+    {
+        GameLocalization.LanguageChanged += HandleLanguageChanged;
+    }
+
+    void OnDisable()
+    {
+        GameLocalization.LanguageChanged -= HandleLanguageChanged;
+    }
+
     void OnDestroy()
     {
         UnregisterDirtSpotEvents();
@@ -117,6 +127,11 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (Instance == this)
             Instance = null;
+    }
+
+    void HandleLanguageChanged(GameLanguage language)
+    {
+        UpdateObjectiveHUD();
     }
 
     void Start()
@@ -1127,18 +1142,20 @@ public class LevelObjectiveManager : MonoBehaviour
         if (objectiveText != null)
         {
             if (levelCompleted)
-                objectiveText.text = completedObjectiveLabel;
+                objectiveText.text = Localized("objective.complete", completedObjectiveLabel);
             else if (!WaterValveActivated)
-                objectiveText.text = findWaterValveObjectiveLabel;
+                objectiveText.text = Localized("objective.findValve", findWaterValveObjectiveLabel);
             else
-                objectiveText.text = activeObjectiveLabel;
+                objectiveText.text = Localized("objective.cleanPools", activeObjectiveLabel);
         }
 
         float cleanForHud = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
         int cleanPercent = Mathf.RoundToInt(cleanForHud * 100f);
 
         if (cleaningProgressText != null)
-            cleaningProgressText.text = string.Format(cleaningProgressFormat, cleanPercent);
+            cleaningProgressText.text = string.Format(
+                Localized("hud.cleaningProgress", cleaningProgressFormat),
+                cleanPercent);
 
         if (cleaningProgressBar != null)
             cleaningProgressBar.value = cleanForHud;
@@ -1148,7 +1165,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (poolCounterText != null)
             poolCounterText.text = string.Format(
-                poolCounterFormat,
+                Localized("hud.pools", poolCounterFormat),
                 cleanedRequiredPoolCount,
                 requiredPoolCount);
 
@@ -1159,20 +1176,29 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (!WaterValveActivated)
         {
-            progressText.text = findWaterValveProgressLabel;
+            progressText.text = Localized("objective.turnValve", findWaterValveProgressLabel);
             return;
         }
 
         int requiredPercent = Mathf.RoundToInt(requiredCleanPercent * 100f);
         string finalText = requireFinalRoomDiscovered
-            ? finalRoomDiscovered ? "Exit found" : "Find the exit"
-            : "Exit optional";
+            ? finalRoomDiscovered
+                ? Localized("objective.exitFound", "Exit found")
+                : Localized("objective.findExit", "Find the exit")
+            : Localized("objective.exitOptional", "Exit optional");
 
         string poolText = requireAllRequiredPoolsClean && requiredPoolCount > 0
-            ? $" - Pools {cleanedRequiredPoolCount}/{requiredPoolCount}"
+            ? $" - {Localized("objective.pools", "Pools")} {cleanedRequiredPoolCount}/{requiredPoolCount}"
             : string.Empty;
 
-        progressText.text = $"Cleaning {cleanPercent}% / {requiredPercent}%{poolText} - Rooms {discoveredRoomCount} - {finalText}";
+        progressText.text =
+            $"{Localized("objective.cleaning", "Cleaning")} {cleanPercent}% / {requiredPercent}%" +
+            $"{poolText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount} - {finalText}";
+    }
+
+    string Localized(string key, string fallback)
+    {
+        return GameLocalization.Translate(key, fallback);
     }
 
     string GetLevelInfoText()

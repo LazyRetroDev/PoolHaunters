@@ -501,6 +501,11 @@ public class PauseMenuController : MonoBehaviour
 
     void BuildAccessibilityPage(Transform root)
     {
+        CreateCycleControl(root, "LANGUAGE", GameLocalization.BuildDisplayNameList(), GameLocalization.CurrentLanguageIndex, index =>
+        {
+            GameLocalization.SetLanguageIndex(index);
+        });
+
         CreateToggle(root, "REDUCE FLASHING", PrefPrefix + "ReduceFlashing", false, value => ReduceFlashing = value);
         CreateToggle(root, "REDUCE CAMERA SHAKE", PrefPrefix + "ReduceCameraShake", false, value => ReduceCameraShake = value);
         CreateSlider(root, "MENU SCALE", PrefPrefix + "MenuScale", 0.85f, 0.45f, 1.35f, ApplyMenuScale);
@@ -526,6 +531,7 @@ public class PauseMenuController : MonoBehaviour
         ColorblindMode = PlayerPrefs.GetInt(PrefPrefix + "ColorblindMode", 0);
         ReduceFlashing = PlayerPrefs.GetInt(PrefPrefix + "ReduceFlashing", 0) == 1;
         ReduceCameraShake = PlayerPrefs.GetInt(PrefPrefix + "ReduceCameraShake", 0) == 1;
+        GameLocalization.SetLanguageIndex(PlayerPrefs.GetInt(GameLocalization.LanguagePrefKey, GameLocalization.CurrentLanguageIndex));
         ApplyMenuScale(PlayerPrefs.GetFloat(PrefPrefix + "MenuScale", 0.85f));
         ApplyLeftHandedMode(LeftHandedMode);
     }

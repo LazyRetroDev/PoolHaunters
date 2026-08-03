@@ -63,6 +63,15 @@ public class JennyMopCleaner : MonoBehaviour
     public bool scaleMopVisualDuringDash = true;
     public float dashVisualScaleSpeed = 18f;
 
+    [Header("Surf Dash Presentation")]
+    public bool useDashMopOffset = true;
+    public Vector3 dashMopLocalOffset = new Vector3(0f, 0.08f, 0.55f);
+    public bool faceDashDirection = true;
+    public float dashTurnSpeed = 18f;
+    public ParticleSystem dashTrailParticles;
+    public bool autoFindDashTrailParticles = true;
+    public bool stopTrailWhenDashEnds = true;
+
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
     private Rigidbody rb;
@@ -80,6 +89,7 @@ public class JennyMopCleaner : MonoBehaviour
     private float dashTimer;
     private float nextDashTime;
     private float nextContaminatedTrailTime;
+    private bool dashTrailPlaying;
 
     void Awake()
     {
@@ -99,6 +109,9 @@ public class JennyMopCleaner : MonoBehaviour
 
         if (mopHead == null)
             mopHead = CreateMopHead();
+
+        if (dashTrailParticles == null && autoFindDashTrailParticles)
+            dashTrailParticles = GetComponentInChildren<ParticleSystem>(true);
 
         CacheMopScale();
     }
@@ -154,6 +167,8 @@ public class JennyMopCleaner : MonoBehaviour
     {
         if (hideMopWhenDisabled && mopHead != null)
             mopHead.gameObject.SetActive(false);
+
+        SetDashTrailPlaying(false);
     }
 
     void SweepClean()
@@ -382,6 +397,7 @@ public class JennyMopCleaner : MonoBehaviour
 
         dashTimer = dashDuration;
         nextDashTime = Time.time + dashCooldown;
+        SetDashTrailPlaying(true);
     }
 
     bool DashPressedThisFrame()
@@ -411,7 +427,10 @@ public class JennyMopCleaner : MonoBehaviour
     void UpdateDashMovement()
     {
         if (!IsDashing())
+        {
+            SetDashTrailPlaying(false);
             return;
+        }
 
         dashTimer = Mathf.Max(0f, dashTimer - Time.fixedDeltaTime);
 
@@ -422,6 +441,26 @@ public class JennyMopCleaner : MonoBehaviour
             rb.MovePosition(rb.position + delta);
         else
             transform.position += delta;
+
+        TurnTowardDashDirection(direction);
+
+        if (!IsDashing())
+            SetDashTrailPlaying(false);
+    }
+
+    void TurnTowardDashDirection(Vector3 direction)
+    {
+        if (!faceDashDirection || direction.sqrMagnitude <= 0.001f)
+            return;
+
+        Quaternion targetRotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        float blend = 1f - Mathf.Exp(-dashTurnSpeed * Time.fixedDeltaTime);
+        Quaternion nextRotation = Quaternion.Slerp(transform.rotation, targetRotation, blend);
+
+        if (rb != null)
+            rb.MoveRotation(nextRotation);
+        else
+            transform.rotation = nextRotation;
     }
 
     Vector3 GetDashDirection()
@@ -529,7 +568,10 @@ public class JennyMopCleaner : MonoBehaviour
 
     Vector3 GetMopWorldPosition()
     {
-        Vector3 basePosition = transform.TransformPoint(mopLocalOffset);
+        Vector3 localOffset = IsDashing() && useDashMopOffset
+            ? dashMopLocalOffset
+            : mopLocalOffset;
+        Vector3 basePosition = transform.TransformPoint(localOffset);
         if (!snapMopToSurface)
             return basePosition;
 
@@ -556,6 +598,27 @@ public class JennyMopCleaner : MonoBehaviour
             forward = transform.forward;
 
         return Quaternion.LookRotation(forward.normalized, Vector3.up);
+    }
+
+    void SetDashTrailPlaying(bool playing)
+    {
+        if (dashTrailParticles == null || dashTrailPlaying == playing)
+            return;
+
+        dashTrailPlaying = playing;
+
+        if (playing)
+        {
+            if (!dashTrailParticles.gameObject.activeSelf)
+                dashTrailParticles.gameObject.SetActive(true);
+
+            if (!dashTrailParticles.isPlaying)
+                dashTrailParticles.Play(true);
+        }
+        else if (stopTrailWhenDashEnds)
+        {
+            dashTrailParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+        }
     }
 
     Transform CreateMopHead()
