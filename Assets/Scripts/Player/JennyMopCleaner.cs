@@ -66,6 +66,11 @@ public class JennyMopCleaner : MonoBehaviour
     [Header("Surf Dash Presentation")]
     public bool useDashMopOffset = true;
     public Vector3 dashMopLocalOffset = new Vector3(0f, 0.08f, 0.55f);
+    public bool placeDashMopUnderFeet = true;
+    public float dashSurfaceRayHeight = 2f;
+    public float dashSurfaceRayDistance = 4f;
+    public float dashMopSurfaceOffset = 0.04f;
+    public float dashMopFallbackDrop = 1.1f;
     public bool faceDashDirection = true;
     public float dashTurnSpeed = 18f;
     public ParticleSystem dashTrailParticles;
@@ -568,6 +573,9 @@ public class JennyMopCleaner : MonoBehaviour
 
     Vector3 GetMopWorldPosition()
     {
+        if (IsDashing() && useDashMopOffset && placeDashMopUnderFeet)
+            return GetDashMopSurfPosition();
+
         Vector3 localOffset = IsDashing() && useDashMopOffset
             ? dashMopLocalOffset
             : mopLocalOffset;
@@ -588,6 +596,29 @@ public class JennyMopCleaner : MonoBehaviour
         }
 
         return basePosition;
+    }
+
+    Vector3 GetDashMopSurfPosition()
+    {
+        Vector3 planarOffset = new Vector3(dashMopLocalOffset.x, 0f, dashMopLocalOffset.z);
+        Vector3 basePosition = transform.position + transform.TransformDirection(planarOffset);
+
+        if (!snapMopToSurface)
+            return basePosition + Vector3.down * dashMopFallbackDrop;
+
+        Vector3 origin = basePosition + Vector3.up * dashSurfaceRayHeight;
+        if (Physics.Raycast(
+            origin,
+            Vector3.down,
+            out RaycastHit hit,
+            dashSurfaceRayHeight + dashSurfaceRayDistance,
+            surfaceMask,
+            QueryTriggerInteraction.Ignore))
+        {
+            return hit.point + Vector3.up * dashMopSurfaceOffset;
+        }
+
+        return basePosition + Vector3.down * dashMopFallbackDrop;
     }
 
     Quaternion GetMopWorldRotation()
