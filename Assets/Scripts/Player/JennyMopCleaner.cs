@@ -81,6 +81,7 @@ public class JennyMopCleaner : MonoBehaviour
     public LayerMask splashMask = ~0;
     public ParticleSystem splashParticles;
     public bool autoCreateSplashParticles = true;
+    public bool reuseWaterCannonSplashVisuals = true;
     public Color cleanSplashColor = new Color(0.65f, 0.85f, 1f, 0.85f);
     public Color contaminatedSplashColor = new Color(0.35f, 0.9f, 0.25f, 0.9f);
     public Color chemicallyEnhancedSplashColor = new Color(1f, 0.85f, 0.25f, 0.9f);
@@ -658,9 +659,9 @@ public class JennyMopCleaner : MonoBehaviour
         main.playOnAwake = false;
         main.duration = 0.18f;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(0.16f, 0.28f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(3f, 6f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f);
+        main.startLifetime = GetSplashLifetime();
+        main.startSpeed = GetSplashSpeed();
+        main.startSize = GetSplashSize();
         main.startColor = cleanSplashColor;
         main.gravityModifier = 0.2f;
         main.maxParticles = 120;
@@ -684,6 +685,19 @@ public class JennyMopCleaner : MonoBehaviour
 
     Color GetSplashColor(WaterQuality quality)
     {
+        if (reuseWaterCannonSplashVisuals && contaminationDirtSource != null)
+        {
+            switch (quality)
+            {
+                case WaterQuality.Contaminated:
+                    return contaminationDirtSource.contaminatedWaterColor;
+                case WaterQuality.ChemicallyEnhanced:
+                    return contaminationDirtSource.chemicallyEnhancedWaterColor;
+                default:
+                    return contaminationDirtSource.cleanWaterColor;
+            }
+        }
+
         switch (quality)
         {
             case WaterQuality.Contaminated:
@@ -693,6 +707,46 @@ public class JennyMopCleaner : MonoBehaviour
             default:
                 return cleanSplashColor;
         }
+    }
+
+    ParticleSystem.MinMaxCurve GetSplashLifetime()
+    {
+        ParticleSystem source = GetWaterCannonParticles();
+        if (source != null)
+            return source.main.startLifetime;
+
+        return new ParticleSystem.MinMaxCurve(0.16f, 0.28f);
+    }
+
+    ParticleSystem.MinMaxCurve GetSplashSpeed()
+    {
+        ParticleSystem source = GetWaterCannonParticles();
+        if (source != null)
+            return source.main.startSpeed;
+
+        return new ParticleSystem.MinMaxCurve(3f, 6f);
+    }
+
+    ParticleSystem.MinMaxCurve GetSplashSize()
+    {
+        ParticleSystem source = GetWaterCannonParticles();
+        if (source != null)
+            return source.main.startSize;
+
+        return new ParticleSystem.MinMaxCurve(0.05f, 0.12f);
+    }
+
+    ParticleSystem GetWaterCannonParticles()
+    {
+        if (!reuseWaterCannonSplashVisuals)
+            return null;
+
+        if (contaminationDirtSource == null)
+            contaminationDirtSource = GetComponentInChildren<WaterCannon>(true);
+
+        return contaminationDirtSource != null
+            ? contaminationDirtSource.sprayParticles
+            : null;
     }
 
     void UpdateDashMovement()
