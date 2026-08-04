@@ -778,7 +778,7 @@ public class PlayerStatus : NetworkBehaviour
 
         CacheReferences();
 
-        if (movement != null && movement.enabled)
+        if (movement != null)
             movement.SetAcceptsInput(AllowsLocalInput());
 
         bool canUseTools = CanAct();

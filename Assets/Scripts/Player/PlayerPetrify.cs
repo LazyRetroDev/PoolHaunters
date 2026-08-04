@@ -1,5 +1,7 @@
-using UnityEngine;
 using Unity.Netcode;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class PlayerPetrify : NetworkBehaviour
 {
@@ -21,7 +23,9 @@ public class PlayerPetrify : NetworkBehaviour
     private PlayerInventory inventory;
     private PlayerStatus playerStatus;
     private CursorLockController cursorLockController;
+    private PlayerInput playerInput;
     private bool controlLockApplied;
+    private Coroutine restoreControlRoutine;
 
     private readonly NetworkVariable<bool> syncedPetrified =
         new NetworkVariable<bool>(
@@ -101,6 +105,8 @@ public class PlayerPetrify : NetworkBehaviour
             playerStatus = GetComponent<PlayerStatus>();
         if (cursorLockController == null)
             cursorLockController = GetComponent<CursorLockController>();
+        if (playerInput == null)
+            playerInput = GetComponent<PlayerInput>();
     }
 
     void HandlePetrifiedChanged(bool previous, bool next)
@@ -221,13 +227,53 @@ public class PlayerPetrify : NetworkBehaviour
         if (!ShouldApplyOwnerLocalState())
             return;
 
+        ApplyLocalControlRestore();
+
+        if (restoreControlRoutine != null)
+            StopCoroutine(restoreControlRoutine);
+
+        restoreControlRoutine = StartCoroutine(RestoreLocalControlOverFrames());
+    }
+
+    void ApplyLocalControlRestore()
+    {
         CacheReferences();
+
+        bool allowsInput = playerStatus == null || playerStatus.AllowsLocalInput();
+        bool canAct = playerStatus == null || playerStatus.CanAct();
+
+        if (playerInput != null)
+            playerInput.enabled = true;
+
         if (movement != null)
+        {
             movement.enabled = true;
+            movement.SetAcceptsInput(allowsInput);
+        }
+
         if (inventory != null)
-            inventory.enabled = playerStatus == null || playerStatus.CanAct();
+            inventory.enabled = canAct;
+
         if (cursorLockController != null)
+        {
+            cursorLockController.enabled = true;
             cursorLockController.ForceLockCursor();
+        }
+    }
+
+    IEnumerator RestoreLocalControlOverFrames()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            yield return null;
+
+            if (isPetrified)
+                yield break;
+
+            ApplyLocalControlRestore();
+        }
+
+        restoreControlRoutine = null;
     }
 
     void SyncPetrifiedState(bool value)
