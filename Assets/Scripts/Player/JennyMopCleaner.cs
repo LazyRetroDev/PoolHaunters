@@ -640,6 +640,7 @@ public class JennyMopCleaner : MonoBehaviour
 
         var main = splashParticles.main;
         main.startColor = GetSplashColor(waterQuality);
+        ApplySplashRendererSettings(splashParticles);
 
         if (!splashParticles.gameObject.activeSelf)
             splashParticles.gameObject.SetActive(true);
@@ -680,7 +681,62 @@ public class JennyMopCleaner : MonoBehaviour
         shape.radius = 0.15f;
         shape.length = 0.2f;
 
+        ApplySplashRendererSettings(particles);
+
         return particles;
+    }
+
+    void ApplySplashRendererSettings(ParticleSystem particles)
+    {
+        if (particles == null)
+            return;
+
+        ParticleSystemRenderer targetRenderer =
+            particles.GetComponent<ParticleSystemRenderer>();
+        if (targetRenderer == null)
+            return;
+
+        ParticleSystem sourceParticles = GetWaterCannonParticles();
+        ParticleSystemRenderer sourceRenderer = sourceParticles != null
+            ? sourceParticles.GetComponent<ParticleSystemRenderer>()
+            : null;
+
+        if (reuseWaterCannonSplashVisuals &&
+            sourceRenderer != null &&
+            sourceRenderer.sharedMaterial != null)
+        {
+            targetRenderer.sharedMaterial = sourceRenderer.sharedMaterial;
+            targetRenderer.trailMaterial = sourceRenderer.trailMaterial;
+            targetRenderer.renderMode = sourceRenderer.renderMode;
+            targetRenderer.alignment = sourceRenderer.alignment;
+            targetRenderer.sortingLayerID = sourceRenderer.sortingLayerID;
+            targetRenderer.sortingOrder = sourceRenderer.sortingOrder;
+            targetRenderer.minParticleSize = sourceRenderer.minParticleSize;
+            targetRenderer.maxParticleSize = sourceRenderer.maxParticleSize;
+            return;
+        }
+
+        if (targetRenderer.sharedMaterial == null)
+            targetRenderer.sharedMaterial = CreateFallbackSplashMaterial();
+    }
+
+    Material CreateFallbackSplashMaterial()
+    {
+        Shader shader =
+            Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null)
+            shader = Shader.Find("Particles/Standard Unlit");
+        if (shader == null)
+            shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+            shader = Shader.Find("Standard");
+
+        if (shader == null)
+            return null;
+
+        Material material = new Material(shader);
+        material.name = "Jenny Splash Fallback Material";
+        return material;
     }
 
     Color GetSplashColor(WaterQuality quality)
