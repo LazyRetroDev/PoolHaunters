@@ -82,6 +82,7 @@ public class JennyMopCleaner : MonoBehaviour
     public ParticleSystem splashParticles;
     public bool autoCreateSplashParticles = true;
     public bool reuseWaterCannonSplashVisuals = true;
+    public bool renderSplashParticlesAsMesh = true;
     public Color cleanSplashColor = new Color(0.65f, 0.85f, 1f, 0.85f);
     public Color contaminatedSplashColor = new Color(0.35f, 0.9f, 0.25f, 0.9f);
     public Color chemicallyEnhancedSplashColor = new Color(1f, 0.85f, 0.25f, 0.9f);
@@ -108,6 +109,8 @@ public class JennyMopCleaner : MonoBehaviour
     private float nextSplashTime;
     private Vector3 activeDashDirection;
     private bool dashTrailPlaying;
+    private Material splashCopiedMaterial;
+    private Mesh splashParticleMesh;
 
     public bool IsSurfDashing => IsDashing();
 
@@ -701,23 +704,49 @@ public class JennyMopCleaner : MonoBehaviour
             ? sourceParticles.GetComponent<ParticleSystemRenderer>()
             : null;
 
-        if (reuseWaterCannonSplashVisuals &&
-            sourceRenderer != null &&
-            sourceRenderer.sharedMaterial != null)
+        if (renderSplashParticlesAsMesh)
         {
-            targetRenderer.sharedMaterial = sourceRenderer.sharedMaterial;
-            targetRenderer.trailMaterial = sourceRenderer.trailMaterial;
-            targetRenderer.renderMode = sourceRenderer.renderMode;
-            targetRenderer.alignment = sourceRenderer.alignment;
+            targetRenderer.renderMode = ParticleSystemRenderMode.Mesh;
+            targetRenderer.mesh = GetSplashParticleMesh();
+            targetRenderer.alignment = ParticleSystemRenderSpace.Local;
+        }
+        else
+        {
+            targetRenderer.renderMode = ParticleSystemRenderMode.Stretch;
+            targetRenderer.alignment = ParticleSystemRenderSpace.View;
+        }
+
+        Material material = GetSplashParticleMaterial(sourceRenderer);
+        if (material != null)
+            targetRenderer.sharedMaterial = material;
+
+        if (sourceRenderer != null)
+        {
             targetRenderer.sortingLayerID = sourceRenderer.sortingLayerID;
             targetRenderer.sortingOrder = sourceRenderer.sortingOrder;
             targetRenderer.minParticleSize = sourceRenderer.minParticleSize;
             targetRenderer.maxParticleSize = sourceRenderer.maxParticleSize;
-            return;
         }
+    }
 
-        if (targetRenderer.sharedMaterial == null)
-            targetRenderer.sharedMaterial = CreateFallbackSplashMaterial();
+    Material GetSplashParticleMaterial(ParticleSystemRenderer sourceRenderer)
+    {
+        if (splashCopiedMaterial != null)
+            return splashCopiedMaterial;
+
+        Material sourceMaterial = reuseWaterCannonSplashVisuals &&
+            sourceRenderer != null
+            ? sourceRenderer.sharedMaterial
+            : null;
+
+        splashCopiedMaterial = sourceMaterial != null
+            ? new Material(sourceMaterial)
+            : CreateFallbackSplashMaterial();
+
+        if (splashCopiedMaterial != null)
+            splashCopiedMaterial.name = "Jenny Splash Particle Material";
+
+        return splashCopiedMaterial;
     }
 
     Material CreateFallbackSplashMaterial()
@@ -737,6 +766,36 @@ public class JennyMopCleaner : MonoBehaviour
         Material material = new Material(shader);
         material.name = "Jenny Splash Fallback Material";
         return material;
+    }
+
+    Mesh GetSplashParticleMesh()
+    {
+        if (splashParticleMesh != null)
+            return splashParticleMesh;
+
+        splashParticleMesh = new Mesh
+        {
+            name = "Jenny Splash Particle Quad"
+        };
+
+        splashParticleMesh.vertices = new[]
+        {
+            new Vector3(-0.5f, -0.5f, 0f),
+            new Vector3(0.5f, -0.5f, 0f),
+            new Vector3(-0.5f, 0.5f, 0f),
+            new Vector3(0.5f, 0.5f, 0f)
+        };
+        splashParticleMesh.uv = new[]
+        {
+            new Vector2(0f, 0f),
+            new Vector2(1f, 0f),
+            new Vector2(0f, 1f),
+            new Vector2(1f, 1f)
+        };
+        splashParticleMesh.triangles = new[] { 0, 2, 1, 2, 3, 1 };
+        splashParticleMesh.RecalculateNormals();
+        splashParticleMesh.RecalculateBounds();
+        return splashParticleMesh;
     }
 
     Color GetSplashColor(WaterQuality quality)
