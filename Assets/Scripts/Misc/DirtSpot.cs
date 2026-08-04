@@ -52,6 +52,10 @@ public class DirtSpot : NetworkBehaviour
     public float maxFallSpeed = 10f;
     public bool followAdheredSurfacePosition = true;
 
+    [Header("Pool Dirt Stability")]
+    public bool disableAdhesionWhenInPoolObjective = true;
+    public bool ignorePoolAndWaterVolumesForAdhesion = true;
+
     [Header("Contamination Growth")]
     public bool createdByContaminatedWater = false;
     public float contaminatedGrowthPerWaterChunk = 1f;
@@ -86,6 +90,11 @@ public class DirtSpot : NetworkBehaviour
         if (targetRenderer == null) targetRenderer = GetComponentInChildren<Renderer>();
         if (targetCollider == null) targetCollider = GetComponent<Collider>();
         poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null && disableAdhesionWhenInPoolObjective)
+        {
+            adhereToSurface = false;
+            followAdheredSurfacePosition = false;
+        }
 
         initialLocalScale = transform.localScale;
         propertyBlock = new MaterialPropertyBlock();
@@ -292,6 +301,13 @@ public class DirtSpot : NetworkBehaviour
         if (candidate.CompareTag("Player")) return false;
         if (candidate.GetComponentInParent<PlayerStatus>() != null) return false;
         if (candidate.GetComponentInParent<DirtSpot>() != null) return false;
+        if (ignorePoolAndWaterVolumesForAdhesion &&
+            (candidate.GetComponentInParent<PoolCleaningZone>() != null ||
+             candidate.GetComponentInParent<WaterSourceDryable>() != null ||
+             candidate.GetComponentInParent<WaterZone>() != null))
+        {
+            return false;
+        }
         return true;
     }
 

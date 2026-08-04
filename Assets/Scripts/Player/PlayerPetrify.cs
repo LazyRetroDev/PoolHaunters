@@ -20,6 +20,7 @@ public class PlayerPetrify : NetworkBehaviour
     private PlayerMovement movement;
     private PlayerInventory inventory;
     private PlayerStatus playerStatus;
+    private CursorLockController cursorLockController;
     private bool controlLockApplied;
 
     private readonly NetworkVariable<bool> syncedPetrified =
@@ -98,6 +99,8 @@ public class PlayerPetrify : NetworkBehaviour
             inventory = GetComponent<PlayerInventory>();
         if (playerStatus == null)
             playerStatus = GetComponent<PlayerStatus>();
+        if (cursorLockController == null)
+            cursorLockController = GetComponent<CursorLockController>();
     }
 
     void HandlePetrifiedChanged(bool previous, bool next)
@@ -223,6 +226,8 @@ public class PlayerPetrify : NetworkBehaviour
             movement.enabled = true;
         if (inventory != null)
             inventory.enabled = playerStatus == null || playerStatus.CanAct();
+        if (cursorLockController != null)
+            cursorLockController.ForceLockCursor();
     }
 
     void SyncPetrifiedState(bool value)
