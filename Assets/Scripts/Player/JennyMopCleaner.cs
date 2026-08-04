@@ -8,7 +8,9 @@ public class JennyMopCleaner : MonoBehaviour
     [Header("Input")]
     public string attackActionName = "Attack";
     public string abilityActionName = "Ability";
+    public string splashActionName = "RightClick";
     public Key fallbackDashKey = Key.Q;
+    public bool useRightMouseFallbackForSplash = true;
     public bool requireMovement = true;
 
     [Header("Sweep")]
@@ -68,8 +70,24 @@ public class JennyMopCleaner : MonoBehaviour
     public bool autoFindDashTrailParticles = true;
     public bool stopTrailWhenDashEnds = true;
 
+    [Header("Splash")]
+    public bool enableSplash = true;
+    public float splashRange = 3.5f;
+    [Range(5f, 180f)] public float splashAngle = 95f;
+    public float splashWaterCost = 6f;
+    public float splashCleanAmount = 18f;
+    public float splashCooldown = 0.8f;
+    public float splashOriginHeight = 0.75f;
+    public LayerMask splashMask = ~0;
+    public ParticleSystem splashParticles;
+    public bool autoCreateSplashParticles = true;
+    public Color cleanSplashColor = new Color(0.65f, 0.85f, 1f, 0.85f);
+    public Color contaminatedSplashColor = new Color(0.35f, 0.9f, 0.25f, 0.9f);
+    public Color chemicallyEnhancedSplashColor = new Color(1f, 0.85f, 0.25f, 0.9f);
+
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
+    private readonly HashSet<GameObject> splashHits = new HashSet<GameObject>();
     private Rigidbody rb;
     private PlayerInput playerInput;
     private PlayerMovement movement;
@@ -78,6 +96,7 @@ public class JennyMopCleaner : MonoBehaviour
     private PlayerPetrify petrify;
     private InputAction attackAction;
     private InputAction abilityAction;
+    private InputAction splashAction;
     private InputAction moveAction;
     private Renderer placeholderRenderer;
     private Vector3 normalMopHeadScale = Vector3.one;
@@ -85,6 +104,7 @@ public class JennyMopCleaner : MonoBehaviour
     private float dashTimer;
     private float nextDashTime;
     private float nextContaminatedTrailTime;
+    private float nextSplashTime;
     private Vector3 activeDashDirection;
     private bool dashTrailPlaying;
 
@@ -103,6 +123,7 @@ public class JennyMopCleaner : MonoBehaviour
         {
             attackAction = playerInput.actions.FindAction(attackActionName, false);
             abilityAction = playerInput.actions.FindAction(abilityActionName, false);
+            splashAction = playerInput.actions.FindAction(splashActionName, false);
             moveAction = playerInput.actions.FindAction("Move", false);
         }
 
@@ -119,6 +140,7 @@ public class JennyMopCleaner : MonoBehaviour
     {
         UpdateMopPose();
         TryStartDash();
+        TrySplash();
 
         if (!CanMop())
             return;
@@ -424,6 +446,255 @@ public class JennyMopCleaner : MonoBehaviour
         return playerStatus == null || playerStatus.GetCurrentWater() >= dashWaterCost;
     }
 
+    void TrySplash()
+    {
+        if (!enableSplash || Time.time < nextSplashTime)
+            return;
+
+        if (!SplashPressedThisFrame())
+            return;
+
+        if (!CanUseSplash())
+            return;
+
+        WaterQuality waterQuality = playerStatus != null
+            ? playerStatus.GetWaterQuality()
+            : WaterQuality.Clean;
+
+        if (playerStatus != null && !playerStatus.ConsumeWater(splashWaterCost))
+            return;
+
+        nextSplashTime = Time.time + Mathf.Max(0.01f, splashCooldown);
+        ApplySplash(waterQuality);
+        PlaySplashParticles(waterQuality);
+    }
+
+    bool SplashPressedThisFrame()
+    {
+        if (splashAction != null &&
+            splashAction.enabled &&
+            splashAction.WasPressedThisFrame())
+        {
+            return true;
+        }
+
+        return useRightMouseFallbackForSplash &&
+            Mouse.current != null &&
+            Mouse.current.rightButton.wasPressedThisFrame;
+    }
+
+    bool CanUseSplash()
+    {
+        if (playerStatus != null && !playerStatus.CanAct())
+            return false;
+
+        if (petrify != null && petrify.IsPetrified())
+            return false;
+
+        if (movement != null && !movement.AcceptsInput)
+            return false;
+
+        return playerStatus == null || playerStatus.GetCurrentWater() >= splashWaterCost;
+    }
+
+    void ApplySplash(WaterQuality waterQuality)
+    {
+        Vector3 origin = GetSplashOrigin();
+        Vector3 forward = GetFlatForward();
+        float range = Mathf.Max(0.1f, splashRange);
+        float halfAngle = Mathf.Clamp(splashAngle, 5f, 180f) * 0.5f;
+
+        splashHits.Clear();
+
+        Collider[] hits = Physics.OverlapSphere(
+            origin + forward * (range * 0.5f),
+            range,
+            splashMask,
+            QueryTriggerInteraction.Collide);
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider hit = hits[i];
+            if (hit == null || hit.transform.IsChildOf(transform))
+                continue;
+
+            Vector3 targetPoint = hit.ClosestPoint(origin);
+            Vector3 toTarget = targetPoint - origin;
+            toTarget.y = 0f;
+
+            if (toTarget.sqrMagnitude > range * range)
+                continue;
+
+            if (toTarget.sqrMagnitude > 0.001f &&
+                Vector3.Angle(forward, toTarget.normalized) > halfAngle)
+            {
+                continue;
+            }
+
+            GameObject targetRoot = ResolveSplashTarget(hit);
+            if (targetRoot == null || splashHits.Contains(targetRoot))
+                continue;
+
+            splashHits.Add(targetRoot);
+            ApplySplashToTarget(targetRoot, waterQuality, origin);
+        }
+    }
+
+    GameObject ResolveSplashTarget(Collider hit)
+    {
+        RaccoonBehavior raccoon = hit.GetComponentInParent<RaccoonBehavior>();
+        if (raccoon != null) return raccoon.gameObject;
+
+        TubaraoBehavior tubarao = hit.GetComponentInParent<TubaraoBehavior>();
+        if (tubarao != null) return tubarao.gameObject;
+
+        BathroomBlondeBehavior bathroomBlonde =
+            hit.GetComponentInParent<BathroomBlondeBehavior>();
+        if (bathroomBlonde != null) return bathroomBlonde.gameObject;
+
+        BathroomBlondeMirror bathroomMirror =
+            hit.GetComponentInParent<BathroomBlondeMirror>();
+        if (bathroomMirror != null) return bathroomMirror.gameObject;
+
+        BathroomBlondeDrain bathroomDrain =
+            hit.GetComponentInParent<BathroomBlondeDrain>();
+        if (bathroomDrain != null) return bathroomDrain.gameObject;
+
+        GoldenMouthBehavior goldenMouth =
+            hit.GetComponentInParent<GoldenMouthBehavior>();
+        if (goldenMouth != null) return goldenMouth.gameObject;
+
+        return null;
+    }
+
+    void ApplySplashToTarget(
+        GameObject target,
+        WaterQuality waterQuality,
+        Vector3 sourcePosition)
+    {
+        GoldenMouthBehavior goldenMouth =
+            target.GetComponentInParent<GoldenMouthBehavior>();
+        if (goldenMouth != null)
+        {
+            if (movement != null)
+                movement.RequestApplyWaterToGoldenMouth(
+                    goldenMouth,
+                    waterQuality,
+                    splashCleanAmount);
+            else
+                goldenMouth.ApplyWater(waterQuality, splashCleanAmount);
+        }
+
+        if (movement != null)
+        {
+            movement.RequestEnemyWaterHit(target, sourcePosition);
+            return;
+        }
+
+        RaccoonBehavior raccoon = target.GetComponentInParent<RaccoonBehavior>();
+        if (raccoon != null) raccoon.ReceiveWaterHit(sourcePosition);
+
+        TubaraoBehavior tubarao = target.GetComponentInParent<TubaraoBehavior>();
+        if (tubarao != null) tubarao.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeBehavior bathroomBlonde =
+            target.GetComponentInParent<BathroomBlondeBehavior>();
+        if (bathroomBlonde != null) bathroomBlonde.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeMirror bathroomMirror =
+            target.GetComponentInParent<BathroomBlondeMirror>();
+        if (bathroomMirror != null) bathroomMirror.ReceiveWaterHit(sourcePosition);
+
+        BathroomBlondeDrain bathroomDrain =
+            target.GetComponentInParent<BathroomBlondeDrain>();
+        if (bathroomDrain != null) bathroomDrain.ReceiveWaterHit(sourcePosition);
+    }
+
+    Vector3 GetSplashOrigin()
+    {
+        return transform.position + Vector3.up * Mathf.Max(0f, splashOriginHeight);
+    }
+
+    Vector3 GetFlatForward()
+    {
+        Vector3 forward = transform.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude <= 0.001f)
+            forward = Vector3.forward;
+
+        return forward.normalized;
+    }
+
+    void PlaySplashParticles(WaterQuality waterQuality)
+    {
+        if (splashParticles == null && autoCreateSplashParticles)
+            splashParticles = CreateSplashParticles();
+
+        if (splashParticles == null)
+            return;
+
+        splashParticles.transform.SetPositionAndRotation(
+            GetSplashOrigin(),
+            Quaternion.LookRotation(GetFlatForward(), Vector3.up));
+
+        var main = splashParticles.main;
+        main.startColor = GetSplashColor(waterQuality);
+
+        if (!splashParticles.gameObject.activeSelf)
+            splashParticles.gameObject.SetActive(true);
+
+        splashParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        splashParticles.Play(true);
+    }
+
+    ParticleSystem CreateSplashParticles()
+    {
+        GameObject particlesObject = new GameObject("JennySplashParticles");
+        particlesObject.transform.SetParent(transform, false);
+
+        ParticleSystem particles = particlesObject.AddComponent<ParticleSystem>();
+        var main = particles.main;
+        main.loop = false;
+        main.playOnAwake = false;
+        main.duration = 0.18f;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.16f, 0.28f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(3f, 6f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f);
+        main.startColor = cleanSplashColor;
+        main.gravityModifier = 0.2f;
+        main.maxParticles = 120;
+
+        var emission = particles.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[]
+        {
+            new ParticleSystem.Burst(0f, 45)
+        });
+
+        var shape = particles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = Mathf.Clamp(splashAngle * 0.5f, 2.5f, 90f);
+        shape.radius = 0.15f;
+        shape.length = 0.2f;
+
+        return particles;
+    }
+
+    Color GetSplashColor(WaterQuality quality)
+    {
+        switch (quality)
+        {
+            case WaterQuality.Contaminated:
+                return contaminatedSplashColor;
+            case WaterQuality.ChemicallyEnhanced:
+                return chemicallyEnhancedSplashColor;
+            default:
+                return cleanSplashColor;
+        }
+    }
+
     void UpdateDashMovement()
     {
         if (!IsDashing())
@@ -654,5 +925,19 @@ public class JennyMopCleaner : MonoBehaviour
             Vector3.one);
         Gizmos.DrawCube(Vector3.zero, (IsDashing() ? dashMopHalfExtents : mopHalfExtents) * 2f);
         Gizmos.matrix = previousMatrix;
+
+        if (enableSplash)
+        {
+            Vector3 origin = GetSplashOrigin();
+            Vector3 forward = GetFlatForward();
+            float halfAngle = Mathf.Clamp(splashAngle, 5f, 180f) * 0.5f;
+            Quaternion leftRotation = Quaternion.AngleAxis(-halfAngle, Vector3.up);
+            Quaternion rightRotation = Quaternion.AngleAxis(halfAngle, Vector3.up);
+
+            Gizmos.color = new Color(0.25f, 0.65f, 1f, 0.35f);
+            Gizmos.DrawLine(origin, origin + leftRotation * forward * splashRange);
+            Gizmos.DrawLine(origin, origin + rightRotation * forward * splashRange);
+            Gizmos.DrawWireSphere(origin + forward * (splashRange * 0.5f), splashRange);
+        }
     }
 }
