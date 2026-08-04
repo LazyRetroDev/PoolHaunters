@@ -36,6 +36,9 @@ public class LevelObjectiveManager : MonoBehaviour
     public TMP_Text cleaningProgressText;
     public Slider cleaningProgressBar;
     public Image cleaningProgressFill;
+    public TMP_Text currentPoolProgressText;
+    public Slider currentPoolProgressBar;
+    public Image currentPoolProgressFill;
     public TMP_Text poolCounterText;
     public TMP_Text levelInfoText;
     public Slider cleanGoalSlider;
@@ -49,10 +52,12 @@ public class LevelObjectiveManager : MonoBehaviour
     public string findWaterValveProgressLabel = "Turn the water valve to start cleaning";
     public string activeObjectiveLabel = "Clean the pools and find the exit";
     public string completedObjectiveLabel = "Objectives complete";
+    public string returnToSubmarineObjectiveLabel = "Return to the Submarine Room";
     public string cleaningProgressFormat = "Cleaning: {0}%";
+    public string currentPoolProgressFormat = "Current Pool: {0}%";
     public string poolCounterFormat = "Pools {0}/{1}";
     public string levelInfoFormat = "Level {0}";
-    public string regionLevelInfoFormat = "Level {0} - {1}";
+    public string regionLevelInfoFormat = "Phase {0} - {1}";
 
     [Header("Level Info")]
     [Min(1)] public int levelNumber = 1;
@@ -66,6 +71,7 @@ public class LevelObjectiveManager : MonoBehaviour
     [SerializeField] private int cleanedDirtSpotCount;
     [SerializeField] private int requiredPoolCount;
     [SerializeField] private int cleanedRequiredPoolCount;
+    [SerializeField] private float currentPoolCleanPercent;
     [SerializeField] private bool levelCompleted;
 
     public event Action<RoomDefinition, int> OnRoomDiscovered;
@@ -95,6 +101,7 @@ public class LevelObjectiveManager : MonoBehaviour
     public float CurrentCleanPercent => currentCleanPercent;
     public int RequiredPoolCount => requiredPoolCount;
     public int CleanedRequiredPoolCount => cleanedRequiredPoolCount;
+    public float CurrentPoolCleanPercent => currentPoolCleanPercent;
     public bool LevelCompleted => levelCompleted;
     public IReadOnlyList<RoomDefinition> DiscoveredRooms => discoveredRooms;
 
@@ -482,6 +489,82 @@ public class LevelObjectiveManager : MonoBehaviour
 
         UpdatePoolDebugCounts();
         return requiredCount > 0 ? Mathf.Clamp01(cleanAmount / requiredCount) : 0f;
+    }
+
+    float CalculateCurrentPoolCleanPercent()
+    {
+        SwimmingPoolObjective pool = FindFocusedRequiredPool();
+        currentPoolCleanPercent = pool != null
+            ? pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress)
+            : requiredPoolCount > 0 && cleanedRequiredPoolCount >= requiredPoolCount
+                ? 1f
+                : 0f;
+        return currentPoolCleanPercent;
+    }
+
+    SwimmingPoolObjective FindFocusedRequiredPool()
+    {
+        RegisterKnownPoolObjectives();
+
+        if (autoFindPlayers)
+            trackedPlayers =
+                FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
+
+        SwimmingPoolObjective closestPool = null;
+        float closestDistanceSqr = float.MaxValue;
+
+        if (trackedPlayers != null && trackedPlayers.Length > 0)
+        {
+            foreach (SwimmingPoolObjective pool in registeredPools)
+            {
+                if (!CanUseFocusedPool(pool))
+                    continue;
+
+                Vector3 poolPosition = pool.transform.position;
+                for (int i = 0; i < trackedPlayers.Length; i++)
+                {
+                    PlayerStatus player = trackedPlayers[i];
+                    if (player == null || player.IsDead())
+                        continue;
+
+                    float distanceSqr =
+                        (player.transform.position - poolPosition).sqrMagnitude;
+                    if (distanceSqr < closestDistanceSqr)
+                    {
+                        closestDistanceSqr = distanceSqr;
+                        closestPool = pool;
+                    }
+                }
+            }
+        }
+
+        if (closestPool != null)
+            return closestPool;
+
+        SwimmingPoolObjective fallbackPool = null;
+        float lowestProgress = float.MaxValue;
+
+        foreach (SwimmingPoolObjective pool in registeredPools)
+        {
+            if (!CanUseFocusedPool(pool))
+                continue;
+
+            float progress = pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress);
+            if (progress < lowestProgress)
+            {
+                lowestProgress = progress;
+                fallbackPool = pool;
+            }
+        }
+
+        return fallbackPool;
+    }
+
+    bool CanUseFocusedPool(SwimmingPoolObjective pool)
+    {
+        return pool != null &&
+            pool.RequiredForLevelCompletion &&
+            !pool.IsCleaned;
     }
 
     void StartPoolSyncRegistration()
@@ -1142,7 +1225,7 @@ public class LevelObjectiveManager : MonoBehaviour
         if (objectiveText != null)
         {
             if (levelCompleted)
-                objectiveText.text = Localized("objective.complete", completedObjectiveLabel);
+                objectiveText.text = Localized("objective.returnToSubmarine", returnToSubmarineObjectiveLabel);
             else if (!WaterValveActivated)
                 objectiveText.text = Localized("objective.findValve", findWaterValveObjectiveLabel);
             else
@@ -1150,7 +1233,9 @@ public class LevelObjectiveManager : MonoBehaviour
         }
 
         float cleanForHud = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
+        float currentPoolForHud = WaterValveActivated ? CalculateCurrentPoolCleanPercent() : 0f;
         int cleanPercent = Mathf.RoundToInt(cleanForHud * 100f);
+        int currentPoolPercent = Mathf.RoundToInt(currentPoolForHud * 100f);
 
         if (cleaningProgressText != null)
             cleaningProgressText.text = string.Format(
@@ -1162,6 +1247,17 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (cleaningProgressFill != null)
             cleaningProgressFill.fillAmount = cleanForHud;
+
+        if (currentPoolProgressText != null)
+            currentPoolProgressText.text = string.Format(
+                Localized("hud.currentPoolProgress", currentPoolProgressFormat),
+                currentPoolPercent);
+
+        if (currentPoolProgressBar != null)
+            currentPoolProgressBar.value = currentPoolForHud;
+
+        if (currentPoolProgressFill != null)
+            currentPoolProgressFill.fillAmount = currentPoolForHud;
 
         if (poolCounterText != null)
             poolCounterText.text = string.Format(
@@ -1206,11 +1302,14 @@ public class LevelObjectiveManager : MonoBehaviour
         string regionName = RegionRunState.HasSelectedRegion
             ? RegionRunState.RegionName
             : string.Empty;
+        int phaseNumber = RegionRunState.HasSelectedRegion
+            ? RegionRunState.PhaseNumber
+            : levelNumber;
 
         if (!string.IsNullOrWhiteSpace(regionName))
-            return string.Format(regionLevelInfoFormat, levelNumber, regionName);
+            return string.Format(regionLevelInfoFormat, phaseNumber, regionName);
 
-        return string.Format(levelInfoFormat, levelNumber);
+        return string.Format(levelInfoFormat, phaseNumber);
     }
 
     void AutoBindHudFields()
@@ -1220,6 +1319,8 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (cleaningProgressText != null &&
             cleaningProgressBar != null &&
+            currentPoolProgressText != null &&
+            currentPoolProgressBar != null &&
             poolCounterText != null &&
             levelInfoText != null)
         {
@@ -1235,6 +1336,22 @@ public class LevelObjectiveManager : MonoBehaviour
                 if (slider != null && slider.gameObject.name.Contains("Progress Bar"))
                 {
                     cleaningProgressBar = slider;
+                    break;
+                }
+            }
+        }
+
+        if (currentPoolProgressBar == null)
+        {
+            Slider[] sliders = FindObjectsByType<Slider>(FindObjectsInactive.Include);
+            for (int i = 0; i < sliders.Length; i++)
+            {
+                Slider slider = sliders[i];
+                if (slider != null &&
+                    (slider.gameObject.name.Contains("Current Pool") ||
+                     slider.gameObject.name.Contains("Pool Progress")))
+                {
+                    currentPoolProgressBar = slider;
                     break;
                 }
             }
@@ -1258,6 +1375,14 @@ public class LevelObjectiveManager : MonoBehaviour
                  textValue.Contains("Cleaning")))
             {
                 cleaningProgressText = text;
+            }
+            else if (currentPoolProgressText == null &&
+                (objectName.Contains("Current Pool") ||
+                 parentName.Contains("Current Pool") ||
+                 objectName.Contains("Pool Progress") ||
+                 textValue.Contains("Current Pool")))
+            {
+                currentPoolProgressText = text;
             }
             else if (poolCounterText == null &&
                 (objectName.Contains("Pools") ||

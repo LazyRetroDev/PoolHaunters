@@ -131,6 +131,7 @@ public static class GameLocalization
         { "objective.turnValve", "Turn the water valve to start cleaning" },
         { "objective.cleanPools", "Clean the pools and find the exit" },
         { "objective.complete", "Objectives complete" },
+        { "objective.returnToSubmarine", "Return to the Submarine Room" },
         { "objective.exitFound", "Exit found" },
         { "objective.findExit", "Find the exit" },
         { "objective.exitOptional", "Exit optional" },
@@ -138,6 +139,7 @@ public static class GameLocalization
         { "objective.pools", "Pools" },
         { "objective.rooms", "Rooms" },
         { "hud.cleaningProgress", "Cleaning: {0}%" },
+        { "hud.currentPoolProgress", "Current Pool: {0}%" },
         { "hud.pools", "Pools {0}/{1}" }
     };
 
@@ -147,6 +149,7 @@ public static class GameLocalization
         { "objective.turnValve", "Acione a valvula para iniciar a limpeza" },
         { "objective.cleanPools", "Limpe as piscinas e encontre a saida" },
         { "objective.complete", "Objetivos concluidos" },
+        { "objective.returnToSubmarine", "Volte para a Sala do Submarino" },
         { "objective.exitFound", "Saida encontrada" },
         { "objective.findExit", "Encontre a saida" },
         { "objective.exitOptional", "Saida opcional" },
@@ -154,6 +157,7 @@ public static class GameLocalization
         { "objective.pools", "Piscinas" },
         { "objective.rooms", "Salas" },
         { "hud.cleaningProgress", "Limpeza: {0}%" },
+        { "hud.currentPoolProgress", "Piscina atual: {0}%" },
         { "hud.pools", "Piscinas {0}/{1}" }
     };
 
@@ -163,6 +167,7 @@ public static class GameLocalization
         { "objective.turnValve", "Activa la valvula de agua para empezar a limpiar" },
         { "objective.cleanPools", "Limpia las piscinas y encuentra la salida" },
         { "objective.complete", "Objetivos completados" },
+        { "objective.returnToSubmarine", "Vuelve a la sala del submarino" },
         { "objective.exitFound", "Salida encontrada" },
         { "objective.findExit", "Encuentra la salida" },
         { "objective.exitOptional", "Salida opcional" },
@@ -170,6 +175,7 @@ public static class GameLocalization
         { "objective.pools", "Piscinas" },
         { "objective.rooms", "Salas" },
         { "hud.cleaningProgress", "Limpieza: {0}%" },
+        { "hud.currentPoolProgress", "Piscina actual: {0}%" },
         { "hud.pools", "Piscinas {0}/{1}" }
     };
 
@@ -179,6 +185,7 @@ public static class GameLocalization
         { "objective.turnValve", "Поверните водяной клапан, чтобы начать уборку" },
         { "objective.cleanPools", "Очистите бассейны и найдите выход" },
         { "objective.complete", "Цели выполнены" },
+        { "objective.returnToSubmarine", "Вернитесь в комнату подлодки" },
         { "objective.exitFound", "Выход найден" },
         { "objective.findExit", "Найдите выход" },
         { "objective.exitOptional", "Выход необязателен" },
@@ -186,6 +193,7 @@ public static class GameLocalization
         { "objective.pools", "Бассейны" },
         { "objective.rooms", "Комнаты" },
         { "hud.cleaningProgress", "Очистка: {0}%" },
+        { "hud.currentPoolProgress", "Текущий бассейн: {0}%" },
         { "hud.pools", "Бассейны {0}/{1}" }
     };
 
@@ -195,6 +203,7 @@ public static class GameLocalization
         { "objective.turnValve", "Activez la vanne d'eau pour commencer le nettoyage" },
         { "objective.cleanPools", "Nettoyez les piscines et trouvez la sortie" },
         { "objective.complete", "Objectifs termines" },
+        { "objective.returnToSubmarine", "Retournez a la salle du sous-marin" },
         { "objective.exitFound", "Sortie trouvee" },
         { "objective.findExit", "Trouvez la sortie" },
         { "objective.exitOptional", "Sortie optionnelle" },
@@ -202,6 +211,7 @@ public static class GameLocalization
         { "objective.pools", "Piscines" },
         { "objective.rooms", "Salles" },
         { "hud.cleaningProgress", "Nettoyage: {0}%" },
+        { "hud.currentPoolProgress", "Piscine actuelle: {0}%" },
         { "hud.pools", "Piscines {0}/{1}" }
     };
 
@@ -211,6 +221,7 @@ public static class GameLocalization
         { "objective.turnValve", "Drehe das Wasserventil auf, um mit der Reinigung zu beginnen" },
         { "objective.cleanPools", "Reinige die Becken und finde den Ausgang" },
         { "objective.complete", "Ziele abgeschlossen" },
+        { "objective.returnToSubmarine", "Kehre zum U-Boot-Raum zuruck" },
         { "objective.exitFound", "Ausgang gefunden" },
         { "objective.findExit", "Finde den Ausgang" },
         { "objective.exitOptional", "Ausgang optional" },
@@ -218,6 +229,7 @@ public static class GameLocalization
         { "objective.pools", "Becken" },
         { "objective.rooms", "Raume" },
         { "hud.cleaningProgress", "Reinigung: {0}%" },
+        { "hud.currentPoolProgress", "Aktuelles Becken: {0}%" },
         { "hud.pools", "Becken {0}/{1}" }
     };
 
@@ -227,6 +239,7 @@ public static class GameLocalization
         { "objective.turnValve", "水栓を開いて清掃を始める" },
         { "objective.cleanPools", "プールを清掃して出口を探す" },
         { "objective.complete", "目標達成" },
+        { "objective.returnToSubmarine", "潜水艦ルームへ戻る" },
         { "objective.exitFound", "出口発見" },
         { "objective.findExit", "出口を探す" },
         { "objective.exitOptional", "出口は任意" },
@@ -234,6 +247,7 @@ public static class GameLocalization
         { "objective.pools", "プール" },
         { "objective.rooms", "部屋" },
         { "hud.cleaningProgress", "清掃: {0}%" },
+        { "hud.currentPoolProgress", "現在のプール: {0}%" },
         { "hud.pools", "プール {0}/{1}" }
     };
 
@@ -243,6 +257,7 @@ public static class GameLocalization
         { "objective.turnValve", "打开水阀开始清洁" },
         { "objective.cleanPools", "清洁泳池并找到出口" },
         { "objective.complete", "目标完成" },
+        { "objective.returnToSubmarine", "返回潜艇房间" },
         { "objective.exitFound", "已找到出口" },
         { "objective.findExit", "找到出口" },
         { "objective.exitOptional", "出口可选" },
@@ -250,6 +265,7 @@ public static class GameLocalization
         { "objective.pools", "泳池" },
         { "objective.rooms", "房间" },
         { "hud.cleaningProgress", "清洁: {0}%" },
+        { "hud.currentPoolProgress", "当前泳池: {0}%" },
         { "hud.pools", "泳池 {0}/{1}" }
     };
 }
