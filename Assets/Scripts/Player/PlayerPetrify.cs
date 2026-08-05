@@ -16,6 +16,9 @@ public class PlayerPetrify : NetworkBehaviour
     public float petrifyShakeFrequency = 13f;
     public float petrifyShakeDuration = 0.3f;
 
+    [Header("Debug")]
+    [SerializeField] private bool debugPetrifyImmune;
+
     private bool isPetrified = false;
     private float petrifyTimer;
 
@@ -79,6 +82,9 @@ public class PlayerPetrify : NetworkBehaviour
 
     public void Petrify()
     {
+        if (debugPetrifyImmune)
+            return;
+
         if (IsNetworked() && !IsServer)
             return;
 
@@ -93,6 +99,14 @@ public class PlayerPetrify : NetworkBehaviour
 
         ClearPetrifyState(true);
         SyncPetrifiedState(false);
+    }
+
+    public void SetDebugPetrifyImmune(bool value)
+    {
+        debugPetrifyImmune = value;
+
+        if (debugPetrifyImmune && isPetrified && CanWritePetrifyState())
+            Unpetrify();
     }
 
     void CacheReferences()

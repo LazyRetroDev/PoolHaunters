@@ -11,6 +11,8 @@ public class RuntimeDebugOptions : MonoBehaviour
     [Header("Resource Toggles")]
     public bool infiniteWater;
     public bool infiniteStamina;
+    public bool petrifyImmunity;
+    public WaterQuality debugWaterQuality = WaterQuality.Clean;
 
     [Header("Character")]
     public bool persistDebugCharacterSelection = true;
@@ -34,7 +36,7 @@ public class RuntimeDebugOptions : MonoBehaviour
             SetVisible(!visible);
         }
 
-        ApplyResourceToggles();
+        ApplyDebugToggles();
     }
 
     void OnDisable()
@@ -68,15 +70,29 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (nextInfiniteWater != infiniteWater)
         {
             infiniteWater = nextInfiniteWater;
-            ApplyResourceToggles();
+            ApplyDebugToggles();
         }
 
         bool nextInfiniteStamina = GUILayout.Toggle(infiniteStamina, "Infinite Stamina");
         if (nextInfiniteStamina != infiniteStamina)
         {
             infiniteStamina = nextInfiniteStamina;
-            ApplyResourceToggles();
+            ApplyDebugToggles();
         }
+
+        bool nextPetrifyImmunity = GUILayout.Toggle(petrifyImmunity, "Petrify Immunity");
+        if (nextPetrifyImmunity != petrifyImmunity)
+        {
+            petrifyImmunity = nextPetrifyImmunity;
+            ApplyDebugToggles();
+        }
+
+        GUILayout.Label($"Water Quality: {debugWaterQuality}");
+        GUILayout.BeginHorizontal();
+        DrawWaterQualityButton(WaterQuality.Clean);
+        DrawWaterQualityButton(WaterQuality.Contaminated);
+        DrawWaterQualityButton(WaterQuality.ChemicallyEnhanced);
+        GUILayout.EndHorizontal();
 
         if (GUILayout.Button("Fill Water"))
             FillWater();
@@ -161,7 +177,7 @@ public class RuntimeDebugOptions : MonoBehaviour
         }
     }
 
-    void ApplyResourceToggles()
+    void ApplyDebugToggles()
     {
         PlayerStatus[] statuses =
             FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
@@ -178,6 +194,14 @@ public class RuntimeDebugOptions : MonoBehaviour
             if (movements[i] != null)
                 movements[i].SetDebugInfiniteStamina(infiniteStamina);
         }
+
+        PlayerPetrify[] petrifyComponents =
+            FindObjectsByType<PlayerPetrify>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < petrifyComponents.Length; i++)
+        {
+            if (petrifyComponents[i] != null)
+                petrifyComponents[i].SetDebugPetrifyImmune(petrifyImmunity);
+        }
     }
 
     void FillWater()
@@ -187,7 +211,30 @@ public class RuntimeDebugOptions : MonoBehaviour
         for (int i = 0; i < statuses.Length; i++)
         {
             if (statuses[i] != null)
-                statuses[i].DebugFillWater(WaterQuality.Clean);
+                statuses[i].DebugFillWater(debugWaterQuality);
+        }
+    }
+
+    void DrawWaterQualityButton(WaterQuality quality)
+    {
+        string label = debugWaterQuality == quality
+            ? $"{GetWaterQualityLabel(quality)} *"
+            : GetWaterQualityLabel(quality);
+
+        if (GUILayout.Button(label))
+            debugWaterQuality = quality;
+    }
+
+    string GetWaterQualityLabel(WaterQuality quality)
+    {
+        switch (quality)
+        {
+            case WaterQuality.Contaminated:
+                return "Dirty";
+            case WaterQuality.ChemicallyEnhanced:
+                return "Chemical";
+            default:
+                return "Clean";
         }
     }
 
