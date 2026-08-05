@@ -25,6 +25,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     [Header("Dirt")]
     [SerializeField] private bool autoFindDirtSpots = true;
     [SerializeField] private DirtSpot[] dirtSpots = new DirtSpot[0];
+    [SerializeField, Range(0.01f, 1f)] private float poolCleanCompletionThreshold = 0.95f;
 
     [Header("Debug")]
     [SerializeField] private int debugSyncId;
@@ -127,6 +128,18 @@ public class SwimmingPoolObjective : MonoBehaviour
         MarkCleaned();
     }
 
+    public void RefreshAndEvaluateCleanState(bool notifyWhenUnchanged = false)
+    {
+        if (cleaned)
+            return;
+
+        RefreshCleanProgress();
+        if (filled && IsPoolCleanComplete())
+            MarkCleaned();
+        else if (notifyWhenUnchanged)
+            NotifyStateChanged();
+    }
+
     public bool TryGetDirtSpotIndex(
         DirtSpot dirtSpot,
         out int dirtSpotIndex)
@@ -175,7 +188,7 @@ public class SwimmingPoolObjective : MonoBehaviour
                 amount);
 
             RefreshCleanProgress();
-            if (filled && !cleaned && IsEveryDirtSpotCleaned())
+            if (filled && !cleaned && IsPoolCleanComplete())
                 MarkCleaned();
             else
                 NotifyStateChanged();
@@ -240,7 +253,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     void HandleDirtSpotCleaned(DirtSpot dirt)
     {
         RefreshCleanProgress();
-        if (filled && !cleaned && IsEveryDirtSpotCleaned())
+        if (filled && !cleaned && IsPoolCleanComplete())
             MarkCleaned();
         else
             NotifyStateChanged();
@@ -312,6 +325,14 @@ public class SwimmingPoolObjective : MonoBehaviour
         }
 
         return true;
+    }
+
+    bool IsPoolCleanComplete()
+    {
+        if (IsEveryDirtSpotCleaned())
+            return true;
+
+        return CalculateDirtCleanProgress() >= poolCleanCompletionThreshold;
     }
 
     void ApplyVisualState()

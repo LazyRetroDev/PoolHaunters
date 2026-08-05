@@ -326,6 +326,16 @@ public class LevelObjectiveManager : MonoBehaviour
         }
     }
 
+    public void DebugRevealAllRooms()
+    {
+        RoomDefinition[] rooms =
+            FindObjectsByType<RoomDefinition>(FindObjectsInactive.Include);
+        for (int i = 0; i < rooms.Length; i++)
+            RegisterRoomDiscovered(rooms[i]);
+
+        RefreshObjectiveState();
+    }
+
     void UpdateRoomDiscovery()
     {
         if (autoFindPlayers)
@@ -482,6 +492,7 @@ public class LevelObjectiveManager : MonoBehaviour
             if (pool == null || !pool.RequiredForLevelCompletion)
                 continue;
 
+            pool.RefreshAndEvaluateCleanState();
             if (!pool.IsCleaned)
                 return false;
         }
@@ -525,6 +536,7 @@ public class LevelObjectiveManager : MonoBehaviour
             if (pool == null || !pool.RequiredForLevelCompletion)
                 continue;
 
+            pool.RefreshAndEvaluateCleanState();
             requiredCount++;
             cleanAmount += pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress);
         }

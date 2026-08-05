@@ -115,6 +115,9 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (GUILayout.Button("Complete Objectives"))
             CompleteObjectives();
 
+        if (GUILayout.Button("Reveal Minimap"))
+            RevealMinimap();
+
         DrawObjectiveSummary();
 
         GUILayout.Space(12f);
@@ -293,6 +296,12 @@ public class RuntimeDebugOptions : MonoBehaviour
     {
         if (LevelObjectiveManager.Instance != null)
             LevelObjectiveManager.Instance.DebugCompleteObjectives();
+    }
+
+    void RevealMinimap()
+    {
+        if (LevelObjectiveManager.Instance != null)
+            LevelObjectiveManager.Instance.DebugRevealAllRooms();
     }
 
     void DrawCharacterButton(PlayerAgentType agent)
