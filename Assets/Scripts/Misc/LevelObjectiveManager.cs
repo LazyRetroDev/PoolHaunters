@@ -53,8 +53,8 @@ public class LevelObjectiveManager : MonoBehaviour
     public string activeObjectiveLabel = "Clean the pools and find the exit";
     public string completedObjectiveLabel = "Objectives complete";
     public string returnToSubmarineObjectiveLabel = "Return to the Submarine Room";
-    public string cleaningProgressFormat = "Cleaning: {0}%";
-    public string currentPoolProgressFormat = "Current Pool: {0}%";
+    public string cleaningProgressFormat = "Total Cleaning: {0}%";
+    public string currentPoolProgressFormat = "Pool Cleaning: {0}%";
     public string poolCounterFormat = "Pools {0}/{1}";
     public string levelInfoFormat = "Level {0}";
     public string regionLevelInfoFormat = "Phase {0} - {1}";
@@ -1286,32 +1286,33 @@ public class LevelObjectiveManager : MonoBehaviour
                 objectiveText.text = Localized("objective.cleanPools", activeObjectiveLabel);
         }
 
-        float cleanForHud = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
-        float currentPoolForHud = WaterValveActivated ? CalculateCurrentPoolCleanPercent() : 0f;
-        int cleanPercent = Mathf.RoundToInt(cleanForHud * 100f);
-        int currentPoolPercent = Mathf.RoundToInt(currentPoolForHud * 100f);
+        float totalCleanForHud = WaterValveActivated ? currentCleanPercent : 0f;
+        float poolCleanForHud = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
+        CalculateCurrentPoolCleanPercent();
+        int cleanPercent = Mathf.RoundToInt(totalCleanForHud * 100f);
+        int poolCleanPercent = Mathf.RoundToInt(poolCleanForHud * 100f);
 
         if (cleaningProgressText != null)
             cleaningProgressText.text = string.Format(
-                Localized("hud.cleaningProgress", cleaningProgressFormat),
+                Localized("hud.totalCleaningProgress", cleaningProgressFormat),
                 cleanPercent);
 
         if (cleaningProgressBar != null)
-            cleaningProgressBar.value = cleanForHud;
+            cleaningProgressBar.value = totalCleanForHud;
 
         if (cleaningProgressFill != null)
-            cleaningProgressFill.fillAmount = cleanForHud;
+            cleaningProgressFill.fillAmount = totalCleanForHud;
 
         if (currentPoolProgressText != null)
             currentPoolProgressText.text = string.Format(
-                Localized("hud.currentPoolProgress", currentPoolProgressFormat),
-                currentPoolPercent);
+                Localized("hud.poolCleaningProgress", currentPoolProgressFormat),
+                poolCleanPercent);
 
         if (currentPoolProgressBar != null)
-            currentPoolProgressBar.value = currentPoolForHud;
+            currentPoolProgressBar.value = poolCleanForHud;
 
         if (currentPoolProgressFill != null)
-            currentPoolProgressFill.fillAmount = currentPoolForHud;
+            currentPoolProgressFill.fillAmount = poolCleanForHud;
 
         if (poolCounterText != null)
             poolCounterText.text = string.Format(
@@ -1338,7 +1339,8 @@ public class LevelObjectiveManager : MonoBehaviour
             : Localized("objective.exitOptional", "Exit optional");
 
         string poolText = requireAllRequiredPoolsClean && requiredPoolCount > 0
-            ? $" - {Localized("objective.pools", "Pools")} {cleanedRequiredPoolCount}/{requiredPoolCount}"
+            ? $" - {Localized("objective.poolCleaning", "Pool Cleaning")} {poolCleanPercent}%" +
+              $" - {Localized("objective.pools", "Pools")} {cleanedRequiredPoolCount}/{requiredPoolCount}"
             : string.Empty;
 
         progressText.text =
@@ -1529,7 +1531,7 @@ public class LevelObjectiveManager : MonoBehaviour
     void UpdateCleanGoalUI()
     {
         float required = Mathf.Clamp01(requiredCleanPercent);
-        float clean = WaterValveActivated ? CalculateRequiredPoolCleanPercent() : 0f;
+        float clean = WaterValveActivated ? currentCleanPercent : 0f;
         float normalizedGoal = required > 0f ? Mathf.Clamp01(clean / required) : 1f;
         bool shouldShow = !showCleanGoalOnlyAfterWaterValve || WaterValveActivated;
 

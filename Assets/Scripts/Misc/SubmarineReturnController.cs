@@ -12,6 +12,10 @@ public class SubmarineReturnController : MonoBehaviour
     public bool autoAddTriggerCollider = true;
     public Vector3 fallbackTriggerSize = new Vector3(3f, 3f, 3f);
 
+    [Header("Shop Flow")]
+    public bool routeThroughPhysicalShop = true;
+    public string shopSceneName = "Shop";
+
     [Header("Next Phase Scene Choice")]
     public RunSceneOption[] sceneOptions =
     {
@@ -27,6 +31,7 @@ public class SubmarineReturnController : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool transitionStarted;
     [SerializeField] private string selectedNextScene;
+    [SerializeField] private string selectedDestinationScene;
 
     void Reset()
     {
@@ -72,6 +77,7 @@ public class SubmarineReturnController : MonoBehaviour
 
         transitionStarted = true;
         selectedNextScene = nextScene.sceneName;
+        selectedDestinationScene = GetDestinationSceneName(nextScene);
 
         RegionRunState.SelectNextPhaseRegion(
             string.IsNullOrWhiteSpace(nextScene.regionName)
@@ -84,11 +90,21 @@ public class SubmarineReturnController : MonoBehaviour
             networkManager.IsListening &&
             networkManager.SceneManager != null)
         {
-            networkManager.SceneManager.LoadScene(nextScene.sceneName, LoadSceneMode.Single);
+            networkManager.SceneManager.LoadScene(
+                selectedDestinationScene,
+                LoadSceneMode.Single);
             return;
         }
 
-        SceneManager.LoadScene(nextScene.sceneName);
+        SceneManager.LoadScene(selectedDestinationScene);
+    }
+
+    string GetDestinationSceneName(RunSceneOption nextScene)
+    {
+        if (routeThroughPhysicalShop && !string.IsNullOrWhiteSpace(shopSceneName))
+            return shopSceneName;
+
+        return nextScene != null ? nextScene.sceneName : string.Empty;
     }
 
     RunSceneOption ChooseNextScene()

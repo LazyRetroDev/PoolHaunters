@@ -136,10 +136,13 @@ public static class GameLocalization
         { "objective.findExit", "Find the exit" },
         { "objective.exitOptional", "Exit optional" },
         { "objective.cleaning", "Cleaning" },
+        { "objective.poolCleaning", "Pool Cleaning" },
         { "objective.pools", "Pools" },
         { "objective.rooms", "Rooms" },
-        { "hud.cleaningProgress", "Cleaning: {0}%" },
-        { "hud.currentPoolProgress", "Current Pool: {0}%" },
+        { "hud.cleaningProgress", "Total Cleaning: {0}%" },
+        { "hud.currentPoolProgress", "Pool Cleaning: {0}%" },
+        { "hud.totalCleaningProgress", "Total Cleaning: {0}%" },
+        { "hud.poolCleaningProgress", "Pool Cleaning: {0}%" },
         { "hud.pools", "Pools {0}/{1}" }
     };
 
@@ -154,10 +157,13 @@ public static class GameLocalization
         { "objective.findExit", "Encontre a saida" },
         { "objective.exitOptional", "Saida opcional" },
         { "objective.cleaning", "Limpeza" },
+        { "objective.poolCleaning", "Limpeza da piscina" },
         { "objective.pools", "Piscinas" },
         { "objective.rooms", "Salas" },
-        { "hud.cleaningProgress", "Limpeza: {0}%" },
-        { "hud.currentPoolProgress", "Piscina atual: {0}%" },
+        { "hud.cleaningProgress", "Limpeza total: {0}%" },
+        { "hud.currentPoolProgress", "Limpeza da piscina: {0}%" },
+        { "hud.totalCleaningProgress", "Limpeza total: {0}%" },
+        { "hud.poolCleaningProgress", "Limpeza da piscina: {0}%" },
         { "hud.pools", "Piscinas {0}/{1}" }
     };
 
@@ -172,10 +178,13 @@ public static class GameLocalization
         { "objective.findExit", "Encuentra la salida" },
         { "objective.exitOptional", "Salida opcional" },
         { "objective.cleaning", "Limpieza" },
+        { "objective.poolCleaning", "Limpieza de piscina" },
         { "objective.pools", "Piscinas" },
         { "objective.rooms", "Salas" },
-        { "hud.cleaningProgress", "Limpieza: {0}%" },
-        { "hud.currentPoolProgress", "Piscina actual: {0}%" },
+        { "hud.cleaningProgress", "Limpieza total: {0}%" },
+        { "hud.currentPoolProgress", "Limpieza de piscina: {0}%" },
+        { "hud.totalCleaningProgress", "Limpieza total: {0}%" },
+        { "hud.poolCleaningProgress", "Limpieza de piscina: {0}%" },
         { "hud.pools", "Piscinas {0}/{1}" }
     };
 
@@ -208,10 +217,13 @@ public static class GameLocalization
         { "objective.findExit", "Trouvez la sortie" },
         { "objective.exitOptional", "Sortie optionnelle" },
         { "objective.cleaning", "Nettoyage" },
+        { "objective.poolCleaning", "Nettoyage piscine" },
         { "objective.pools", "Piscines" },
         { "objective.rooms", "Salles" },
-        { "hud.cleaningProgress", "Nettoyage: {0}%" },
-        { "hud.currentPoolProgress", "Piscine actuelle: {0}%" },
+        { "hud.cleaningProgress", "Nettoyage total: {0}%" },
+        { "hud.currentPoolProgress", "Nettoyage piscine: {0}%" },
+        { "hud.totalCleaningProgress", "Nettoyage total: {0}%" },
+        { "hud.poolCleaningProgress", "Nettoyage piscine: {0}%" },
         { "hud.pools", "Piscines {0}/{1}" }
     };
 
@@ -226,10 +238,13 @@ public static class GameLocalization
         { "objective.findExit", "Finde den Ausgang" },
         { "objective.exitOptional", "Ausgang optional" },
         { "objective.cleaning", "Reinigung" },
+        { "objective.poolCleaning", "Beckenreinigung" },
         { "objective.pools", "Becken" },
         { "objective.rooms", "Raume" },
-        { "hud.cleaningProgress", "Reinigung: {0}%" },
-        { "hud.currentPoolProgress", "Aktuelles Becken: {0}%" },
+        { "hud.cleaningProgress", "Gesamtreinigung: {0}%" },
+        { "hud.currentPoolProgress", "Beckenreinigung: {0}%" },
+        { "hud.totalCleaningProgress", "Gesamtreinigung: {0}%" },
+        { "hud.poolCleaningProgress", "Beckenreinigung: {0}%" },
         { "hud.pools", "Becken {0}/{1}" }
     };
 
