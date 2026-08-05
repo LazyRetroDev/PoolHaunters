@@ -64,6 +64,7 @@ public class PlayerMovement : NetworkBehaviour
     private float staminaDrainMultiplierTimer;
     private float footstepTimer;
     private bool acceptsInput = true;
+    private bool debugInfiniteStamina;
     private PlayerVignetteEffect localVignetteEffect;
     private float lastThreatEffectSendTime = -999f;
     private float lastThreatEffectSentIntensity = -1f;
@@ -244,8 +245,12 @@ public class PlayerMovement : NetworkBehaviour
 
         if (canSprint)
         {
-            currentStamina -= staminaDrainRate * staminaDrainMultiplier *
-                Time.fixedDeltaTime;
+            if (!debugInfiniteStamina)
+            {
+                currentStamina -= staminaDrainRate * staminaDrainMultiplier *
+                    Time.fixedDeltaTime;
+            }
+
             currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             regenTimer = 0f;
         }
@@ -1131,6 +1136,12 @@ public class PlayerMovement : NetworkBehaviour
         if (amount <= 0f)
             return true;
 
+        if (debugInfiniteStamina)
+        {
+            currentStamina = maxStamina;
+            return true;
+        }
+
         if (currentStamina < amount)
             return false;
 
@@ -1141,7 +1152,20 @@ public class PlayerMovement : NetworkBehaviour
 
     public bool HasStamina(float amount)
     {
-        return amount <= 0f || currentStamina >= amount;
+        return debugInfiniteStamina || amount <= 0f || currentStamina >= amount;
+    }
+
+    public void SetDebugInfiniteStamina(bool value)
+    {
+        debugInfiniteStamina = value;
+
+        if (debugInfiniteStamina)
+            currentStamina = maxStamina;
+    }
+
+    public void DebugFillStamina()
+    {
+        currentStamina = maxStamina;
     }
 
     void UpdateTimedStaminaMultiplier()

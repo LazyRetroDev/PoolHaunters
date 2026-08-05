@@ -48,7 +48,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     public int CleanedDirtSpotCount => cleanedDirtSpotCount;
     public float CleanProgress =>
         totalDirtSpotCount > 0
-            ? Mathf.Clamp01((float)cleanedDirtSpotCount / totalDirtSpotCount)
+            ? CalculateDirtCleanProgress()
             : cleaned ? 1f : 0f;
 
     void Awake()
@@ -113,6 +113,17 @@ public class SwimmingPoolObjective : MonoBehaviour
     public void ForceClean()
     {
         filled = true;
+
+        RefreshDirtSpots();
+        if (dirtSpots != null)
+        {
+            for (int i = 0; i < dirtSpots.Length; i++)
+            {
+                if (dirtSpots[i] != null)
+                    dirtSpots[i].ForceClean();
+            }
+        }
+
         MarkCleaned();
     }
 
@@ -263,6 +274,29 @@ public class SwimmingPoolObjective : MonoBehaviour
             if (dirt == null || dirt.IsCleaned)
                 cleanedDirtSpotCount++;
         }
+    }
+
+    float CalculateDirtCleanProgress()
+    {
+        RefreshDirtSpots();
+
+        if (dirtSpots == null || dirtSpots.Length == 0)
+            return cleaned ? 1f : 0f;
+
+        float cleanAmount = 0f;
+        for (int i = 0; i < dirtSpots.Length; i++)
+        {
+            DirtSpot dirt = dirtSpots[i];
+            if (dirt == null || dirt.IsCleaned)
+            {
+                cleanAmount += 1f;
+                continue;
+            }
+
+            cleanAmount += Mathf.Clamp01(1f - dirt.GetDirtPercent());
+        }
+
+        return Mathf.Clamp01(cleanAmount / dirtSpots.Length);
     }
 
     bool IsEveryDirtSpotCleaned()

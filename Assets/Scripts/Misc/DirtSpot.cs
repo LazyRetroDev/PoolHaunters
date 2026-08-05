@@ -665,6 +665,24 @@ public class DirtSpot : NetworkBehaviour
         return maxDirt > 0f ? currentDirt / maxDirt : 0f;
     }
 
+    public void ForceClean()
+    {
+        if (IsCleaned)
+            return;
+
+        MarkCleaned();
+        UpdateVisualState();
+
+        if (hideRendererWhenClean && targetRenderer != null)
+            targetRenderer.enabled = false;
+
+        if (targetCollider != null)
+            targetCollider.enabled = false;
+
+        if (destroyWhenClean && gameObject.activeInHierarchy && !isFadingOut)
+            StartCoroutine(FadeOutAndDestroy());
+    }
+
     void MarkCleaned()
     {
         if (IsCleaned)

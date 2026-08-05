@@ -68,6 +68,7 @@ public class PlayerStatus : NetworkBehaviour
     private bool localStateInitialized;
     private bool serverStateInitialized;
     private WaterZone activeWaterZone;
+    private bool debugInfiniteWater;
 
     private PlayerMovement movement;
     private PlayerInventory inventory;
@@ -352,7 +353,16 @@ public class PlayerStatus : NetworkBehaviour
     public bool ConsumeWater(float amount)
     {
         if (!CanAct()) return false;
-        if (amount <= 0f || currentWater <= 0f) return false;
+        if (amount <= 0f) return false;
+
+        if (debugInfiniteWater)
+        {
+            currentWater = maxWater;
+            SyncWaterState();
+            return true;
+        }
+
+        if (currentWater <= 0f) return false;
 
         if (IsClientReplica())
         {
@@ -364,6 +374,24 @@ public class PlayerStatus : NetworkBehaviour
         ApplyConsumeWater(amount);
         SyncWaterState();
         return true;
+    }
+
+    public void SetDebugInfiniteWater(bool value)
+    {
+        debugInfiniteWater = value;
+
+        if (debugInfiniteWater && currentWater < maxWater)
+        {
+            currentWater = maxWater;
+            SyncWaterState();
+        }
+    }
+
+    public void DebugFillWater(WaterQuality quality = WaterQuality.Clean)
+    {
+        currentWater = maxWater;
+        SetWaterQuality(quality);
+        SyncWaterState();
     }
 
     public bool AddWater(

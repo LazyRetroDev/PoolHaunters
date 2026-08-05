@@ -284,6 +284,48 @@ public class LevelObjectiveManager : MonoBehaviour
         OnObjectiveStateChanged?.Invoke();
     }
 
+    public void DebugCleanAllDirt()
+    {
+        DirtSpot[] dirtSpots =
+            FindObjectsByType<DirtSpot>(FindObjectsInactive.Include);
+        for (int i = 0; i < dirtSpots.Length; i++)
+        {
+            if (dirtSpots[i] != null)
+                dirtSpots[i].ForceClean();
+        }
+
+        RefreshObjectiveState();
+    }
+
+    public void DebugCleanAllPools()
+    {
+        RegisterKnownPoolObjectives();
+
+        foreach (SwimmingPoolObjective pool in registeredPools)
+        {
+            if (pool != null && pool.RequiredForLevelCompletion)
+                pool.ForceClean();
+        }
+
+        RefreshObjectiveState();
+    }
+
+    public void DebugCompleteObjectives()
+    {
+        waterValveActivated = true;
+        finalRoomDiscovered = true;
+        DebugCleanAllDirt();
+        DebugCleanAllPools();
+
+        if (!levelCompleted)
+        {
+            levelCompleted = true;
+            UpdateObjectiveHUD();
+            OnObjectiveStateChanged?.Invoke();
+            OnLevelCompleted?.Invoke();
+        }
+    }
+
     void UpdateRoomDiscovery()
     {
         if (autoFindPlayers)
