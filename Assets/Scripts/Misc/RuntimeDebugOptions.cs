@@ -13,6 +13,7 @@ public class RuntimeDebugOptions : MonoBehaviour
     public bool infiniteStamina;
     public bool petrifyImmunity;
     public WaterQuality debugWaterQuality = WaterQuality.Clean;
+    public int debugGermsAmount = 50;
 
     [Header("Character")]
     public bool persistDebugCharacterSelection = true;
@@ -99,6 +100,14 @@ public class RuntimeDebugOptions : MonoBehaviour
 
         if (GUILayout.Button("Fill Stamina"))
             FillStamina();
+
+        GUILayout.Label($"Germs: {PlayerCurrencyState.Germs}");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button($"+{debugGermsAmount} Germs"))
+            PlayerCurrencyState.AddGerms(debugGermsAmount);
+        if (GUILayout.Button("Reset Germs"))
+            PlayerCurrencyState.ResetGerms();
+        GUILayout.EndHorizontal();
 
         GUILayout.Space(12f);
         GUILayout.Label("Objectives");

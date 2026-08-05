@@ -497,7 +497,11 @@ public class WaterCannon : MonoBehaviour
             else if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
             {
                 dirtHits.Add(dirtSpot);
-                dirtSpot.CleanAtWorldPoint(hits[i].point, cleanContactRadius, cleanAmount);
+                dirtSpot.CleanAtWorldPoint(
+                    hits[i].point,
+                    cleanContactRadius,
+                    cleanAmount,
+                    playerStatus);
             }
 
             GoldenMouthBehavior goldenMouth = hits[i].collider.GetComponentInParent<GoldenMouthBehavior>();

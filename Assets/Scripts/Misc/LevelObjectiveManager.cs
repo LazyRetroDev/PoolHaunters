@@ -114,6 +114,9 @@ public class LevelObjectiveManager : MonoBehaviour
         }
 
         Instance = this;
+
+        if (GetComponent<LevelRewardTracker>() == null)
+            gameObject.AddComponent<LevelRewardTracker>();
     }
 
     void OnEnable()

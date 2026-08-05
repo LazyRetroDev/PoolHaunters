@@ -253,7 +253,8 @@ public class JennyMopCleaner : MonoBehaviour
                     dirt.CleanAtWorldPoint(
                         contactPoint,
                         cleanContactRadius,
-                        cleanPowerPerSecond * cleanMultiplier * Time.deltaTime);
+                        cleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
+                        playerStatus);
                 }
             }
 

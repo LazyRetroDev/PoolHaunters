@@ -407,13 +407,25 @@ public class DirtSpot : NetworkBehaviour
 
     public void CleanAtWorldPoint(Vector3 worldPoint, float worldRadius, float amount)
     {
+        CleanAtWorldPoint(worldPoint, worldRadius, amount, null);
+    }
+
+    public void CleanAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount,
+        PlayerStatus cleaner)
+    {
         if (ShouldRequestServerStateChange())
         {
             CleanAtWorldPointServerRpc(worldPoint, worldRadius, amount);
             return;
         }
 
+        float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+        float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        LevelRewardTracker.RecordCleaning(cleaner, cleanedFraction);
 
         if (ShouldBroadcastNetworkState())
             CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
@@ -573,7 +585,8 @@ public class DirtSpot : NetworkBehaviour
     void CleanAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,
-        float amount)
+        float amount,
+        ServerRpcParams rpcParams = default)
     {
         if (!IsFiniteVector3(worldPoint) ||
             !HasValidAmount(worldRadius) ||
@@ -582,7 +595,13 @@ public class DirtSpot : NetworkBehaviour
             return;
         }
 
+        float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+        float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        LevelRewardTracker.RecordCleaningByClientId(
+            rpcParams.Receive.SenderClientId,
+            cleanedFraction);
+
         CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
     }
 
