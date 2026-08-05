@@ -479,6 +479,88 @@ public class PlayerInventory : NetworkBehaviour
         return false;
     }
 
+    public bool CanReceiveShopItem(GameObject itemPrefab)
+    {
+        CacheReferences();
+        EnsureSlots();
+
+        if (itemPrefab == null || IsInventoryLocked())
+            return false;
+
+        Item item = itemPrefab.GetComponentInChildren<Item>(true);
+        if (item == null)
+            return false;
+
+        WaterItem waterItem = itemPrefab.GetComponentInChildren<WaterItem>(true);
+        if (waterItem != null && waterItem.useImmediatelyOnPickup)
+        {
+            return playerStatus != null &&
+                playerStatus.CanAct() &&
+                waterItem.waterAmount > 0f &&
+                playerStatus.GetWaterSpace() > 0f;
+        }
+
+        return GetFirstEmptySlot() >= 0;
+    }
+
+    public bool TryReceiveShopItem(
+        GameObject itemPrefab,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation)
+    {
+        CacheReferences();
+        EnsureSlots();
+
+        if (!CanReceiveShopItem(itemPrefab))
+            return false;
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            Debug.LogWarning("Shop item grants currently need to run on the host/server.");
+            return false;
+        }
+
+        GameObject instance = Instantiate(itemPrefab, spawnPosition, spawnRotation);
+        Item item = instance.GetComponentInChildren<Item>(true);
+        if (item == null)
+        {
+            Destroy(instance);
+            return false;
+        }
+
+        NetworkObject networkObject = item.GetComponentInParent<NetworkObject>();
+        if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        if (TryPickupAuthoritative(item, transform.position, pickupRange))
+            return true;
+
+        DestroyOrDespawnItem(item);
+        return false;
+    }
+
+    public bool TrySpawnShopItemInWorld(
+        GameObject itemPrefab,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation)
+    {
+        if (itemPrefab == null)
+            return false;
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            Debug.LogWarning("Shop item spawning currently needs to run on the host/server.");
+            return false;
+        }
+
+        GameObject instance = Instantiate(itemPrefab, spawnPosition, spawnRotation);
+        NetworkObject networkObject = instance.GetComponentInParent<NetworkObject>();
+        if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        return true;
+    }
+
     bool RemoveItemAtSlot(int slotIndex, bool destroyItem)
     {
         EnsureSlots();
