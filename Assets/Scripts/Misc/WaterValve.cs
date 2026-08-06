@@ -4,7 +4,7 @@ using Unity.Netcode;
 using UnityEngine;
 
 [DisallowMultipleComponent]
-public class WaterValve : NetworkBehaviour
+public class WaterValve : NetworkBehaviour, IPlayerInteractable
 {
     class VisualTurnState
     {

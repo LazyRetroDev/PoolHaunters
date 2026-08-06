@@ -165,6 +165,11 @@ public class RoomGenerator : MonoBehaviour
     [Header("Full Map Generation")]
     public bool generateFullMapOnStart;
 
+    [Header("Required Rooms")]
+    [SerializeField] private bool requirePoolRoomsInFullMap = true;
+    [Min(0)]
+    [SerializeField] private int minimumRequiredPoolRooms = 1;
+
     [Min(1)]
     public int minimumBranchCount = 3;
 
@@ -1282,11 +1287,42 @@ public class RoomGenerator : MonoBehaviour
         if (openConnectors.Count > 0)
             result.Fail($"{openConnectors.Count} connector(s) remained in the open connector list");
 
+        ValidateRequiredRooms(result);
         ValidateRoomPlacements(result);
         ValidateConnectorStates(result);
         ValidateFinalRoomDistances(result);
 
         return result;
+    }
+
+    void ValidateRequiredRooms(MapValidationResult result)
+    {
+        if (!requirePoolRoomsInFullMap)
+            return;
+
+        int requiredPools = Mathf.Max(0, minimumRequiredPoolRooms);
+        if (requiredPools <= 0)
+            return;
+
+        int poolRoomCount = CountRoomsInCategory(RoomCategory.Pool);
+        if (poolRoomCount < requiredPools)
+        {
+            result.Fail(
+                $"only {poolRoomCount} pool room(s) for {requiredPools} required pool room(s)");
+        }
+    }
+
+    int CountRoomsInCategory(RoomCategory category)
+    {
+        int count = 0;
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            RoomDefinition definition = GetRoomDefinition(spawnedRooms[i]);
+            if (definition != null && definition.category == category)
+                count++;
+        }
+
+        return count;
     }
 
     int CountFinalRooms()
@@ -3468,9 +3504,8 @@ public class RoomGenerator : MonoBehaviour
                 break;
         }
 
-        Vector3 worldOrigin = room.transform.TransformPoint(localOrigin);
         RaycastHit[] hits = Physics.RaycastAll(
-            worldOrigin,
+            room.transform.TransformPoint(localOrigin),
             rayDirection,
             distance,
             ~0,

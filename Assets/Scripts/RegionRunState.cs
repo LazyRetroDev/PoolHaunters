@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 public enum RunLaunchMode
@@ -16,12 +15,12 @@ public enum RunNetworkMode
 
 public static class RegionRunState
 {
-    public const int MaxPlayerNameLength = 20;
-
     public static bool HasSelectedRegion { get; private set; }
     public static string RegionName { get; private set; }
     public static string SceneName { get; private set; }
+    public static string PreviousSceneName { get; private set; }
     public static int RunSeed { get; private set; }
+    public static int PhaseNumber { get; private set; } = 1;
     public static RunLaunchMode LaunchMode { get; private set; } =
         RunLaunchMode.SinglePlayer;
     public static RunNetworkMode NetworkMode { get; private set; } =
@@ -31,9 +30,6 @@ public static class RegionRunState
     public static string RelayJoinCode { get; private set; } = string.Empty;
     public static string RelayConnectionType { get; private set; } = "dtls";
     public static int RelayMaxConnections { get; private set; } = 3;
-
-    private static readonly Dictionary<ulong, string> multiplayerPlayerNames =
-        new Dictionary<ulong, string>();
 
     public static bool IsSinglePlayer
     {
@@ -80,7 +76,9 @@ public static class RegionRunState
             7777,
             string.Empty,
             "dtls",
-            3);
+            3,
+            1,
+            string.Empty);
     }
 
     public static void SelectMultiplayerHostRegion(
@@ -99,7 +97,9 @@ public static class RegionRunState
             port,
             string.Empty,
             "dtls",
-            3);
+            3,
+            1,
+            string.Empty);
     }
 
     public static void SelectMultiplayerClientRegion(
@@ -119,7 +119,9 @@ public static class RegionRunState
             port,
             string.Empty,
             "dtls",
-            3);
+            3,
+            1,
+            string.Empty);
     }
 
     public static void SelectRelayHostRegion(
@@ -139,7 +141,9 @@ public static class RegionRunState
             7777,
             string.Empty,
             connectionType,
-            maxConnections);
+            maxConnections,
+            1,
+            string.Empty);
     }
 
     public static void SelectRelayClientRegion(
@@ -159,7 +163,32 @@ public static class RegionRunState
             7777,
             joinCode,
             connectionType,
-            1);
+            1,
+            1,
+            string.Empty);
+    }
+
+    public static void SelectNextPhaseRegion(
+        string regionName,
+        string sceneName,
+        int runSeed)
+    {
+        string previousSceneName = SceneName;
+        int nextPhaseNumber = Mathf.Max(1, PhaseNumber + 1);
+
+        SelectRegion(
+            regionName,
+            sceneName,
+            runSeed,
+            LaunchMode,
+            NetworkMode,
+            ConnectionAddress,
+            ConnectionPort,
+            RelayJoinCode,
+            RelayConnectionType,
+            RelayMaxConnections,
+            nextPhaseNumber,
+            previousSceneName);
     }
 
     static void SelectRegion(
@@ -172,12 +201,16 @@ public static class RegionRunState
         ushort connectionPort,
         string relayJoinCode,
         string relayConnectionType,
-        int relayMaxConnections)
+        int relayMaxConnections,
+        int phaseNumber,
+        string previousSceneName)
     {
         HasSelectedRegion = true;
         RegionName = string.IsNullOrWhiteSpace(regionName) ? sceneName : regionName;
         SceneName = sceneName;
+        PreviousSceneName = previousSceneName;
         RunSeed = runSeed;
+        PhaseNumber = Mathf.Max(1, phaseNumber);
         LaunchMode = launchMode;
         NetworkMode = networkMode;
         ConnectionAddress = string.IsNullOrWhiteSpace(connectionAddress)
@@ -189,7 +222,7 @@ public static class RegionRunState
         RelayMaxConnections = Mathf.Max(1, relayMaxConnections);
 
         Debug.Log(
-            $"Selected region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}.");
+            $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}.");
     }
 
     public static void SetRelayJoinCode(string joinCode)
@@ -197,35 +230,14 @@ public static class RegionRunState
         RelayJoinCode = SanitizeRelayJoinCode(joinCode);
     }
 
-    public static void SetMultiplayerPlayerNames(
-        IReadOnlyDictionary<ulong, string> playerNames)
-    {
-        multiplayerPlayerNames.Clear();
-
-        if (playerNames == null)
-            return;
-
-        foreach (KeyValuePair<ulong, string> playerName in playerNames)
-        {
-            multiplayerPlayerNames[playerName.Key] =
-                SanitizePlayerName(playerName.Value, playerName.Key);
-        }
-    }
-
-    public static string GetMultiplayerPlayerName(ulong clientId)
-    {
-        if (multiplayerPlayerNames.TryGetValue(clientId, out string playerName))
-            return SanitizePlayerName(playerName, clientId);
-
-        return GetFallbackPlayerName(clientId);
-    }
-
     public static void Clear()
     {
         HasSelectedRegion = false;
         RegionName = string.Empty;
         SceneName = string.Empty;
+        PreviousSceneName = string.Empty;
         RunSeed = 0;
+        PhaseNumber = 1;
         LaunchMode = RunLaunchMode.SinglePlayer;
         NetworkMode = RunNetworkMode.Direct;
         ConnectionAddress = "127.0.0.1";
@@ -233,7 +245,6 @@ public static class RegionRunState
         RelayJoinCode = string.Empty;
         RelayConnectionType = "dtls";
         RelayMaxConnections = 3;
-        multiplayerPlayerNames.Clear();
     }
 
     static string SanitizeRelayJoinCode(string joinCode)
@@ -260,31 +271,5 @@ public static class RegionRunState
                     $"Unsupported Relay connection type '{connectionType}'. Use udp, dtls or wss. Falling back to dtls.");
                 return "dtls";
         }
-    }
-
-    public static string SanitizePlayerName(string playerName, ulong clientId)
-    {
-        string sanitized = string.IsNullOrWhiteSpace(playerName)
-            ? GetFallbackPlayerName(clientId)
-            : playerName.Trim();
-
-        sanitized = sanitized.Replace('\r', ' ').Replace('\n', ' ');
-
-        while (sanitized.Contains("  "))
-            sanitized = sanitized.Replace("  ", " ");
-
-        if (sanitized.Length > MaxPlayerNameLength)
-            sanitized = sanitized.Substring(0, MaxPlayerNameLength);
-
-        return string.IsNullOrWhiteSpace(sanitized)
-            ? GetFallbackPlayerName(clientId)
-            : sanitized;
-    }
-
-    public static string GetFallbackPlayerName(ulong clientId)
-    {
-        return clientId == 0
-            ? "Host"
-            : $"Player {clientId}";
     }
 }

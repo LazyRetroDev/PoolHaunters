@@ -52,6 +52,10 @@ public class DirtSpot : NetworkBehaviour
     public float maxFallSpeed = 10f;
     public bool followAdheredSurfacePosition = true;
 
+    [Header("Pool Dirt Stability")]
+    public bool disableAdhesionWhenInPoolObjective = true;
+    public bool ignorePoolAndWaterVolumesForAdhesion = true;
+
     [Header("Contamination Growth")]
     public bool createdByContaminatedWater = false;
     public float contaminatedGrowthPerWaterChunk = 1f;
@@ -86,6 +90,11 @@ public class DirtSpot : NetworkBehaviour
         if (targetRenderer == null) targetRenderer = GetComponentInChildren<Renderer>();
         if (targetCollider == null) targetCollider = GetComponent<Collider>();
         poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null && disableAdhesionWhenInPoolObjective)
+        {
+            adhereToSurface = false;
+            followAdheredSurfacePosition = false;
+        }
 
         initialLocalScale = transform.localScale;
         propertyBlock = new MaterialPropertyBlock();
@@ -292,6 +301,13 @@ public class DirtSpot : NetworkBehaviour
         if (candidate.CompareTag("Player")) return false;
         if (candidate.GetComponentInParent<PlayerStatus>() != null) return false;
         if (candidate.GetComponentInParent<DirtSpot>() != null) return false;
+        if (ignorePoolAndWaterVolumesForAdhesion &&
+            (candidate.GetComponentInParent<PoolCleaningZone>() != null ||
+             candidate.GetComponentInParent<WaterSourceDryable>() != null ||
+             candidate.GetComponentInParent<WaterZone>() != null))
+        {
+            return false;
+        }
         return true;
     }
 
@@ -391,13 +407,25 @@ public class DirtSpot : NetworkBehaviour
 
     public void CleanAtWorldPoint(Vector3 worldPoint, float worldRadius, float amount)
     {
+        CleanAtWorldPoint(worldPoint, worldRadius, amount, null);
+    }
+
+    public void CleanAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount,
+        PlayerStatus cleaner)
+    {
         if (ShouldRequestServerStateChange())
         {
             CleanAtWorldPointServerRpc(worldPoint, worldRadius, amount);
             return;
         }
 
+        float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+        float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        LevelRewardTracker.RecordCleaning(cleaner, cleanedFraction);
 
         if (ShouldBroadcastNetworkState())
             CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
@@ -543,7 +571,7 @@ public class DirtSpot : NetworkBehaviour
         return IsFiniteFloat(value) && value > 0f;
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void CleanServerRpc(float amount)
     {
         if (!HasValidAmount(amount))
@@ -553,11 +581,12 @@ public class DirtSpot : NetworkBehaviour
         CleanClientRpc(amount);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void CleanAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,
-        float amount)
+        float amount,
+        ServerRpcParams rpcParams = default)
     {
         if (!IsFiniteVector3(worldPoint) ||
             !HasValidAmount(worldRadius) ||
@@ -566,11 +595,17 @@ public class DirtSpot : NetworkBehaviour
             return;
         }
 
+        float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+        float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        LevelRewardTracker.RecordCleaningByClientId(
+            rpcParams.Receive.SenderClientId,
+            cleanedFraction);
+
         CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void ApplyContaminatedWaterAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,
@@ -647,6 +682,24 @@ public class DirtSpot : NetworkBehaviour
     public float GetDirtPercent()
     {
         return maxDirt > 0f ? currentDirt / maxDirt : 0f;
+    }
+
+    public void ForceClean()
+    {
+        if (IsCleaned)
+            return;
+
+        MarkCleaned();
+        UpdateVisualState();
+
+        if (hideRendererWhenClean && targetRenderer != null)
+            targetRenderer.enabled = false;
+
+        if (targetCollider != null)
+            targetCollider.enabled = false;
+
+        if (destroyWhenClean && gameObject.activeInHierarchy && !isFadingOut)
+            StartCoroutine(FadeOutAndDestroy());
     }
 
     void MarkCleaned()

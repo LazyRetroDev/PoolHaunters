@@ -49,6 +49,7 @@ public class PlayerMovement : NetworkBehaviour
     private CapsuleCollider bodyCollider;
     private PlayerInput playerInput;
     private PlayerStatus playerStatus;
+    private JennyMopCleaner jennyMopCleaner;
     private Vector2 moveInput;
     private bool isSprinting;
     private bool crouchRequested;
@@ -63,6 +64,7 @@ public class PlayerMovement : NetworkBehaviour
     private float staminaDrainMultiplierTimer;
     private float footstepTimer;
     private bool acceptsInput = true;
+    private bool debugInfiniteStamina;
     private PlayerVignetteEffect localVignetteEffect;
     private float lastThreatEffectSendTime = -999f;
     private float lastThreatEffectSentIntensity = -1f;
@@ -107,6 +109,7 @@ public class PlayerMovement : NetworkBehaviour
         bodyCollider = GetComponent<CapsuleCollider>();
         playerInput = GetComponent<PlayerInput>();
         playerStatus = GetComponent<PlayerStatus>();
+        jennyMopCleaner = GetComponent<JennyMopCleaner>();
         currentStamina = maxStamina;
 
         if (bodyCollider != null)
@@ -189,6 +192,11 @@ public class PlayerMovement : NetworkBehaviour
             UpdateLocalLocomotionState(false, false);
             return;
         }
+        if (IsMovementBlockedByCharacterAbility())
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
 
         bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
         UpdateCrouchState(knockedOut);
@@ -237,8 +245,12 @@ public class PlayerMovement : NetworkBehaviour
 
         if (canSprint)
         {
-            currentStamina -= staminaDrainRate * staminaDrainMultiplier *
-                Time.fixedDeltaTime;
+            if (!debugInfiniteStamina)
+            {
+                currentStamina -= staminaDrainRate * staminaDrainMultiplier *
+                    Time.fixedDeltaTime;
+            }
+
             currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             regenTimer = 0f;
         }
@@ -251,6 +263,14 @@ public class PlayerMovement : NetworkBehaviour
                 currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
             }
         }
+    }
+
+    bool IsMovementBlockedByCharacterAbility()
+    {
+        if (jennyMopCleaner == null)
+            jennyMopCleaner = GetComponent<JennyMopCleaner>();
+
+        return jennyMopCleaner != null && jennyMopCleaner.IsSurfDashing;
     }
 
     void UpdateCrouchState(bool knockedOut)
@@ -1072,6 +1092,11 @@ public class PlayerMovement : NetworkBehaviour
             GetComponentInHierarchy<BathroomBlondeDrain>(target);
         if (bathroomDrain != null)
             bathroomDrain.ReceiveWaterHit(sourcePosition);
+
+        TubaraoBehavior tubarao =
+            GetComponentInHierarchy<TubaraoBehavior>(target);
+        if (tubarao != null)
+            tubarao.ReceiveWaterHit(sourcePosition);
     }
 
     T GetComponentInHierarchy<T>(GameObject target) where T : Component
@@ -1104,6 +1129,43 @@ public class PlayerMovement : NetworkBehaviour
     {
         staminaDrainMultiplier = Mathf.Clamp(multiplier, 0f, 10f);
         staminaDrainMultiplierTimer = Mathf.Max(0f, duration);
+    }
+
+    public bool ConsumeStamina(float amount)
+    {
+        if (amount <= 0f)
+            return true;
+
+        if (debugInfiniteStamina)
+        {
+            currentStamina = maxStamina;
+            return true;
+        }
+
+        if (currentStamina < amount)
+            return false;
+
+        currentStamina = Mathf.Clamp(currentStamina - amount, 0f, maxStamina);
+        regenTimer = 0f;
+        return true;
+    }
+
+    public bool HasStamina(float amount)
+    {
+        return debugInfiniteStamina || amount <= 0f || currentStamina >= amount;
+    }
+
+    public void SetDebugInfiniteStamina(bool value)
+    {
+        debugInfiniteStamina = value;
+
+        if (debugInfiniteStamina)
+            currentStamina = maxStamina;
+    }
+
+    public void DebugFillStamina()
+    {
+        currentStamina = maxStamina;
     }
 
     void UpdateTimedStaminaMultiplier()

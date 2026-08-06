@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 7433664822822774785}
   - component: {fileID: 8102868743757356293}
   - component: {fileID: 3944402896632689712}
-  - component: {fileID: 7459032964617674769}
+  - component: {fileID: 238164129783856622}
   m_Layer: 0
   m_Name: Puddle
   m_TagString: WaterSource
@@ -32,7 +32,7 @@ Transform:
   m_GameObject: {fileID: 3822121108961349732}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: -0.99, z: 0}
   m_LocalScale: {x: 2.8121917, y: 0.2777, z: 4.168701}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -181,7 +181,7 @@ MonoBehaviour:
   collidersToDisableWhenDry: []
   disableObjectWhenDry: 0
   extraObjectsToDisableWhenDry: []
---- !u!114 &7459032964617674769
+--- !u!114 &238164129783856622
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -190,19 +190,66 @@ MonoBehaviour:
   m_GameObject: {fileID: 3822121108961349732}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Script: {fileID: 11500000, guid: 7d33928c7d3c4cb79a84747b1322fcb3, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 0
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 0
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0
+  m_EditorClassIdentifier: Assembly-CSharp::WaterSourceVisuals
+  source: {fileID: 3944402896632689712}
+  refreshInterval: 0.1
+  cleanColor: {r: 0.35, g: 0.75, b: 1, a: 1}
+  contaminatedColor: {r: 0.35, g: 0.9, b: 0.25, a: 1}
+  chemicallyEnhancedColor: {r: 0.65, g: 0.95, b: 1, a: 1}
+  dryColor: {r: 0.28, g: 0.28, b: 0.28, a: 1}
+  fadeToDryColorAsWaterLowers: 1
+  dryColorBlendAtEmpty: 0.65
+  colorRenderers:
+  - {fileID: 6738988847798341511}
+  useStandardColorProperties: 1
+  customColorProperty: _WaterTint
+  swapMaterialsByQuality: 0
+  cleanMaterial: {fileID: 0}
+  contaminatedMaterial: {fileID: 0}
+  chemicallyEnhancedMaterial: {fileID: 0}
+  dryMaterial: {fileID: 0}
+  amountScaleTargets:
+  - {fileID: 8992698186772232954}
+  scaleOnlyY: 0
+  minimumVisibleScale: 0.08
+  hideScaleTargetsWhenDry: 0
+  amountToScale:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 1
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 1
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  useSourceParticlesWhenEmpty: 1
+  autoFindChildParticles: 0
+  particlesToTint: []
+  particlesToScaleWithAmount: []
+  tintParticles: 1
+  scaleParticleEmission: 1
+  scaleParticleSize: 0
+  stopParticlesWhenDry: 1
+  playParticlesWhenWet: 1
+  cleanCueRoot: {fileID: 0}
+  contaminatedCueRoot: {fileID: 0}
+  chemicallyEnhancedCueRoot: {fileID: 0}
+  lowWaterCueRoot: {fileID: 0}
+  lowWaterThreshold: 0.25

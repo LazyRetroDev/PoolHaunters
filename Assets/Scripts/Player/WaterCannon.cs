@@ -45,8 +45,6 @@ public class WaterCannon : MonoBehaviour
     public float contaminatedDirtWaterPerGrowthChunk = 50f;
     public float contaminatedDirtSurfaceOffset = 0.01f;
     public float contaminatedDirtSearchRadius = 0.35f;
-    [Range(-1f, 1f)]
-    public float minimumContaminatedDirtSurfaceUpDot = -0.2f;
 
     [Header("Aiming")]
     public Camera aimCamera;
@@ -64,7 +62,9 @@ public class WaterCannon : MonoBehaviour
     private PlayerPetrify playerPetrify;
     private InputAction attackAction;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
+    private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
     private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
+    private readonly HashSet<TubaraoBehavior> tubaraoHits = new HashSet<TubaraoBehavior>();
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
@@ -441,7 +441,9 @@ public class WaterCannon : MonoBehaviour
         if (sprayOrigin == null || waterAmount <= 0f) return;
 
         dirtHits.Clear();
+        poolHits.Clear();
         goldenMouthHits.Clear();
+        tubaraoHits.Clear();
 
         bool handledContaminatedDirt = false;
         RaycastHit? contaminationSurfaceHit = null;
@@ -459,6 +461,22 @@ public class WaterCannon : MonoBehaviour
                 continue;
 
             DirtSpot dirtSpot = hits[i].collider.GetComponentInParent<DirtSpot>();
+            PoolCleaningZone pool = hits[i].collider.GetComponentInParent<PoolCleaningZone>();
+
+            if (pool != null && !poolHits.Contains(pool))
+            {
+                poolHits.Add(pool);
+                pool.ApplyWaterAtWorldPoint(
+                    hits[i].point,
+                    cleanContactRadius,
+                    cleanAmount,
+                    waterAmount,
+                    waterQuality);
+
+                if (waterQuality == WaterQuality.Contaminated)
+                    handledContaminatedDirt = true;
+            }
+
             if (waterQuality == WaterQuality.Contaminated)
             {
                 if (dirtSpot != null)
@@ -479,7 +497,11 @@ public class WaterCannon : MonoBehaviour
             else if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
             {
                 dirtHits.Add(dirtSpot);
-                dirtSpot.CleanAtWorldPoint(hits[i].point, cleanContactRadius, cleanAmount);
+                dirtSpot.CleanAtWorldPoint(
+                    hits[i].point,
+                    cleanContactRadius,
+                    cleanAmount,
+                    playerStatus);
             }
 
             GoldenMouthBehavior goldenMouth = hits[i].collider.GetComponentInParent<GoldenMouthBehavior>();
@@ -488,10 +510,31 @@ public class WaterCannon : MonoBehaviour
                 goldenMouthHits.Add(goldenMouth);
                 ApplyWaterToGoldenMouth(goldenMouth, waterQuality, cleanAmount);
             }
+
+            TubaraoBehavior tubarao = hits[i].collider.GetComponentInParent<TubaraoBehavior>();
+            if (tubarao != null && !tubaraoHits.Contains(tubarao))
+            {
+                tubaraoHits.Add(tubarao);
+                ApplyWaterToTubarao(tubarao, sprayOrigin.position);
+            }
         }
 
         if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
             CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    void ApplyWaterToTubarao(TubaraoBehavior tubarao, Vector3 sourcePosition)
+    {
+        if (tubarao == null)
+            return;
+
+        if (playerMovement != null)
+        {
+            playerMovement.RequestEnemyWaterHit(tubarao.gameObject, sourcePosition);
+            return;
+        }
+
+        tubarao.ReceiveWaterHit(sourcePosition);
     }
 
     void ApplyWaterToGoldenMouth(
@@ -526,20 +569,7 @@ public class WaterCannon : MonoBehaviour
         if (hit.collider == null || hit.collider.isTrigger) return false;
         if (ownerRoot != null && hit.collider.transform.IsChildOf(ownerRoot)) return false;
         if (hit.collider.GetComponentInParent<PlayerStatus>() != null) return false;
-        if (!IsValidContaminatedDirtSurfaceNormal(hit.normal)) return false;
         return true;
-    }
-
-    bool IsValidContaminatedDirtSurfaceNormal(Vector3 surfaceNormal)
-    {
-        if (!IsFiniteVector3(surfaceNormal))
-            return false;
-
-        if (surfaceNormal.sqrMagnitude <= 0.0001f)
-            return false;
-
-        float upDot = Vector3.Dot(surfaceNormal.normalized, Vector3.up);
-        return upDot >= minimumContaminatedDirtSurfaceUpDot;
     }
 
     void CreateOrGrowContaminatedDirt(RaycastHit hit, float waterAmount)
@@ -570,7 +600,6 @@ public class WaterCannon : MonoBehaviour
     {
         if (!IsFiniteVector3(contactPoint) ||
             !IsFiniteVector3(surfaceNormal) ||
-            !IsValidContaminatedDirtSurfaceNormal(surfaceNormal) ||
             !HasValidAmount(contactRadius) ||
             !HasValidAmount(waterAmount))
         {
@@ -632,9 +661,6 @@ public class WaterCannon : MonoBehaviour
 
     DirtSpot SpawnContaminatedDirt(Vector3 position, Vector3 surfaceNormal)
     {
-        if (!IsValidContaminatedDirtSurfaceNormal(surfaceNormal))
-            return null;
-
         Quaternion rotation = Quaternion.LookRotation(-surfaceNormal);
         GameObject dirtObject = null;
 
@@ -717,7 +743,7 @@ public class WaterCannon : MonoBehaviour
             return true;
         }
 
-        dirtTemplate = FindAnyObjectByType<DirtSpot>();
+        dirtTemplate = FindObjectOfType<DirtSpot>();
         template = dirtTemplate;
         return template != null;
     }

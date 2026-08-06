@@ -1,8 +1,6 @@
-using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using TMPro;
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(NetworkObject))]
@@ -22,16 +20,6 @@ public class NetworkPlayerSetup : NetworkBehaviour
     [SerializeField] private Behaviour[] ownerOnlyBehaviours;
     [SerializeField] private GameObject[] ownerOnlyObjects;
 
-    [Header("Nameplate")]
-    [SerializeField] private PlayerNameplate nameplate;
-    [SerializeField] private bool hideNameplateForLocalPlayer;
-
-    private readonly NetworkVariable<FixedString64Bytes> syncedDisplayName =
-        new NetworkVariable<FixedString64Bytes>(
-            default,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
-
     private PlayerMovement movement;
     private PlayerInput playerInput;
     private PlayerInventory inventory;
@@ -48,31 +36,15 @@ public class NetworkPlayerSetup : NetworkBehaviour
     private bool cachedReferences;
     private bool appliedOwnershipState;
     private bool lastAppliedLocalControl;
-    private string originalObjectName;
-
-    public string DisplayName
-    {
-        get
-        {
-            string displayName = syncedDisplayName.Value.ToString();
-            return string.IsNullOrWhiteSpace(displayName)
-                ? RegionRunState.GetFallbackPlayerName(OwnerClientId)
-                : displayName;
-        }
-    }
 
     private void Awake()
     {
-        originalObjectName = gameObject.name;
         CacheReferences();
     }
 
     public override void OnNetworkSpawn()
     {
         CacheReferences();
-        syncedDisplayName.OnValueChanged += HandleDisplayNameChanged;
-        ApplyDisplayName(DisplayName);
-
         bool shouldControlLocally = ShouldControlLocally();
         ApplyOwnershipState(shouldControlLocally);
 
@@ -93,18 +65,12 @@ public class NetworkPlayerSetup : NetworkBehaviour
         ApplyOwnershipState(false);
     }
 
-    public override void OnNetworkDespawn()
-    {
-        syncedDisplayName.OnValueChanged -= HandleDisplayNameChanged;
-    }
-
     private void Start()
     {
         if (!IsSpawned)
         {
             if (!IsNetworkSessionRunning())
             {
-                ApplyDisplayName(DisplayName);
                 ApplyOwnershipState(true);
 
                 if (bindHudOnOwner)
@@ -146,12 +112,6 @@ public class NetworkPlayerSetup : NetworkBehaviour
         playerInput = GetComponent<PlayerInput>();
         inventory = GetComponent<PlayerInventory>();
         playerStatus = GetComponent<PlayerStatus>();
-        if (nameplate == null)
-            nameplate = GetComponentInChildren<PlayerNameplate>(true);
-
-        if (nameplate == null)
-            nameplate = CreateNameplateFromExistingText();
-
         playerRigidbody = GetComponent<Rigidbody>();
         waterCannons = GetComponentsInChildren<WaterCannon>(true);
         cameras = GetComponentsInChildren<Camera>(true);
@@ -173,7 +133,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
         appliedOwnershipState = true;
         lastAppliedLocalControl = isOwner;
         bool canAcceptInput = isOwner && CanPlayerAcceptLocalInput();
-        bool canUseWaterCannon = isOwner && CanPlayerUseTools();
+        bool canUseWaterCannon = isOwner && CanPlayerUseWaterCannon();
 
         if (movement != null)
         {
@@ -212,7 +172,6 @@ public class NetworkPlayerSetup : NetworkBehaviour
 
         SetEnabled(ownerOnlyBehaviours, isOwner);
         SetActive(ownerOnlyObjects, isOwner);
-        RefreshNameplateVisibility(isOwner);
     }
 
     private void BindLocalHud()
@@ -221,76 +180,6 @@ public class NetworkPlayerSetup : NetworkBehaviour
         if (hud == null) return;
 
         hud.Bind(movement, inventory, playerStatus);
-    }
-
-    public void SetDisplayNameServer(string displayName)
-    {
-        string sanitized = RegionRunState.SanitizePlayerName(displayName, OwnerClientId);
-
-        if (!IsSpawned)
-        {
-            ApplyDisplayName(sanitized);
-            return;
-        }
-
-        if (!IsServer)
-            return;
-
-        FixedString64Bytes serializedName = sanitized;
-        syncedDisplayName.Value = serializedName;
-        ApplyDisplayName(sanitized);
-    }
-
-    private void HandleDisplayNameChanged(
-        FixedString64Bytes previousValue,
-        FixedString64Bytes newValue)
-    {
-        ApplyDisplayName(newValue.ToString());
-    }
-
-    private void ApplyDisplayName(string displayName)
-    {
-        string sanitized = RegionRunState.SanitizePlayerName(displayName, OwnerClientId);
-
-        if (string.IsNullOrWhiteSpace(originalObjectName))
-            originalObjectName = gameObject.name;
-
-        gameObject.name = $"{originalObjectName} ({sanitized})";
-
-        if (nameplate != null)
-        {
-            nameplate.SetName(sanitized);
-            RefreshNameplateVisibility(ShouldControlLocally());
-        }
-    }
-
-    private void RefreshNameplateVisibility(bool isOwner)
-    {
-        if (nameplate == null)
-            return;
-
-        nameplate.SetVisible(!hideNameplateForLocalPlayer || !isOwner);
-    }
-
-    private PlayerNameplate CreateNameplateFromExistingText()
-    {
-        TMP_Text[] texts = GetComponentsInChildren<TMP_Text>(true);
-        for (int i = 0; i < texts.Length; i++)
-        {
-            if (texts[i] == null || texts[i].gameObject.name != "NameText")
-                continue;
-
-            Canvas canvas = texts[i].GetComponentInParent<Canvas>(true);
-            Transform nameplateRoot = canvas != null
-                ? canvas.transform
-                : texts[i].transform.parent != null
-                    ? texts[i].transform.parent
-                    : texts[i].transform;
-
-            return nameplateRoot.gameObject.AddComponent<PlayerNameplate>();
-        }
-
-        return null;
     }
 
     private bool ShouldControlLocally()
@@ -312,7 +201,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
     {
         CacheReferences();
         bool canAcceptInput = CanPlayerAcceptLocalInput();
-        bool canUseWaterCannon = CanPlayerUseTools();
+        bool canUseWaterCannon = CanPlayerUseWaterCannon();
 
         if (movement != null && !movement.enabled)
             return true;
@@ -350,6 +239,12 @@ public class NetworkPlayerSetup : NetworkBehaviour
     private bool CanPlayerUseTools()
     {
         return playerStatus == null || playerStatus.CanAct();
+    }
+
+    private bool CanPlayerUseWaterCannon()
+    {
+        return CanPlayerUseTools() &&
+            !PlayerAgentLoadout.ShouldDisableWaterCannonFor(gameObject);
     }
 
     private static NetworkObject GetLocalPlayerObject()

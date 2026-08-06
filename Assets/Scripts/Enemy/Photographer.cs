@@ -31,8 +31,6 @@ public class Photographer : MonoBehaviour
     public LayerMask snapshotMask = ~0;
     public int randomSnapshotAttempts = 10;
     public float snapshotEyeHeight = 0.5f;
-    [Range(-1f, 1f)]
-    public float minimumDecalSurfaceUpDot = -0.2f;
 
     [Header("Snapshot Cone")]
     public float snapshotConeHorizontalAngle = 55f;
@@ -206,9 +204,6 @@ public class Photographer : MonoBehaviour
                     agent.velocity = Vector3.zero;
                 }
 
-                if (parentCapturedPhotoToPhotographer)
-                    UpdateCapturedPhotoPose();
-
                 if (activeCapturedPhoto != null && activeCapturedPhoto.transform.parent != transform)
                     FaceTarget(activeCapturedPhoto.transform.position);
 
@@ -352,24 +347,9 @@ public class Photographer : MonoBehaviour
     bool TrySnapshotRay(Vector3 origin, Vector3 direction, out RaycastHit hit)
     {
         if (Physics.Raycast(origin, direction, out hit, snapshotDistance, snapshotMask, QueryTriggerInteraction.Ignore))
-            return hit.collider.GetComponentInParent<PlayerStatus>() == null &&
-                IsValidDecalSurfaceNormal(hit.normal);
+            return hit.collider.GetComponentInParent<PlayerStatus>() == null;
 
         return false;
-    }
-
-    bool IsValidDecalSurfaceNormal(Vector3 surfaceNormal)
-    {
-        if (float.IsNaN(surfaceNormal.x) ||
-            float.IsNaN(surfaceNormal.y) ||
-            float.IsNaN(surfaceNormal.z) ||
-            surfaceNormal.sqrMagnitude <= 0.0001f)
-        {
-            return false;
-        }
-
-        float upDot = Vector3.Dot(surfaceNormal.normalized, Vector3.up);
-        return upDot >= minimumDecalSurfaceUpDot;
     }
 
     void TakeSnapshotCone(Vector3 focusPoint)
@@ -556,9 +536,6 @@ public class Photographer : MonoBehaviour
 
     void ParentPhotoToPhotographer(NetworkObject photoNetworkObject)
     {
-        if (activeCapturedPhoto == null)
-            return;
-
         if (IsNetworkSessionRunning())
         {
             NetworkObject photographerNetworkObject = GetComponent<NetworkObject>();
@@ -577,22 +554,9 @@ public class Photographer : MonoBehaviour
         }
 
         if (photoNetworkObject != null)
-        {
-            UpdateCapturedPhotoPose();
             return;
-        }
 
         activeCapturedPhoto.transform.SetParent(transform, true);
-    }
-
-    void UpdateCapturedPhotoPose()
-    {
-        if (activeCapturedPhoto == null || capturedPhotoPoint == null)
-            return;
-
-        activeCapturedPhoto.transform.SetPositionAndRotation(
-            capturedPhotoPoint.position,
-            capturedPhotoPoint.rotation);
     }
 
     static bool IsNetworkSessionRunning()
@@ -622,26 +586,7 @@ public class Photographer : MonoBehaviour
 
     void FinishAdmiring()
     {
-        if (activeCapturedPhoto != null)
-        {
-            NetworkObject photoNetworkObject =
-                activeCapturedPhoto.GetComponent<NetworkObject>();
-
-            if (IsNetworkSessionRunning())
-            {
-                if (IsServer() &&
-                    photoNetworkObject != null &&
-                    photoNetworkObject.IsSpawned)
-                {
-                    photoNetworkObject.TryRemoveParent(true);
-                }
-            }
-            else if (photoNetworkObject == null &&
-                activeCapturedPhoto.transform.parent != null)
-            {
-                activeCapturedPhoto.transform.SetParent(null, true);
-            }
-        }
+        DetachCapturedPhotoIfSafe();
 
         activeCapturedPhoto = null;
 
@@ -653,6 +598,22 @@ public class Photographer : MonoBehaviour
 
         currentState = State.Wandering;
         SetNewDestination();
+    }
+
+    void DetachCapturedPhotoIfSafe()
+    {
+        if (activeCapturedPhoto == null)
+            return;
+
+        NetworkObject photoNetworkObject = activeCapturedPhoto.GetComponent<NetworkObject>();
+        if (photoNetworkObject == null)
+        {
+            activeCapturedPhoto.transform.SetParent(null, true);
+            return;
+        }
+
+        if (IsNetworkSessionRunning() && IsServer() && photoNetworkObject.IsSpawned)
+            photoNetworkObject.TryRemoveParent(worldPositionStays: true);
     }
 
     void FaceTarget(Vector3 target)

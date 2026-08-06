@@ -1,5 +1,7 @@
-using UnityEngine;
 using Unity.Netcode;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class PlayerPetrify : NetworkBehaviour
 {
@@ -14,13 +16,19 @@ public class PlayerPetrify : NetworkBehaviour
     public float petrifyShakeFrequency = 13f;
     public float petrifyShakeDuration = 0.3f;
 
+    [Header("Debug")]
+    [SerializeField] private bool debugPetrifyImmune;
+
     private bool isPetrified = false;
     private float petrifyTimer;
 
     private PlayerMovement movement;
     private PlayerInventory inventory;
     private PlayerStatus playerStatus;
+    private CursorLockController cursorLockController;
+    private PlayerInput playerInput;
     private bool controlLockApplied;
+    private Coroutine restoreControlRoutine;
 
     private readonly NetworkVariable<bool> syncedPetrified =
         new NetworkVariable<bool>(
@@ -74,6 +82,9 @@ public class PlayerPetrify : NetworkBehaviour
 
     public void Petrify()
     {
+        if (debugPetrifyImmune)
+            return;
+
         if (IsNetworked() && !IsServer)
             return;
 
@@ -90,6 +101,14 @@ public class PlayerPetrify : NetworkBehaviour
         SyncPetrifiedState(false);
     }
 
+    public void SetDebugPetrifyImmune(bool value)
+    {
+        debugPetrifyImmune = value;
+
+        if (debugPetrifyImmune && isPetrified && CanWritePetrifyState())
+            Unpetrify();
+    }
+
     void CacheReferences()
     {
         if (movement == null)
@@ -98,6 +117,10 @@ public class PlayerPetrify : NetworkBehaviour
             inventory = GetComponent<PlayerInventory>();
         if (playerStatus == null)
             playerStatus = GetComponent<PlayerStatus>();
+        if (cursorLockController == null)
+            cursorLockController = GetComponent<CursorLockController>();
+        if (playerInput == null)
+            playerInput = GetComponent<PlayerInput>();
     }
 
     void HandlePetrifiedChanged(bool previous, bool next)
@@ -218,15 +241,53 @@ public class PlayerPetrify : NetworkBehaviour
         if (!ShouldApplyOwnerLocalState())
             return;
 
+        ApplyLocalControlRestore();
+
+        if (restoreControlRoutine != null)
+            StopCoroutine(restoreControlRoutine);
+
+        restoreControlRoutine = StartCoroutine(RestoreLocalControlOverFrames());
+    }
+
+    void ApplyLocalControlRestore()
+    {
         CacheReferences();
+
+        bool allowsInput = playerStatus == null || playerStatus.AllowsLocalInput();
+        bool canAct = playerStatus == null || playerStatus.CanAct();
+
+        if (playerInput != null)
+            playerInput.enabled = true;
+
         if (movement != null)
         {
             movement.enabled = true;
-            movement.SetAcceptsInput(playerStatus == null || playerStatus.AllowsLocalInput());
+            movement.SetAcceptsInput(allowsInput);
         }
 
         if (inventory != null)
-            inventory.enabled = playerStatus == null || playerStatus.CanAct();
+            inventory.enabled = canAct;
+
+        if (cursorLockController != null)
+        {
+            cursorLockController.enabled = true;
+            cursorLockController.ForceLockCursor();
+        }
+    }
+
+    IEnumerator RestoreLocalControlOverFrames()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            yield return null;
+
+            if (isPetrified)
+                yield break;
+
+            ApplyLocalControlRestore();
+        }
+
+        restoreControlRoutine = null;
     }
 
     void SyncPetrifiedState(bool value)

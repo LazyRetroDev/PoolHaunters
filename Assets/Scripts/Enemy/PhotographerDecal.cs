@@ -51,8 +51,8 @@ public class PhotographerDecal : MonoBehaviour
 
         if (dirtPrefab != null)
             SpawnDirtPrefab();
-        else if (GetComponent<DirtSpot>() == null)
-            AddLocalDirtSpotFallback();
+        else
+            Debug.LogWarning("PhotographerDecal needs a dirtPrefab assigned to create contamination.");
 
         if (linkedPhoto != null)
             linkedPhoto.InvalidateFromLinkedDecal();
@@ -91,16 +91,4 @@ public class PhotographerDecal : MonoBehaviour
             networkObject.Spawn(true);
     }
 
-    void AddLocalDirtSpotFallback()
-    {
-        NetworkManager networkManager = NetworkManager.Singleton;
-        if (networkManager != null && networkManager.IsListening)
-        {
-            Debug.LogWarning(
-                "PhotographerDecal needs a dirtPrefab with a NetworkObject during multiplayer.");
-            return;
-        }
-
-        gameObject.AddComponent<DirtSpot>();
-    }
 }

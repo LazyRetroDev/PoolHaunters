@@ -33,7 +33,6 @@ public class GameRunBootstrap : MonoBehaviour
 
     private int approvedPlayerCount;
     private bool registeredConnectionApprovalCallback;
-    private bool registeredClientConnectedCallback;
     private bool multiplayerStartInProgress;
     private bool bootstrapStartedInGameScene;
     private GUIStyle relayJoinCodeStyle;
@@ -71,9 +70,6 @@ public class GameRunBootstrap : MonoBehaviour
     {
         if (registeredConnectionApprovalCallback && networkManager != null)
             networkManager.ConnectionApprovalCallback = null;
-
-        if (registeredClientConnectedCallback && networkManager != null)
-            networkManager.OnClientConnectedCallback -= HandleClientConnected;
     }
 
     private void OnGUI()
@@ -226,7 +222,6 @@ public class GameRunBootstrap : MonoBehaviour
             if (networkManager.ConnectedClients.TryGetValue(clientId, out NetworkClient client) &&
                 client.PlayerObject != null)
             {
-                ApplyPlayerDisplayName(client.PlayerObject.gameObject, clientId);
                 approvedPlayerCount++;
                 continue;
             }
@@ -246,6 +241,7 @@ public class GameRunBootstrap : MonoBehaviour
             prefab,
             spawnPosition + GetMultiplayerSpawnOffset(spawnIndex),
             spawnRotation);
+        ApplyAgentLoadout(player);
 
         NetworkObject networkObject = player.GetComponent<NetworkObject>();
         if (networkObject == null)
@@ -256,7 +252,6 @@ public class GameRunBootstrap : MonoBehaviour
         }
 
         networkObject.SpawnAsPlayerObject(clientId, true);
-        ApplyPlayerDisplayName(player, clientId);
     }
 
     private void SpawnOfflinePlayer()
@@ -276,22 +271,19 @@ public class GameRunBootstrap : MonoBehaviour
 
         GameObject player = Instantiate(playerPrefab, spawnPosition, spawnRotation);
         player.name = playerPrefab.name;
-        ApplyPlayerDisplayName(player, NetworkManager.ServerClientId);
+        ApplyAgentLoadout(player);
     }
 
-    private void ApplyPlayerDisplayName(GameObject player, ulong clientId)
+    private void ApplyAgentLoadout(GameObject player)
     {
         if (player == null)
             return;
 
-        NetworkPlayerSetup playerSetup = player.GetComponent<NetworkPlayerSetup>();
-        if (playerSetup == null)
-            return;
+        PlayerAgentLoadout loadout = player.GetComponent<PlayerAgentLoadout>();
+        if (loadout == null)
+            loadout = player.AddComponent<PlayerAgentLoadout>();
 
-        string displayName = RegionRunState.IsMultiplayer
-            ? RegionRunState.GetMultiplayerPlayerName(clientId)
-            : "Player";
-        playerSetup.SetDisplayNameServer(displayName);
+        loadout.ApplySelectedAgent();
     }
 
     private void ConfigureConnectionApproval()
@@ -300,41 +292,7 @@ public class GameRunBootstrap : MonoBehaviour
         networkManager.NetworkConfig.ConnectionApproval = true;
         networkManager.ConnectionApprovalCallback = ApproveConnection;
         registeredConnectionApprovalCallback = true;
-        RegisterClientConnectedCallback();
         approvedPlayerCount = 0;
-    }
-
-    private void RegisterClientConnectedCallback()
-    {
-        if (networkManager == null || registeredClientConnectedCallback)
-            return;
-
-        networkManager.OnClientConnectedCallback += HandleClientConnected;
-        registeredClientConnectedCallback = true;
-    }
-
-    private void HandleClientConnected(ulong clientId)
-    {
-        if (networkManager == null || !networkManager.IsServer)
-            return;
-
-        StartCoroutine(ApplyPlayerDisplayNameWhenReady(clientId));
-    }
-
-    private IEnumerator ApplyPlayerDisplayNameWhenReady(ulong clientId)
-    {
-        for (int i = 0; i < 20; i++)
-        {
-            if (networkManager != null &&
-                networkManager.ConnectedClients.TryGetValue(clientId, out NetworkClient client) &&
-                client.PlayerObject != null)
-            {
-                ApplyPlayerDisplayName(client.PlayerObject.gameObject, clientId);
-                yield break;
-            }
-
-            yield return null;
-        }
     }
 
     private void ConfigurePlayerPrefab()

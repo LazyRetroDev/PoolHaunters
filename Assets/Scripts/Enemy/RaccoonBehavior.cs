@@ -616,10 +616,10 @@ public class RaccoonBehavior : NetworkBehaviour
         carriedItem.gameObject.SetActive(true);
         carriedItem.SetPresentationState(Item.PresentationState.Carried);
 
-        if (IsNetworkSessionRunning())
+        if (IsNetworkSessionRunning() || ShouldAvoidOfflineTransformParenting(carriedItem))
             ApplyNetworkCarriedItemPose(carriedItem);
         else
-            ApplyCarriedItemWorldPose(carriedItem);
+            ParentCarriedItemToCarryPoint(carriedItem);
 
         SetItemRenderersEnabled(carriedItem, true);
         SetItemCollidersEnabled(carriedItem, false);
@@ -631,8 +631,16 @@ public class RaccoonBehavior : NetworkBehaviour
         if (item == null)
             return;
 
-        item.transform.SetParent(transform, false);
-        ApplyCarriedItemLocalNetworkPose(item);
+        if (ShouldAvoidOfflineTransformParenting(item))
+        {
+            ApplyCarriedItemWorldPose(item);
+            return;
+        }
+
+        Transform parent = carryPoint != null ? carryPoint : transform;
+        item.transform.SetParent(parent, false);
+        item.transform.localPosition = carryPoint != null ? Vector3.zero : carryOffset;
+        item.transform.localRotation = Quaternion.identity;
     }
 
     void ApplyCarriedItemWorldPose(Item item)
@@ -832,7 +840,8 @@ public class RaccoonBehavior : NetworkBehaviour
             return;
         }
 
-        item.transform.SetParent(null, true);
+        if (!ShouldAvoidOfflineTransformParenting(item))
+            item.transform.SetParent(null, true);
     }
 
     void SetItemPhysicsForDrop(Item item)
@@ -893,6 +902,11 @@ public class RaccoonBehavior : NetworkBehaviour
         return networkManager != null && networkManager.IsListening;
     }
 
+    bool ShouldAvoidOfflineTransformParenting(Item item)
+    {
+        return !IsNetworkSessionRunning() && TryGetNetworkObject(item, out _);
+    }
+
     bool TryGetNetworkObjectReference(
         Item item,
         out NetworkObjectReference itemReference)
@@ -915,6 +929,9 @@ public class RaccoonBehavior : NetworkBehaviour
 
         if (networkObject == null && item != null)
             networkObject = item.GetComponentInParent<NetworkObject>();
+
+        if (networkObject == null && item != null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
 
         return networkObject != null;
     }
@@ -1073,7 +1090,15 @@ public class RaccoonBehavior : NetworkBehaviour
             return;
         }
 
-        ApplyCarriedItemWorldPose(carriedItem);
+        if (ShouldAvoidOfflineTransformParenting(carriedItem))
+        {
+            ApplyCarriedItemWorldPose(carriedItem);
+            return;
+        }
+
+        Transform parent = carryPoint != null ? carryPoint : transform;
+        if (carriedItem.transform.parent != parent)
+            ParentCarriedItemToCarryPoint(carriedItem);
     }
 
     void TryAttackPlayer()

@@ -127,8 +127,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
         if (state == VictoriaRegiaState.Grappling || state == VictoriaRegiaState.Escaping)
             return;
 
-        PlayerStatus[] players =
-            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
+        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
         float bestDistance = float.PositiveInfinity;
         targetStatus = null;
         targetPlayer = null;
@@ -361,8 +360,7 @@ public class VictoriaRegiaBehavior : MonoBehaviour
 
     bool IsAnyPlayerLookingAtMe()
     {
-        PlayerStatus[] players =
-            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
+        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
         for (int i = 0; i < players.Length; i++)
         {
             PlayerStatus status = players[i];

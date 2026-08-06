@@ -164,8 +164,7 @@ public class EnemySpawner : MonoBehaviour
 
     bool IsFarEnoughFromOtherTimeCampers(Vector3 position)
     {
-        TimeCamper[] timeCampers =
-            FindObjectsByType<TimeCamper>(FindObjectsInactive.Exclude);
+        TimeCamper[] timeCampers = FindObjectsOfType<TimeCamper>();
         for (int i = 0; i < timeCampers.Length; i++)
         {
             TimeCamper timeCamper = timeCampers[i];

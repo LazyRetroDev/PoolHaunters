@@ -14,9 +14,10 @@ GameObject:
   - component: {fileID: 5858466260864568056}
   - component: {fileID: 5050229456726935484}
   - component: {fileID: 912515278141332379}
+  - component: {fileID: 5246195647309014661}
   m_Layer: 0
   m_Name: Fountain (1)
-  m_TagString: WaterSource
+  m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -30,7 +31,7 @@ Transform:
   m_GameObject: {fileID: 1363054981379544165}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 3.01, z: 0}
+  m_LocalPosition: {x: -0.03, y: 2.174, z: 0.0024}
   m_LocalScale: {x: 0.47391576, y: 5.347, z: 0.48051682}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -160,6 +161,60 @@ MonoBehaviour:
   collidersToDisableWhenDry: []
   disableObjectWhenDry: 0
   extraObjectsToDisableWhenDry: []
+--- !u!114 &5246195647309014661
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1363054981379544165}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d33928c7d3c4cb79a84747b1322fcb3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WaterSourceVisuals
+  source: {fileID: 912515278141332379}
+  refreshInterval: 0.1
+  cleanColor: {r: 0.35, g: 0.75, b: 1, a: 1}
+  contaminatedColor: {r: 0.35, g: 0.9, b: 0.25, a: 1}
+  chemicallyEnhancedColor: {r: 0.65, g: 0.95, b: 1, a: 1}
+  dryColor: {r: 0.28, g: 0.28, b: 0.28, a: 1}
+  fadeToDryColorAsWaterLowers: 1
+  dryColorBlendAtEmpty: 0.65
+  colorRenderers:
+  - {fileID: 2604956402167404004}
+  useStandardColorProperties: 1
+  customColorProperty: _WaterTint
+  swapMaterialsByQuality: 0
+  cleanMaterial: {fileID: 0}
+  contaminatedMaterial: {fileID: 0}
+  chemicallyEnhancedMaterial: {fileID: 0}
+  dryMaterial: {fileID: 0}
+  amountScaleTargets:
+  - {fileID: 502855164880473805}
+  scaleOnlyY: 1
+  minimumVisibleScale: 0.08
+  hideScaleTargetsWhenDry: 0
+  amountToScale:
+    serializedVersion: 2
+    m_Curve: []
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  useSourceParticlesWhenEmpty: 1
+  autoFindChildParticles: 0
+  particlesToTint: []
+  particlesToScaleWithAmount: []
+  tintParticles: 1
+  scaleParticleEmission: 1
+  scaleParticleSize: 0
+  stopParticlesWhenDry: 1
+  playParticlesWhenWet: 1
+  cleanCueRoot: {fileID: 0}
+  contaminatedCueRoot: {fileID: 0}
+  chemicallyEnhancedCueRoot: {fileID: 0}
+  lowWaterCueRoot: {fileID: 0}
+  lowWaterThreshold: 0.25
 --- !u!1 &3822121108961349732
 GameObject:
   m_ObjectHideFlags: 0
@@ -172,7 +227,6 @@ GameObject:
   - component: {fileID: 6954764584885165838}
   - component: {fileID: 6738988847798341511}
   - component: {fileID: 4673643906171800868}
-  - component: {fileID: 6241114950800832438}
   m_Layer: 0
   m_Name: Cooler
   m_TagString: WaterSource
@@ -189,7 +243,7 @@ Transform:
   m_GameObject: {fileID: 3822121108961349732}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 5.6987, y: 0, z: -14.9869}
   m_LocalScale: {x: 1.7574, y: 0.2777, z: 1.7407304}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -274,28 +328,3 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 1, y: 1, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
---- !u!114 &6241114950800832438
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3822121108961349732}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 0
-  InScenePlacedSourceGlobalObjectIdHash: 0
-  DeferredDespawnTick: 0
-  Ownership: 1
-  AlwaysReplicateAsRoot: 0
-  SynchronizeTransform: 1
-  ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 1
-  SpawnWithObservers: 1
-  DontDestroyWithOwner: 0
-  AutoObjectParentSync: 1
-  SyncOwnerTransformWhenParented: 1
-  AllowOwnerToParent: 0

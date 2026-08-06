@@ -315,7 +315,7 @@ public class PlayerVignetteEffect : MonoBehaviour
             if (targetVolume == null)
                 targetVolume = GetComponentInParent<Volume>();
             if (targetVolume == null)
-                targetVolume = FindAnyObjectByType<Volume>();
+                targetVolume = FindObjectOfType<Volume>();
         }
 
         if (targetVolume == null && createLocalVolumeIfMissing)

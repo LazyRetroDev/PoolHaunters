@@ -68,6 +68,7 @@ public class PlayerStatus : NetworkBehaviour
     private bool localStateInitialized;
     private bool serverStateInitialized;
     private WaterZone activeWaterZone;
+    private bool debugInfiniteWater;
 
     private PlayerMovement movement;
     private PlayerInventory inventory;
@@ -330,6 +331,17 @@ public class PlayerStatus : NetworkBehaviour
         ApplyDeath(false);
     }
 
+    public void RequestImmediateDeath()
+    {
+        if (IsClientReplica())
+        {
+            RequestImmediateDeathServerRpc();
+            return;
+        }
+
+        ApplyDeath(false);
+    }
+
     public void ApplyDeathTransformation()
     {
         if (!CanWriteState())
@@ -341,7 +353,16 @@ public class PlayerStatus : NetworkBehaviour
     public bool ConsumeWater(float amount)
     {
         if (!CanAct()) return false;
-        if (amount <= 0f || currentWater <= 0f) return false;
+        if (amount <= 0f) return false;
+
+        if (debugInfiniteWater)
+        {
+            currentWater = maxWater;
+            SyncWaterState();
+            return true;
+        }
+
+        if (currentWater <= 0f) return false;
 
         if (IsClientReplica())
         {
@@ -353,6 +374,24 @@ public class PlayerStatus : NetworkBehaviour
         ApplyConsumeWater(amount);
         SyncWaterState();
         return true;
+    }
+
+    public void SetDebugInfiniteWater(bool value)
+    {
+        debugInfiniteWater = value;
+
+        if (debugInfiniteWater && currentWater < maxWater)
+        {
+            currentWater = maxWater;
+            SyncWaterState();
+        }
+    }
+
+    public void DebugFillWater(WaterQuality quality = WaterQuality.Clean)
+    {
+        currentWater = maxWater;
+        SetWaterQuality(quality);
+        SyncWaterState();
     }
 
     public bool AddWater(
@@ -757,7 +796,7 @@ public class PlayerStatus : NetworkBehaviour
         if (inventory != null)
             inventory.enabled = CanAct();
         if (waterCannon != null)
-            waterCannon.enabled = CanAct();
+            waterCannon.enabled = CanUseWaterCannon();
     }
 
     void ApplyLocalControlState()
@@ -767,14 +806,20 @@ public class PlayerStatus : NetworkBehaviour
 
         CacheReferences();
 
-        if (movement != null && movement.enabled)
+        if (movement != null)
             movement.SetAcceptsInput(AllowsLocalInput());
 
         bool canUseTools = CanAct();
         if (inventory != null)
             inventory.enabled = canUseTools;
         if (waterCannon != null)
-            waterCannon.enabled = canUseTools;
+            waterCannon.enabled = CanUseWaterCannon();
+    }
+
+    bool CanUseWaterCannon()
+    {
+        return CanAct() &&
+            !PlayerAgentLoadout.ShouldDisableWaterCannonFor(gameObject);
     }
 
     bool ShouldApplyOwnerLocalState()
@@ -969,6 +1014,12 @@ public class PlayerStatus : NetworkBehaviour
     void TakeDamageServerRpc(float damage)
     {
         ApplyDamage(damage);
+    }
+
+    [ServerRpc]
+    void RequestImmediateDeathServerRpc()
+    {
+        ApplyDeath(false);
     }
 
     [ServerRpc]

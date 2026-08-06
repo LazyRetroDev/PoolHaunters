@@ -17,8 +17,6 @@ using UnityEngine.UI;
 public class MainMenu : MonoBehaviour
 {
     const string ReadyMessageName = "PoolHaunters_LobbyReady";
-    const string PlayerNameMessageName = "PoolHaunters_LobbyPlayerName";
-    const string SnapshotRequestMessageName = "PoolHaunters_LobbySnapshotRequest";
     const string SnapshotMessageName = "PoolHaunters_LobbySnapshot";
     const string StartGameMessageName = "PoolHaunters_LobbyStartGame";
 
@@ -46,6 +44,8 @@ public class MainMenu : MonoBehaviour
 
     [Header("Lobby UI")]
     [SerializeField] private LobbyUI lobbyUI;
+    [SerializeField] private CharacterSelectMenu characterSelectMenu;
+    [SerializeField] private bool showCharacterSelectBeforeRun = true;
     [SerializeField] private Button hostButton;
     [SerializeField] private Button joinButton;
     [SerializeField] private Button playButton;
@@ -54,12 +54,9 @@ public class MainMenu : MonoBehaviour
     [SerializeField] private TMP_Text joinCodeText;
     [SerializeField] private TMP_Text lobbyStatusText;
     [SerializeField] private TMP_InputField joinCodeInput;
-    [SerializeField] private TMP_InputField playerNameInput;
 
     private readonly Dictionary<ulong, bool> lobbyReadyByClientId =
         new Dictionary<ulong, bool>();
-    private readonly Dictionary<ulong, string> lobbyPlayerNamesByClientId =
-        new Dictionary<ulong, string>();
 
     private bool registeredNetworkCallbacks;
     private bool registeredMessageHandlers;
@@ -67,10 +64,17 @@ public class MainMenu : MonoBehaviour
     private bool lobbyStartInProgress;
     private bool suppressReadyToggleEvent;
     private bool gameStartInProgress;
-    private Coroutine messageHandlerRegistrationCoroutine;
+    private bool cursorUnlockRequested;
+    private bool characterSelectConfirmed;
 
     public void StartSinglePlayer()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartSinglePlayer);
+            return;
+        }
+
         ShutdownActiveLobby(false);
         RegionRunState.SelectSinglePlayerRegion(regionName, gameSceneName, CreateRunSeed());
         LoadGameScene();
@@ -78,6 +82,12 @@ public class MainMenu : MonoBehaviour
 
     public void StartHost()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartHost);
+            return;
+        }
+
         RegionRunState.SelectMultiplayerHostRegion(
             regionName,
             gameSceneName,
@@ -89,6 +99,12 @@ public class MainMenu : MonoBehaviour
 
     public void StartClient()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartClient);
+            return;
+        }
+
         RegionRunState.SelectMultiplayerClientRegion(
             regionName,
             gameSceneName,
@@ -101,6 +117,12 @@ public class MainMenu : MonoBehaviour
 
     public async void StartRelayHost()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartRelayHost);
+            return;
+        }
+
         if (networkManager != null && networkManager.IsListening && networkManager.IsHost)
         {
             StartLobbyGame();
@@ -117,7 +139,6 @@ public class MainMenu : MonoBehaviour
         try
         {
             EnsureNetworkManager();
-            PrepareNetworkRegistrationForNewLobby();
             ConfigureLobbyNetworkManager();
             ConfigureConnectionApproval(createPlayerObject: false);
             RegisterNetworkCallbacks();
@@ -140,10 +161,7 @@ public class MainMenu : MonoBehaviour
             RegisterMessageHandlersWhenReady();
 
             lobbyReadyByClientId.Clear();
-            lobbyPlayerNamesByClientId.Clear();
             lobbyReadyByClientId[NetworkManager.ServerClientId] = false;
-            lobbyPlayerNamesByClientId[NetworkManager.ServerClientId] =
-                GetLocalMultiplayerPlayerName();
 
             SetRelayJoinCode(RegionRunState.RelayJoinCode);
             ApplyLobbyState(isHostLobby: true);
@@ -165,6 +183,12 @@ public class MainMenu : MonoBehaviour
 
     public async void StartRelayClient()
     {
+        if (ShouldShowCharacterSelect())
+        {
+            ShowCharacterSelectThen(StartRelayClient);
+            return;
+        }
+
         if (lobbyStartInProgress || networkManager != null && networkManager.IsListening)
             return;
 
@@ -183,7 +207,6 @@ public class MainMenu : MonoBehaviour
         try
         {
             EnsureNetworkManager();
-            PrepareNetworkRegistrationForNewLobby();
             ConfigureLobbyNetworkManager();
             RegisterNetworkCallbacks();
 
@@ -269,7 +292,6 @@ public class MainMenu : MonoBehaviour
             relayMaxConnections,
             relayConnectionType);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
-        StoreLobbyPlayerNamesInRunState();
 
         SendStartGameMessage(runSeed);
         SetLobbyStatus("Iniciando partida...");
@@ -343,18 +365,21 @@ public class MainMenu : MonoBehaviour
 
     private void Awake()
     {
+        UnlockCursorForMenu();
         ResolveReferences();
         RegisterUiListeners();
     }
 
     private void Start()
     {
+        UnlockCursorForMenu();
         ResolveReferences();
         ResetLobbyToInitialState();
     }
 
     private void OnDestroy()
     {
+        ReleaseCursorUnlock();
         UnregisterNetworkCallbacks();
         UnregisterMessageHandlers();
     }
@@ -532,24 +557,13 @@ public class MainMenu : MonoBehaviour
 
         if (networkManager.CustomMessagingManager == null)
         {
-            if (messageHandlerRegistrationCoroutine == null)
-            {
-                messageHandlerRegistrationCoroutine =
-                    StartCoroutine(RegisterMessageHandlersWhenCustomMessagingIsReady());
-            }
-
+            StartCoroutine(RegisterMessageHandlersWhenCustomMessagingIsReady());
             return;
         }
 
         networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
             ReadyMessageName,
             HandleReadyMessage);
-        networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
-            PlayerNameMessageName,
-            HandlePlayerNameMessage);
-        networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
-            SnapshotRequestMessageName,
-            HandleSnapshotRequestMessage);
         networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
             SnapshotMessageName,
             HandleSnapshotMessage);
@@ -558,10 +572,6 @@ public class MainMenu : MonoBehaviour
             HandleStartGameMessage);
 
         registeredMessageHandlers = true;
-        messageHandlerRegistrationCoroutine = null;
-
-        RequestLobbySnapshotFromServer();
-        SendLocalPlayerNameToServer();
     }
 
     private IEnumerator RegisterMessageHandlersWhenCustomMessagingIsReady()
@@ -573,7 +583,6 @@ public class MainMenu : MonoBehaviour
             yield return null;
         }
 
-        messageHandlerRegistrationCoroutine = null;
         RegisterMessageHandlersWhenReady();
     }
 
@@ -588,8 +597,6 @@ public class MainMenu : MonoBehaviour
         }
 
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(ReadyMessageName);
-        networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(PlayerNameMessageName);
-        networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(SnapshotRequestMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(SnapshotMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
         registeredMessageHandlers = false;
@@ -607,9 +614,6 @@ public class MainMenu : MonoBehaviour
             if (!lobbyReadyByClientId.ContainsKey(clientId))
                 lobbyReadyByClientId[clientId] = false;
 
-            if (!lobbyPlayerNamesByClientId.ContainsKey(clientId))
-                lobbyPlayerNamesByClientId[clientId] = GetFallbackPlayerName(clientId);
-
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
         }
@@ -618,8 +622,6 @@ public class MainMenu : MonoBehaviour
         {
             ApplyLobbyState(networkManager.IsHost);
             SetLobbyStatus("Conectado ao lobby.");
-            RequestLobbySnapshotFromServer();
-            SendLocalPlayerNameToServer();
         }
     }
 
@@ -631,7 +633,6 @@ public class MainMenu : MonoBehaviour
         if (networkManager.IsServer)
         {
             lobbyReadyByClientId.Remove(clientId);
-            lobbyPlayerNamesByClientId.Remove(clientId);
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
             return;
@@ -641,20 +642,17 @@ public class MainMenu : MonoBehaviour
             clientId == NetworkManager.ServerClientId)
         {
             ResetLobbyToInitialState();
-            CleanupLobbyNetworkRegistration();
         }
     }
 
     private void HandleLocalClientStopped(bool wasHost)
     {
         ResetLobbyToInitialState();
-        CleanupLobbyNetworkRegistration();
     }
 
     private void HandleLocalServerStopped(bool wasHost)
     {
         ResetLobbyToInitialState();
-        CleanupLobbyNetworkRegistration();
     }
 
     private void HandleReadyMessage(ulong senderClientId, FastBufferReader reader)
@@ -668,31 +666,6 @@ public class MainMenu : MonoBehaviour
         BroadcastLobbySnapshot();
     }
 
-    private void HandlePlayerNameMessage(ulong senderClientId, FastBufferReader reader)
-    {
-        if (networkManager == null || !networkManager.IsServer)
-            return;
-
-        reader.ReadValueSafe(out FixedString64Bytes playerName);
-
-        lobbyPlayerNamesByClientId[senderClientId] =
-            SanitizePlayerName(playerName.ToString(), senderClientId);
-
-        if (!lobbyReadyByClientId.ContainsKey(senderClientId))
-            lobbyReadyByClientId[senderClientId] = false;
-
-        RefreshLobbyUI();
-        BroadcastLobbySnapshot();
-    }
-
-    private void HandleSnapshotRequestMessage(ulong senderClientId, FastBufferReader reader)
-    {
-        if (networkManager == null || !networkManager.IsServer)
-            return;
-
-        SendLobbySnapshot(senderClientId);
-    }
-
     private void HandleSnapshotMessage(ulong senderClientId, FastBufferReader reader)
     {
         if (networkManager == null ||
@@ -704,17 +677,12 @@ public class MainMenu : MonoBehaviour
 
         reader.ReadValueSafe(out int count);
         lobbyReadyByClientId.Clear();
-        lobbyPlayerNamesByClientId.Clear();
 
         for (int i = 0; i < count; i++)
         {
             reader.ReadValueSafe(out ulong clientId);
             reader.ReadValueSafe(out bool isReady);
-            reader.ReadValueSafe(out FixedString64Bytes playerName);
-
             lobbyReadyByClientId[clientId] = isReady;
-            lobbyPlayerNamesByClientId[clientId] =
-                SanitizePlayerName(playerName.ToString(), clientId);
         }
 
         ApplyLobbyState(false);
@@ -733,7 +701,6 @@ public class MainMenu : MonoBehaviour
             runSeed,
             relayJoinCode,
             relayConnectionType);
-        StoreLobbyPlayerNamesInRunState();
     }
 
     private void BroadcastLobbySnapshot()
@@ -758,44 +725,11 @@ public class MainMenu : MonoBehaviour
         {
             writer.WriteValueSafe(player.Key);
             writer.WriteValueSafe(player.Value);
-
-            string playerName = GetLobbyPlayerName(player.Key);
-            FixedString64Bytes serializedName = playerName;
-            writer.WriteValueSafe(serializedName);
         }
 
         networkManager.CustomMessagingManager.SendNamedMessage(
             SnapshotMessageName,
             targetClientId,
-            writer,
-            NetworkDelivery.ReliableSequenced);
-    }
-
-    private void SendLocalPlayerNameToServer()
-    {
-        if (networkManager == null || networkManager.CustomMessagingManager == null)
-            return;
-
-        string playerName = GetLocalMultiplayerPlayerName();
-
-        if (networkManager.IsServer)
-        {
-            lobbyPlayerNamesByClientId[networkManager.LocalClientId] = playerName;
-            RefreshLobbyUI();
-            BroadcastLobbySnapshot();
-            return;
-        }
-
-        if (!networkManager.IsConnectedClient)
-            return;
-
-        FixedString64Bytes serializedName = playerName;
-        using FastBufferWriter writer = new FastBufferWriter(80, Allocator.Temp);
-        writer.WriteValueSafe(serializedName);
-
-        networkManager.CustomMessagingManager.SendNamedMessage(
-            PlayerNameMessageName,
-            NetworkManager.ServerClientId,
             writer,
             NetworkDelivery.ReliableSequenced);
     }
@@ -824,24 +758,6 @@ public class MainMenu : MonoBehaviour
         }
     }
 
-    private void RequestLobbySnapshotFromServer()
-    {
-        if (networkManager == null ||
-            networkManager.IsServer ||
-            !networkManager.IsConnectedClient ||
-            networkManager.CustomMessagingManager == null)
-        {
-            return;
-        }
-
-        using FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp);
-        networkManager.CustomMessagingManager.SendNamedMessage(
-            SnapshotRequestMessageName,
-            NetworkManager.ServerClientId,
-            writer,
-            NetworkDelivery.ReliableSequenced);
-    }
-
     private void RefreshLobbyUI()
     {
         if (lobbyUI == null)
@@ -855,7 +771,7 @@ public class MainMenu : MonoBehaviour
             bool isHost = player.Key == NetworkManager.ServerClientId;
             players.Add(new LobbyUI.PlayerView(
                 player.Key,
-                GetLobbyPlayerName(player.Key),
+                isHost ? "Host" : $"Player {player.Key}",
                 isHost,
                 player.Value,
                 player.Key == localClientId));
@@ -895,7 +811,6 @@ public class MainMenu : MonoBehaviour
         SetActive(disconnectButton, true);
         SetActive(readyToggle, true);
         SetActive(joinCodeInput, false);
-        SetActive(playerNameInput, false);
 
         if (joinCodeText != null)
         {
@@ -913,8 +828,8 @@ public class MainMenu : MonoBehaviour
     {
         lobbyStartInProgress = false;
         gameStartInProgress = false;
+        characterSelectConfirmed = false;
         lobbyReadyByClientId.Clear();
-        lobbyPlayerNamesByClientId.Clear();
 
         if (lobbyUI != null)
             lobbyUI.ClearPlayers();
@@ -925,7 +840,6 @@ public class MainMenu : MonoBehaviour
         SetActive(disconnectButton, false);
         SetActive(readyToggle, false);
         SetActive(joinCodeInput, true);
-        SetActive(playerNameInput, true);
 
         if (joinCodeText != null)
             joinCodeText.gameObject.SetActive(false);
@@ -939,8 +853,6 @@ public class MainMenu : MonoBehaviour
 
     private void ShutdownActiveLobby(bool clearRunState)
     {
-        CleanupLobbyNetworkRegistration();
-
         if (networkManager != null && networkManager.IsListening)
             networkManager.Shutdown();
 
@@ -948,31 +860,6 @@ public class MainMenu : MonoBehaviour
             RegionRunState.Clear();
 
         lobbyReadyByClientId.Clear();
-        lobbyPlayerNamesByClientId.Clear();
-    }
-
-    private void PrepareNetworkRegistrationForNewLobby()
-    {
-        if (networkManager == null || networkManager.IsListening)
-            return;
-
-        CleanupLobbyNetworkRegistration();
-    }
-
-    private void CleanupLobbyNetworkRegistration()
-    {
-        StopMessageHandlerRegistrationCoroutine();
-        UnregisterMessageHandlers();
-        UnregisterNetworkCallbacks();
-    }
-
-    private void StopMessageHandlerRegistrationCoroutine()
-    {
-        if (messageHandlerRegistrationCoroutine == null)
-            return;
-
-        StopCoroutine(messageHandlerRegistrationCoroutine);
-        messageHandlerRegistrationCoroutine = null;
     }
 
     private void SetMenuButtonsInteractable(bool interactable)
@@ -1008,43 +895,6 @@ public class MainMenu : MonoBehaviour
         return string.IsNullOrWhiteSpace(relayJoinCode)
             ? string.Empty
             : relayJoinCode.Trim().ToUpperInvariant();
-    }
-
-    private string GetLocalMultiplayerPlayerName()
-    {
-        string inputName = playerNameInput != null
-            ? playerNameInput.text
-            : string.Empty;
-
-        return SanitizePlayerName(inputName, networkManager != null ? networkManager.LocalClientId : 0);
-    }
-
-    private string GetLobbyPlayerName(ulong clientId)
-    {
-        if (lobbyPlayerNamesByClientId.TryGetValue(clientId, out string playerName))
-            return SanitizePlayerName(playerName, clientId);
-
-        return GetFallbackPlayerName(clientId);
-    }
-
-    private void StoreLobbyPlayerNamesInRunState()
-    {
-        Dictionary<ulong, string> playerNames = new Dictionary<ulong, string>();
-
-        foreach (KeyValuePair<ulong, bool> player in lobbyReadyByClientId)
-            playerNames[player.Key] = GetLobbyPlayerName(player.Key);
-
-        RegionRunState.SetMultiplayerPlayerNames(playerNames);
-    }
-
-    private static string SanitizePlayerName(string playerName, ulong clientId)
-    {
-        return RegionRunState.SanitizePlayerName(playerName, clientId);
-    }
-
-    private static string GetFallbackPlayerName(ulong clientId)
-    {
-        return RegionRunState.GetFallbackPlayerName(clientId);
     }
 
     private void RegisterUiListeners()
@@ -1090,6 +940,12 @@ public class MainMenu : MonoBehaviour
         if (lobbyUI == null)
             lobbyUI = FindAnyObjectByType<LobbyUI>(FindObjectsInactive.Include);
 
+        if (characterSelectMenu == null)
+            characterSelectMenu = FindAnyObjectByType<CharacterSelectMenu>(FindObjectsInactive.Include);
+
+        if (characterSelectMenu == null)
+            characterSelectMenu = gameObject.AddComponent<CharacterSelectMenu>();
+
         Transform multiplayerMenu = FindChildByName(null, "MultiplayerMenu");
         Transform root = multiplayerMenu != null ? multiplayerMenu : transform.root;
 
@@ -1113,9 +969,6 @@ public class MainMenu : MonoBehaviour
 
         if (joinCodeInput == null)
             joinCodeInput = FindComponentByName<TMP_InputField>(root, "JoinCodeField");
-
-        if (playerNameInput == null)
-            playerNameInput = FindComponentByName<TMP_InputField>(root, "PlayerNameField");
 
         if (networkManager == null)
             networkManager = NetworkManager.Singleton;
@@ -1148,7 +1001,58 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        ReleaseCursorUnlock();
+        characterSelectConfirmed = false;
         SceneManager.LoadScene(gameSceneName);
+    }
+
+    private bool ShouldShowCharacterSelect()
+    {
+        return showCharacterSelectBeforeRun &&
+            !characterSelectConfirmed &&
+            characterSelectMenu != null;
+    }
+
+    private void ShowCharacterSelectThen(Action onConfirmed)
+    {
+        ResolveReferences();
+        if (characterSelectMenu == null)
+        {
+            characterSelectConfirmed = true;
+            onConfirmed?.Invoke();
+            return;
+        }
+
+        characterSelectMenu.Show(() =>
+        {
+            characterSelectConfirmed = true;
+            onConfirmed?.Invoke();
+        });
+    }
+
+    private void UnlockCursorForMenu()
+    {
+        RequestCursorUnlock();
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    private void RequestCursorUnlock()
+    {
+        if (cursorUnlockRequested)
+            return;
+
+        CursorLockController.RequestCursorUnlocked();
+        cursorUnlockRequested = true;
+    }
+
+    private void ReleaseCursorUnlock()
+    {
+        if (!cursorUnlockRequested)
+            return;
+
+        CursorLockController.ReleaseCursorUnlocked();
+        cursorUnlockRequested = false;
     }
 
     private static bool UsesWebSockets(string connectionType)

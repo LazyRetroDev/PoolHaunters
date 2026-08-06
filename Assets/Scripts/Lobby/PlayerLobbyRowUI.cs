@@ -7,8 +7,6 @@ public class PlayerLobbyRowUI : MonoBehaviour
 {
     const float RowHeight = 42f;
     const float HorizontalPadding = 12f;
-    const float StatusWidth = 120f;
-    const float TextGap = 12f;
 
     [Header("Text")]
     [SerializeField] private TMP_Text playerNameText;
@@ -48,14 +46,13 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (playerNameText != null)
         {
             string displayName = isLocalPlayer ? safeName + localPlayerSuffix : safeName;
-            playerNameText.text = displayName;
+            playerNameText.text = $"{displayName} - {status}";
         }
 
         if (statusText != null)
         {
-            statusText.gameObject.SetActive(true);
-            statusText.text = status;
-            statusText.ForceMeshUpdate();
+            statusText.text = string.Empty;
+            statusText.gameObject.SetActive(false);
         }
 
         if (hostBadge != null)
@@ -67,10 +64,8 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (statusGraphic != null)
             statusGraphic.color = GetStatusColor(isHost, isReady);
 
-        if (statusText != null)
+        if (statusText != null && statusText.gameObject.activeSelf)
             statusText.color = GetStatusColor(isHost, isReady);
-
-        RebuildLayout();
     }
 
     void Awake()
@@ -137,26 +132,8 @@ public class PlayerLobbyRowUI : MonoBehaviour
         }
 
         HorizontalLayoutGroup horizontalLayout = GetComponent<HorizontalLayoutGroup>();
-        if (horizontalLayout == null && Application.isPlaying)
-            horizontalLayout = gameObject.AddComponent<HorizontalLayoutGroup>();
-
         if (horizontalLayout != null)
-        {
-            horizontalLayout.enabled = true;
-            horizontalLayout.padding = new RectOffset(
-                Mathf.RoundToInt(HorizontalPadding),
-                Mathf.RoundToInt(HorizontalPadding),
-                0,
-                0);
-            horizontalLayout.spacing = TextGap;
-            horizontalLayout.childAlignment = TextAnchor.MiddleLeft;
-            horizontalLayout.childControlWidth = true;
-            horizontalLayout.childControlHeight = true;
-            horizontalLayout.childForceExpandWidth = false;
-            horizontalLayout.childForceExpandHeight = true;
-            horizontalLayout.childScaleWidth = false;
-            horizontalLayout.childScaleHeight = false;
-        }
+            horizontalLayout.enabled = false;
 
         ConfigureNameTextLayout();
         ConfigureStatusTextLayout();
@@ -170,11 +147,11 @@ public class PlayerLobbyRowUI : MonoBehaviour
         RectTransform rect = playerNameText.transform as RectTransform;
         if (rect != null)
         {
-            rect.anchorMin = new Vector2(0f, 0.5f);
-            rect.anchorMax = new Vector2(0f, 0.5f);
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.sizeDelta = new Vector2(0f, RowHeight);
+            rect.offsetMin = new Vector2(HorizontalPadding, 0f);
+            rect.offsetMax = new Vector2(-HorizontalPadding, 0f);
         }
 
         LayoutElement layoutElement = playerNameText.GetComponent<LayoutElement>();
@@ -191,8 +168,7 @@ public class PlayerLobbyRowUI : MonoBehaviour
             layoutElement.preferredHeight = RowHeight;
         }
 
-        playerNameText.horizontalAlignment = HorizontalAlignmentOptions.Left;
-        playerNameText.verticalAlignment = VerticalAlignmentOptions.Middle;
+        playerNameText.alignment = TextAlignmentOptions.Left | TextAlignmentOptions.Midline;
         playerNameText.textWrappingMode = TextWrappingModes.NoWrap;
         playerNameText.overflowMode = TextOverflowModes.Ellipsis;
         playerNameText.fontSize = Mathf.Min(playerNameText.fontSize, 22f);
@@ -203,14 +179,16 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (statusText == null)
             return;
 
+        statusText.text = string.Empty;
+        statusText.gameObject.SetActive(false);
+
         RectTransform rect = statusText.transform as RectTransform;
         if (rect != null)
         {
             rect.anchorMin = new Vector2(0f, 0.5f);
             rect.anchorMax = new Vector2(0f, 0.5f);
-            rect.pivot = new Vector2(0f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.sizeDelta = new Vector2(StatusWidth, RowHeight);
+            rect.pivot = new Vector2(1f, 0.5f);
+            rect.sizeDelta = new Vector2(0f, RowHeight);
         }
 
         LayoutElement layoutElement = statusText.GetComponent<LayoutElement>();
@@ -220,32 +198,18 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (layoutElement != null)
         {
             layoutElement.ignoreLayout = false;
-            layoutElement.minWidth = StatusWidth;
-            layoutElement.preferredWidth = StatusWidth;
+            layoutElement.ignoreLayout = true;
+            layoutElement.minWidth = 0f;
+            layoutElement.preferredWidth = 0f;
             layoutElement.flexibleWidth = 0f;
             layoutElement.minHeight = RowHeight;
             layoutElement.preferredHeight = RowHeight;
         }
 
-        statusText.horizontalAlignment = HorizontalAlignmentOptions.Left;
-        statusText.verticalAlignment = VerticalAlignmentOptions.Middle;
+        statusText.alignment = TextAlignmentOptions.Right | TextAlignmentOptions.Midline;
         statusText.textWrappingMode = TextWrappingModes.NoWrap;
         statusText.overflowMode = TextOverflowModes.Ellipsis;
-        statusText.fontSize = Mathf.Min(statusText.fontSize, 20f);
-        statusText.ForceMeshUpdate();
-    }
-
-    void RebuildLayout()
-    {
-        RectTransform rowRect = transform as RectTransform;
-        if (rowRect == null)
-            return;
-
-        LayoutRebuilder.ForceRebuildLayoutImmediate(rowRect);
-
-        RectTransform parentRect = rowRect.parent as RectTransform;
-        if (parentRect != null)
-            LayoutRebuilder.ForceRebuildLayoutImmediate(parentRect);
+        statusText.fontSize = Mathf.Min(statusText.fontSize, 22f);
     }
 
     TMP_Text FindTextByName(params string[] names)

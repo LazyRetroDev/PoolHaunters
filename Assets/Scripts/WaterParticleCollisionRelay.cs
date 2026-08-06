@@ -113,6 +113,10 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         BathroomBlondeDrain bathroomDrain = hitObject.GetComponentInParent<BathroomBlondeDrain>();
         if (bathroomDrain != null)
             bathroomDrain.ReceiveWaterHit(transform.position);
+
+        TubaraoBehavior tubarao = hitObject.GetComponentInParent<TubaraoBehavior>();
+        if (tubarao != null)
+            tubarao.ReceiveWaterHit(transform.position);
     }
 
     bool CanProcessGameplayCollision()

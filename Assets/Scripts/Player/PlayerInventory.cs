@@ -59,10 +59,11 @@ public class PlayerInventory : NetworkBehaviour
         if (Physics.Raycast(ray, out RaycastHit hit, pickupRange))
         {
             Debug.Log("Hit: " + hit.collider.gameObject.name);
-            WaterValve waterValve = hit.collider.GetComponentInParent<WaterValve>();
-            if (waterValve != null)
+
+            IPlayerInteractable interactable = hit.collider.GetComponentInParent<IPlayerInteractable>();
+            if (interactable != null)
             {
-                waterValve.Interact(this);
+                interactable.Interact(this);
                 return;
             }
 
@@ -255,8 +256,9 @@ public class PlayerInventory : NetworkBehaviour
     {
         if (item == null) return false;
 
-        PlayerInventory[] inventories =
-            FindObjectsByType<PlayerInventory>(FindObjectsInactive.Include);
+        PlayerInventory[] inventories = FindObjectsByType<PlayerInventory>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
         for (int inventoryIndex = 0; inventoryIndex < inventories.Length; inventoryIndex++)
         {
             PlayerInventory inventory = inventories[inventoryIndex];
@@ -477,6 +479,88 @@ public class PlayerInventory : NetworkBehaviour
         return false;
     }
 
+    public bool CanReceiveShopItem(GameObject itemPrefab)
+    {
+        CacheReferences();
+        EnsureSlots();
+
+        if (itemPrefab == null || IsInventoryLocked())
+            return false;
+
+        Item item = itemPrefab.GetComponentInChildren<Item>(true);
+        if (item == null)
+            return false;
+
+        WaterItem waterItem = itemPrefab.GetComponentInChildren<WaterItem>(true);
+        if (waterItem != null && waterItem.useImmediatelyOnPickup)
+        {
+            return playerStatus != null &&
+                playerStatus.CanAct() &&
+                waterItem.waterAmount > 0f &&
+                playerStatus.GetWaterSpace() > 0f;
+        }
+
+        return GetFirstEmptySlot() >= 0;
+    }
+
+    public bool TryReceiveShopItem(
+        GameObject itemPrefab,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation)
+    {
+        CacheReferences();
+        EnsureSlots();
+
+        if (!CanReceiveShopItem(itemPrefab))
+            return false;
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            Debug.LogWarning("Shop item grants currently need to run on the host/server.");
+            return false;
+        }
+
+        GameObject instance = Instantiate(itemPrefab, spawnPosition, spawnRotation);
+        Item item = instance.GetComponentInChildren<Item>(true);
+        if (item == null)
+        {
+            Destroy(instance);
+            return false;
+        }
+
+        NetworkObject networkObject = item.GetComponentInParent<NetworkObject>();
+        if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        if (TryPickupAuthoritative(item, transform.position, pickupRange))
+            return true;
+
+        DestroyOrDespawnItem(item);
+        return false;
+    }
+
+    public bool TrySpawnShopItemInWorld(
+        GameObject itemPrefab,
+        Vector3 spawnPosition,
+        Quaternion spawnRotation)
+    {
+        if (itemPrefab == null)
+            return false;
+
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            Debug.LogWarning("Shop item spawning currently needs to run on the host/server.");
+            return false;
+        }
+
+        GameObject instance = Instantiate(itemPrefab, spawnPosition, spawnRotation);
+        NetworkObject networkObject = instance.GetComponentInParent<NetworkObject>();
+        if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        return true;
+    }
+
     bool RemoveItemAtSlot(int slotIndex, bool destroyItem)
     {
         EnsureSlots();
@@ -572,7 +656,7 @@ public class PlayerInventory : NetworkBehaviour
             return;
 
         item.SetPresentationState(Item.PresentationState.HiddenInInventory);
-        item.transform.SetParent(null, true);
+        DetachItemTransformIfSafe(item);
 
         Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
         for (int i = 0; i < renderers.Length; i++)
@@ -608,7 +692,7 @@ public class PlayerInventory : NetworkBehaviour
             return;
 
         item.SetPresentationState(Item.PresentationState.World);
-        item.transform.SetParent(null, true);
+        DetachItemTransformIfSafe(item);
         item.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
 
         Renderer[] renderers = item.GetComponentsInChildren<Renderer>(true);
@@ -636,6 +720,28 @@ public class PlayerInventory : NetworkBehaviour
         itemBody.AddForce(impulse, ForceMode.VelocityChange);
     }
 
+    void DetachItemTransformIfSafe(Item item)
+    {
+        if (item == null)
+            return;
+
+        NetworkObject networkObject = item.GetComponentInParent<NetworkObject>();
+        if (networkObject == null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
+
+        if (networkObject == null)
+        {
+            item.transform.SetParent(null, true);
+            return;
+        }
+
+        if (!IsNetworkSessionRunning())
+            return;
+
+        if (IsServer && networkObject.IsSpawned)
+            networkObject.TryRemoveParent(worldPositionStays: true);
+    }
+
     bool TryGetNetworkObjectReference(
         Item item,
         out NetworkObjectReference itemReference)
@@ -643,6 +749,9 @@ public class PlayerInventory : NetworkBehaviour
         NetworkObject networkObject = item != null
             ? item.GetComponentInParent<NetworkObject>()
             : null;
+
+        if (networkObject == null && item != null)
+            networkObject = item.GetComponentInChildren<NetworkObject>(true);
 
         if (networkObject == null)
         {
@@ -698,12 +807,12 @@ public class PlayerInventory : NetworkBehaviour
         };
     }
 
-    bool CanProcessClientInventoryRequest(RpcParams rpcParams)
+    bool CanProcessClientInventoryRequest(ServerRpcParams serverRpcParams)
     {
         if (!IsNetworkSessionRunning())
             return true;
 
-        ulong senderClientId = rpcParams.Receive.SenderClientId;
+        ulong senderClientId = serverRpcParams.Receive.SenderClientId;
         if (senderClientId == OwnerClientId)
             return true;
 
@@ -734,13 +843,13 @@ public class PlayerInventory : NetworkBehaviour
         return !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void RequestPickupServerRpc(
         NetworkObjectReference itemReference,
         Vector3 requesterPosition,
-        RpcParams rpcParams = default)
+        ServerRpcParams serverRpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(rpcParams))
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
             return;
         if (!TryResolveItem(itemReference, out Item item))
             return;
@@ -751,27 +860,27 @@ public class PlayerInventory : NetworkBehaviour
             networkPickupPositionTolerance);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void RequestUseSelectedItemServerRpc(
         int slotIndex,
-        RpcParams rpcParams = default)
+        ServerRpcParams serverRpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(rpcParams))
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
             return;
 
         selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
         UseSelectedItemAuthoritative(selectedSlot);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void RequestThrowSelectedItemServerRpc(
         int slotIndex,
         Vector3 spawnPosition,
         Quaternion spawnRotation,
         Vector3 impulse,
-        RpcParams rpcParams = default)
+        ServerRpcParams serverRpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(rpcParams))
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
             return;
 
         selectedSlot = Mathf.Clamp(slotIndex, 0, Mathf.Max(0, inventorySize - 1));
@@ -782,12 +891,12 @@ public class PlayerInventory : NetworkBehaviour
             impulse);
     }
 
-    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    [ServerRpc(RequireOwnership = false)]
     void SelectSlotServerRpc(
         int slotIndex,
-        RpcParams rpcParams = default)
+        ServerRpcParams serverRpcParams = default)
     {
-        if (!CanProcessClientInventoryRequest(rpcParams))
+        if (!CanProcessClientInventoryRequest(serverRpcParams))
             return;
 
         EnsureSlots();

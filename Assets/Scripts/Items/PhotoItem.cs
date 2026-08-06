@@ -110,8 +110,7 @@ public class PhotoItem : UsableItem
         if (item == null)
             item = GetComponent<Item>();
 
-        PlayerInventory[] inventories =
-            FindObjectsByType<PlayerInventory>(FindObjectsInactive.Exclude);
+        PlayerInventory[] inventories = FindObjectsOfType<PlayerInventory>();
         for (int i = 0; i < inventories.Length; i++)
             inventories[i].RemoveItem(item, destroyItem: false);
     }

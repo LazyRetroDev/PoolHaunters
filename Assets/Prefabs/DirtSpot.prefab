@@ -177,7 +177,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   adhesionRadius: 0.12
-  surfaceOffset: 0.02
+  surfaceOffset: 0.01
   fallAcceleration: 18
   maxFallSpeed: 10
   followAdheredSurfacePosition: 1
