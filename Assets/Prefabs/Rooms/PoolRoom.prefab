@@ -1361,9 +1361,9 @@ MonoBehaviour:
   category: 5
   spawnWeight: 1
   maxInstancesPerRun: -1
-  canRepeat: 0
+  canRepeat: 1
   minimumRoomIndex: 0
-  minimumRoomsBetweenRepeats: 3
+  minimumRoomsBetweenRepeats: 2
   contentProfile: {fileID: 11400000, guid: 8aa229eac69d2f04b9a05e54fc8543b7, type: 2}
   size: {x: 45, y: 8, z: 45}
   boundsCenter: {x: 0, y: 3.5, z: 0}
@@ -6537,6 +6537,10 @@ PrefabInstance:
     - target: {fileID: 7620972193596843589, guid: dece44367e26fd0429e13d69235ba9f7, type: 3}
       propertyPath: GlobalObjectIdHash
       value: 2663386033
+      objectReference: {fileID: 0}
+    - target: {fileID: 7732218644104282369, guid: dece44367e26fd0429e13d69235ba9f7, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 1179258213
       objectReference: {fileID: 0}
     - target: {fileID: 7772683508501569295, guid: dece44367e26fd0429e13d69235ba9f7, type: 3}
       propertyPath: GlobalObjectIdHash

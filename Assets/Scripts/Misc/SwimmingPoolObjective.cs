@@ -35,11 +35,19 @@ public class SwimmingPoolObjective : MonoBehaviour
     [SerializeField] private int cleanedDirtSpotCount;
 
     private bool applyingSynchronizedState;
+    private readonly System.Collections.Generic.List<DirtSpot> trackedDirtSpots =
+        new System.Collections.Generic.List<DirtSpot>();
 
     public event Action<SwimmingPoolObjective> OnPoolStateChanged;
     public event Action<SwimmingPoolObjective> OnPoolCleaned;
+    public event Action<SwimmingPoolObjective> OnPoolActivelyCleaned;
 
-    public bool RequiredForLevelCompletion => requiredForLevelCompletion;
+    public float LastCleanedTime { get; private set; } = -100f;
+    public bool RequiredForLevelCompletion
+    {
+        get => requiredForLevelCompletion;
+        set => requiredForLevelCompletion = value;
+    }
     public bool IsFilled => filled;
     public bool IsCleaned => cleaned;
     public bool IsApplyingSynchronizedState => applyingSynchronizedState;
@@ -47,10 +55,22 @@ public class SwimmingPoolObjective : MonoBehaviour
     public byte SyncState => (byte)GetState();
     public int TotalDirtSpotCount => totalDirtSpotCount;
     public int CleanedDirtSpotCount => cleanedDirtSpotCount;
-    public float CleanProgress =>
-        totalDirtSpotCount > 0
-            ? CalculateDirtCleanProgress()
-            : cleaned ? 1f : 0f;
+    public float CleanProgress
+    {
+        get
+        {
+            RefreshDirtSpots();
+            return trackedDirtSpots.Count > 0
+                ? CalculateDirtCleanProgress()
+                : cleaned ? 1f : 0f;
+        }
+    }
+
+    public void NotifyActivelyCleaned()
+    {
+        LastCleanedTime = Time.time;
+        OnPoolActivelyCleaned?.Invoke(this);
+    }
 
     void Awake()
     {
@@ -275,15 +295,12 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        totalDirtSpotCount = dirtSpots != null ? dirtSpots.Length : 0;
+        totalDirtSpotCount = trackedDirtSpots.Count;
         cleanedDirtSpotCount = 0;
 
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt == null || dirt.IsCleaned)
                 cleanedDirtSpotCount++;
         }
@@ -293,13 +310,13 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        if (dirtSpots == null || dirtSpots.Length == 0)
+        if (trackedDirtSpots.Count == 0)
             return cleaned ? 1f : 0f;
 
         float cleanAmount = 0f;
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt == null || dirt.IsCleaned)
             {
                 cleanAmount += 1f;
@@ -309,17 +326,17 @@ public class SwimmingPoolObjective : MonoBehaviour
             cleanAmount += Mathf.Clamp01(1f - dirt.GetDirtPercent());
         }
 
-        return Mathf.Clamp01(cleanAmount / dirtSpots.Length);
+        return Mathf.Clamp01(cleanAmount / trackedDirtSpots.Count);
     }
 
     bool IsEveryDirtSpotCleaned()
     {
-        if (dirtSpots == null || dirtSpots.Length == 0)
+        if (trackedDirtSpots.Count == 0)
             return true;
 
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt != null && !dirt.IsCleaned)
                 return false;
         }
@@ -441,10 +458,37 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     void RefreshDirtSpots()
     {
-        if (!autoFindDirtSpots)
-            return;
+        if (autoFindDirtSpots)
+        {
+            DirtSpot[] found = GetComponentsInChildren<DirtSpot>(true);
+            if (found != null)
+            {
+                for (int i = 0; i < found.Length; i++)
+                {
+                    DirtSpot ds = found[i];
+                    if (ds != null && !trackedDirtSpots.Contains(ds))
+                    {
+                        trackedDirtSpots.Add(ds);
+                        ds.OnCleaned += HandleDirtSpotCleaned;
+                    }
+                }
+            }
+        }
 
-        dirtSpots = GetComponentsInChildren<DirtSpot>(true);
+        if (dirtSpots != null)
+        {
+            for (int i = 0; i < dirtSpots.Length; i++)
+            {
+                DirtSpot ds = dirtSpots[i];
+                if (ds != null && !trackedDirtSpots.Contains(ds))
+                {
+                    trackedDirtSpots.Add(ds);
+                    ds.OnCleaned += HandleDirtSpotCleaned;
+                }
+            }
+        }
+
+        totalDirtSpotCount = trackedDirtSpots.Count;
     }
 
     void RegisterDirtSpotEvents()

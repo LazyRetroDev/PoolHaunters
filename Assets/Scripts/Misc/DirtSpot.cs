@@ -468,6 +468,11 @@ public class DirtSpot : NetworkBehaviour
         lastHitPoint = worldPoint;
         lastHitTime = Time.time;
 
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null)
+            poolObjective.NotifyActivelyCleaned();
+
         if (areaCleaned) ApplyCleanLocal(amount);
         else UpdateVisualState();
     }
