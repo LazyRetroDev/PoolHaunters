@@ -20,10 +20,18 @@ public class MainMenu : MonoBehaviour
     const string SnapshotMessageName = "PoolHaunters_LobbySnapshot";
     const string StartGameMessageName = "PoolHaunters_LobbyStartGame";
     const string PlayerNameMessageName = "PoolHaunters_LobbyPlayerName";
+    const string PlayerNamePrefsKey = "PlayerName";
+    const string DefaultPlayerName = "Player";
 
     [Header("Run")]
     [SerializeField] private string regionName = "Submarino";
     [SerializeField] private string gameSceneName = "Game";
+    [SerializeField] private RunSceneOption[] availableRunScenes =
+    {
+        new RunSceneOption { regionName = "Hospital", sceneName = "Game", weight = 1f },
+        new RunSceneOption { regionName = "Museum", sceneName = "Game 1", weight = 1f },
+        new RunSceneOption { regionName = "Hotel", sceneName = "Game 2", weight = 1f }
+    };
     [SerializeField] private bool useRandomSeed = true;
     [SerializeField] private int fixedSeed;
 
@@ -70,6 +78,7 @@ public class MainMenu : MonoBehaviour
     private bool gameStartInProgress;
     private bool cursorUnlockRequested;
     private bool characterSelectConfirmed;
+    private Coroutine messageHandlerRegistrationCoroutine;
 
     public void StartSinglePlayer()
     {
@@ -80,8 +89,12 @@ public class MainMenu : MonoBehaviour
         }
 
         ShutdownActiveLobby(false);
-        RegionRunState.SelectSinglePlayerRegion(regionName, gameSceneName, CreateRunSeed());
-        LoadGameScene();
+        RunSceneOption selectedScene = ChooseStartingScene();
+        RegionRunState.SelectSinglePlayerRegion(
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
+            CreateRunSeed());
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public void StartHost()
@@ -92,13 +105,14 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        RunSceneOption selectedScene = ChooseStartingScene();
         RegionRunState.SelectMultiplayerHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             CreateRunSeed(),
             GetConnectionPort());
 
-        LoadGameScene();
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public void StartClient()
@@ -109,14 +123,15 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        RunSceneOption selectedScene = ChooseFallbackStartingScene();
         RegionRunState.SelectMultiplayerClientRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             CreateRunSeed(),
             connectionAddress,
             GetConnectionPort());
 
-        LoadGameScene();
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public async void StartRelayHost()
@@ -126,6 +141,9 @@ public class MainMenu : MonoBehaviour
             ShowCharacterSelectThen(StartRelayHost);
             return;
         }
+
+        ResolveReferences();
+        CommitPlayerNameFromInput();
 
         if (networkManager != null && networkManager.IsListening && networkManager.IsHost)
         {
@@ -166,6 +184,7 @@ public class MainMenu : MonoBehaviour
 
             lobbyReadyByClientId.Clear();
             lobbyReadyByClientId[NetworkManager.ServerClientId] = false;
+            lobbyNameByClientId[NetworkManager.ServerClientId] = RegionRunState.PlayerName;
 
             SetRelayJoinCode(RegionRunState.RelayJoinCode);
             ApplyLobbyState(isHostLobby: true);
@@ -195,6 +214,9 @@ public class MainMenu : MonoBehaviour
 
         if (lobbyStartInProgress || networkManager != null && networkManager.IsListening)
             return;
+
+        ResolveReferences();
+        CommitPlayerNameFromInput();
 
         string joinCode = GetJoinCodeFromInput();
         if (string.IsNullOrWhiteSpace(joinCode))
@@ -289,32 +311,33 @@ public class MainMenu : MonoBehaviour
         gameStartInProgress = true;
 
         int runSeed = CreateRunSeed();
+        RunSceneOption selectedScene = ChooseStartingScene();
         RegionRunState.SelectRelayHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             runSeed,
             relayMaxConnections,
             relayConnectionType);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
 
-        SendStartGameMessage(runSeed);
+        SendStartGameMessage(runSeed, selectedScene);
         SetLobbyStatus("Iniciando partida...");
 
-        StartCoroutine(LoadLobbyGameAfterStartMessage());
+        StartCoroutine(LoadLobbyGameAfterStartMessage(selectedScene.sceneName));
     }
 
-    private IEnumerator LoadLobbyGameAfterStartMessage()
+    private IEnumerator LoadLobbyGameAfterStartMessage(string sceneName)
     {
         yield return null;
         yield return new WaitForSeconds(0.15f);
 
         if (networkManager != null && networkManager.SceneManager != null)
         {
-            networkManager.SceneManager.LoadScene(gameSceneName, LoadSceneMode.Single);
+            networkManager.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
             yield break;
         }
 
-        SceneManager.LoadScene(gameSceneName);
+        SceneManager.LoadScene(sceneName);
     }
 
     public void DisconnectLobby()
@@ -340,8 +363,12 @@ public class MainMenu : MonoBehaviour
             ? string.Empty
             : joinCode.Trim().ToUpperInvariant();
 
-        if (joinCodeInput != null && joinCodeInput.text != relayJoinCode)
+        if (joinCodeInput != null &&
+            joinCodeInput != nameField &&
+            joinCodeInput.text != relayJoinCode)
+        {
             joinCodeInput.SetTextWithoutNotify(relayJoinCode);
+        }
 
         if (joinCodeText != null)
             joinCodeText.text = string.IsNullOrWhiteSpace(relayJoinCode)
@@ -378,12 +405,7 @@ public class MainMenu : MonoBehaviour
     {
         UnlockCursorForMenu();
         ResolveReferences();
-        if (nameField != null)
-        {
-            string pName = PlayerPrefs.GetString("PlayerName", "Player");
-            nameField.text = pName;
-            RegionRunState.SetPlayerName(pName);
-        }
+        InitializePlayerNameField();
         ResetLobbyToInitialState();
     }
 
@@ -476,9 +498,10 @@ public class MainMenu : MonoBehaviour
             AllocationUtils.ToRelayServerData(allocation, connectionType));
 
         string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+        RunSceneOption fallbackScene = ChooseFallbackStartingScene();
         RegionRunState.SelectRelayHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(fallbackScene),
+            fallbackScene.sceneName,
             CreateRunSeed(),
             relayMaxConnections,
             connectionType);
@@ -506,9 +529,10 @@ public class MainMenu : MonoBehaviour
         unityTransport.SetRelayServerData(
             AllocationUtils.ToRelayServerData(joinAllocation, connectionType));
 
+        RunSceneOption fallbackScene = ChooseFallbackStartingScene();
         RegionRunState.SelectRelayClientRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(fallbackScene),
+            fallbackScene.sceneName,
             CreateRunSeed(),
             joinCode,
             connectionType);
@@ -562,12 +586,21 @@ public class MainMenu : MonoBehaviour
 
     private void RegisterMessageHandlersWhenReady()
     {
-        if (networkManager == null || registeredMessageHandlers)
+        if (networkManager == null ||
+            registeredMessageHandlers ||
+            !networkManager.IsListening)
+        {
             return;
+        }
 
         if (networkManager.CustomMessagingManager == null)
         {
-            StartCoroutine(RegisterMessageHandlersWhenCustomMessagingIsReady());
+            if (messageHandlerRegistrationCoroutine == null)
+            {
+                messageHandlerRegistrationCoroutine = StartCoroutine(
+                    RegisterMessageHandlersWhenCustomMessagingIsReady());
+            }
+
             return;
         }
 
@@ -596,11 +629,18 @@ public class MainMenu : MonoBehaviour
             yield return null;
         }
 
+        messageHandlerRegistrationCoroutine = null;
+
+        if (networkManager == null || !networkManager.IsListening)
+            yield break;
+
         RegisterMessageHandlersWhenReady();
     }
 
     private void UnregisterMessageHandlers()
     {
+        StopMessageHandlerRegistrationCoroutine();
+
         if (!registeredMessageHandlers ||
             networkManager == null ||
             networkManager.CustomMessagingManager == null)
@@ -614,6 +654,15 @@ public class MainMenu : MonoBehaviour
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(PlayerNameMessageName);
         registeredMessageHandlers = false;
+    }
+
+    private void StopMessageHandlerRegistrationCoroutine()
+    {
+        if (messageHandlerRegistrationCoroutine == null)
+            return;
+
+        StopCoroutine(messageHandlerRegistrationCoroutine);
+        messageHandlerRegistrationCoroutine = null;
     }
 
     private void HandleClientConnected(ulong clientId)
@@ -640,10 +689,10 @@ public class MainMenu : MonoBehaviour
             ApplyLobbyState(networkManager.IsHost);
             SetLobbyStatus("Conectado ao lobby.");
 
-            if (!networkManager.IsHost)
-            {
-                using FastBufferWriter writer = new FastBufferWriter(128, Allocator.Temp);
-                writer.WriteValueSafe(RegionRunState.PlayerName);
+        if (!networkManager.IsHost)
+        {
+            using FastBufferWriter writer = new FastBufferWriter(128, Allocator.Temp);
+            writer.WriteValueSafe(RegionRunState.PlayerName);
                 networkManager.CustomMessagingManager.SendNamedMessage(
                     PlayerNameMessageName,
                     NetworkManager.ServerClientId,
@@ -670,17 +719,20 @@ public class MainMenu : MonoBehaviour
         if (clientId == networkManager.LocalClientId ||
             clientId == NetworkManager.ServerClientId)
         {
+            ShutdownActiveLobby(true);
             ResetLobbyToInitialState();
         }
     }
 
     private void HandleLocalClientStopped(bool wasHost)
     {
+        CleanupLobbyNetworkRegistration();
         ResetLobbyToInitialState();
     }
 
     private void HandleLocalServerStopped(bool wasHost)
     {
+        CleanupLobbyNetworkRegistration();
         ResetLobbyToInitialState();
     }
 
@@ -701,7 +753,9 @@ public class MainMenu : MonoBehaviour
             return;
 
         reader.ReadValueSafe(out string playerName);
-        lobbyNameByClientId[senderClientId] = playerName;
+        lobbyNameByClientId[senderClientId] = string.IsNullOrWhiteSpace(playerName)
+            ? $"Player {senderClientId}"
+            : playerName.Trim();
         RefreshLobbyUI();
         BroadcastLobbySnapshot();
     }
@@ -738,9 +792,11 @@ public class MainMenu : MonoBehaviour
             return;
 
         reader.ReadValueSafe(out int runSeed);
+        reader.ReadValueSafe(out string selectedRegionName);
+        reader.ReadValueSafe(out string selectedSceneName);
         RegionRunState.SelectRelayClientRegion(
-            regionName,
-            gameSceneName,
+            selectedRegionName,
+            selectedSceneName,
             runSeed,
             relayJoinCode,
             relayConnectionType);
@@ -780,7 +836,7 @@ public class MainMenu : MonoBehaviour
             NetworkDelivery.ReliableSequenced);
     }
 
-    private void SendStartGameMessage(int runSeed)
+    private void SendStartGameMessage(int runSeed, RunSceneOption selectedScene)
     {
         if (networkManager == null ||
             !networkManager.IsServer ||
@@ -794,8 +850,10 @@ public class MainMenu : MonoBehaviour
             if (clientId == NetworkManager.ServerClientId)
                 continue;
 
-            using FastBufferWriter writer = new FastBufferWriter(16, Allocator.Temp);
+            using FastBufferWriter writer = new FastBufferWriter(256, Allocator.Temp);
             writer.WriteValueSafe(runSeed);
+            writer.WriteValueSafe(GetRegionName(selectedScene));
+            writer.WriteValueSafe(selectedScene.sceneName);
             networkManager.CustomMessagingManager.SendNamedMessage(
                 StartGameMessageName,
                 clientId,
@@ -853,6 +911,8 @@ public class MainMenu : MonoBehaviour
 
     private void ApplyLobbyState(bool isHostLobby)
     {
+        CommitPlayerNameFromInput();
+
         SetActive(hostButton, false);
         SetActive(joinButton, false);
         SetActive(playButton, isHostLobby);
@@ -860,12 +920,6 @@ public class MainMenu : MonoBehaviour
         SetActive(readyToggle, true);
         SetActive(joinCodeInput, false);
         SetActive(nameField, false);
-
-        if (nameField != null)
-        {
-            PlayerPrefs.SetString("PlayerName", nameField.text);
-            RegionRunState.SetPlayerName(nameField.text);
-        }
 
         if (joinCodeText != null)
         {
@@ -897,6 +951,8 @@ public class MainMenu : MonoBehaviour
         SetActive(readyToggle, false);
         SetActive(joinCodeInput, true);
         SetActive(nameField, true);
+        SetRelayJoinCode(string.Empty);
+        SyncPlayerNameFromInputWithoutSaving();
 
         if (joinCodeText != null)
             joinCodeText.gameObject.SetActive(false);
@@ -910,6 +966,8 @@ public class MainMenu : MonoBehaviour
 
     private void ShutdownActiveLobby(bool clearRunState)
     {
+        CleanupLobbyNetworkRegistration();
+
         if (networkManager != null && networkManager.IsListening)
             networkManager.Shutdown();
 
@@ -917,6 +975,16 @@ public class MainMenu : MonoBehaviour
             RegionRunState.Clear();
 
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
+    }
+
+    private void CleanupLobbyNetworkRegistration()
+    {
+        UnregisterMessageHandlers();
+        UnregisterNetworkCallbacks();
+
+        if (networkManager != null)
+            networkManager.ConnectionApprovalCallback = null;
     }
 
     private void SetMenuButtonsInteractable(bool interactable)
@@ -946,12 +1014,64 @@ public class MainMenu : MonoBehaviour
 
     private string GetJoinCodeFromInput()
     {
-        if (joinCodeInput != null && !string.IsNullOrWhiteSpace(joinCodeInput.text))
+        if (joinCodeInput != null &&
+            joinCodeInput != nameField &&
+            !string.IsNullOrWhiteSpace(joinCodeInput.text))
+        {
             return joinCodeInput.text.Trim().ToUpperInvariant();
+        }
 
         return string.IsNullOrWhiteSpace(relayJoinCode)
             ? string.Empty
             : relayJoinCode.Trim().ToUpperInvariant();
+    }
+
+    private void InitializePlayerNameField()
+    {
+        string savedPlayerName = PlayerPrefs.GetString(PlayerNamePrefsKey, DefaultPlayerName);
+        RegionRunState.SetPlayerName(savedPlayerName);
+
+        if (nameField != null)
+            nameField.SetTextWithoutNotify(RegionRunState.PlayerName);
+    }
+
+    private string CommitPlayerNameFromInput()
+    {
+        string playerName = GetPlayerNameFromInput();
+        RegionRunState.SetPlayerName(playerName);
+
+        if (nameField != null && nameField.text != RegionRunState.PlayerName)
+            nameField.SetTextWithoutNotify(RegionRunState.PlayerName);
+
+        PlayerPrefs.SetString(PlayerNamePrefsKey, RegionRunState.PlayerName);
+        PlayerPrefs.Save();
+        return RegionRunState.PlayerName;
+    }
+
+    private void SyncPlayerNameFromInputWithoutSaving()
+    {
+        RegionRunState.SetPlayerName(GetPlayerNameFromInput());
+    }
+
+    private string GetPlayerNameFromInput()
+    {
+        if (nameField != null && !string.IsNullOrWhiteSpace(nameField.text))
+            return nameField.text.Trim();
+
+        if (!string.IsNullOrWhiteSpace(RegionRunState.PlayerName))
+            return RegionRunState.PlayerName;
+
+        return PlayerPrefs.GetString(PlayerNamePrefsKey, DefaultPlayerName);
+    }
+
+    private void HandlePlayerNameChanged(string playerName)
+    {
+        RegionRunState.SetPlayerName(playerName);
+    }
+
+    private void HandlePlayerNameEndEdit(string playerName)
+    {
+        CommitPlayerNameFromInput();
     }
 
     private void RegisterUiListeners()
@@ -987,6 +1107,14 @@ public class MainMenu : MonoBehaviour
         {
             readyToggle.onValueChanged.RemoveAllListeners();
             readyToggle.onValueChanged.AddListener(SetLobbyReady);
+        }
+
+        if (nameField != null)
+        {
+            nameField.onValueChanged.RemoveListener(HandlePlayerNameChanged);
+            nameField.onEndEdit.RemoveListener(HandlePlayerNameEndEdit);
+            nameField.onValueChanged.AddListener(HandlePlayerNameChanged);
+            nameField.onEndEdit.AddListener(HandlePlayerNameEndEdit);
         }
 
         registeredUiListeners = true;
@@ -1027,6 +1155,24 @@ public class MainMenu : MonoBehaviour
         if (joinCodeInput == null)
             joinCodeInput = FindComponentByName<TMP_InputField>(root, "JoinCodeField");
 
+        if (nameField == null)
+            nameField = FindComponentByName<TMP_InputField>(root, "NameField");
+
+        if (nameField == joinCodeInput)
+        {
+            TMP_InputField resolvedNameField =
+                FindComponentByName<TMP_InputField>(root, "NameField");
+            TMP_InputField resolvedJoinCodeInput =
+                FindComponentByName<TMP_InputField>(root, "JoinCodeField");
+
+            nameField = resolvedNameField != joinCodeInput
+                ? resolvedNameField
+                : null;
+            joinCodeInput = resolvedJoinCodeInput != nameField
+                ? resolvedJoinCodeInput
+                : null;
+        }
+
         if (networkManager == null)
             networkManager = NetworkManager.Singleton;
 
@@ -1050,9 +1196,71 @@ public class MainMenu : MonoBehaviour
         return (ushort)Mathf.Clamp(connectionPort, 1, ushort.MaxValue);
     }
 
-    private void LoadGameScene()
+    private RunSceneOption ChooseStartingScene()
     {
-        if (string.IsNullOrWhiteSpace(gameSceneName))
+        if (availableRunScenes == null || availableRunScenes.Length == 0)
+            return ChooseFallbackStartingScene();
+
+        float totalWeight = 0f;
+        for (int i = 0; i < availableRunScenes.Length; i++)
+        {
+            RunSceneOption option = availableRunScenes[i];
+            if (!CanUseSceneOption(option))
+                continue;
+
+            totalWeight += Mathf.Max(0f, option.weight);
+        }
+
+        if (totalWeight <= 0f)
+            return ChooseFallbackStartingScene();
+
+        float roll = UnityEngine.Random.Range(0f, totalWeight);
+        for (int i = 0; i < availableRunScenes.Length; i++)
+        {
+            RunSceneOption option = availableRunScenes[i];
+            if (!CanUseSceneOption(option))
+                continue;
+
+            roll -= Mathf.Max(0f, option.weight);
+            if (roll <= 0f)
+                return option;
+        }
+
+        return ChooseFallbackStartingScene();
+    }
+
+    private RunSceneOption ChooseFallbackStartingScene()
+    {
+        return new RunSceneOption
+        {
+            regionName = regionName,
+            sceneName = string.IsNullOrWhiteSpace(gameSceneName)
+                ? "Game"
+                : gameSceneName,
+            weight = 1f
+        };
+    }
+
+    private static bool CanUseSceneOption(RunSceneOption option)
+    {
+        return option != null &&
+            !string.IsNullOrWhiteSpace(option.sceneName) &&
+            option.weight > 0f;
+    }
+
+    private static string GetRegionName(RunSceneOption option)
+    {
+        if (option == null)
+            return string.Empty;
+
+        return string.IsNullOrWhiteSpace(option.regionName)
+            ? option.sceneName
+            : option.regionName;
+    }
+
+    private void LoadGameScene(string sceneName)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
         {
             Debug.LogError("MainMenu cannot start the run because the game scene name is empty.");
             return;
@@ -1060,7 +1268,7 @@ public class MainMenu : MonoBehaviour
 
         ReleaseCursorUnlock();
         characterSelectConfirmed = false;
-        SceneManager.LoadScene(gameSceneName);
+        SceneManager.LoadScene(sceneName);
     }
 
     private bool ShouldShowCharacterSelect()
@@ -1194,5 +1402,22 @@ public class MainMenu : MonoBehaviour
     {
         Transform child = FindChildByName(root, objectName);
         return child != null ? child.GetComponent<T>() : null;
+    }
+
+    private static bool IsSameOrChildOf(Transform child, Transform root)
+    {
+        if (child == null || root == null)
+            return false;
+
+        Transform current = child;
+        while (current != null)
+        {
+            if (current == root)
+                return true;
+
+            current = current.parent;
+        }
+
+        return false;
     }
 }

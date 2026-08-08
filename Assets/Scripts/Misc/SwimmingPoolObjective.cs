@@ -37,6 +37,8 @@ public class SwimmingPoolObjective : MonoBehaviour
     private bool applyingSynchronizedState;
     private readonly System.Collections.Generic.List<DirtSpot> trackedDirtSpots =
         new System.Collections.Generic.List<DirtSpot>();
+    private readonly System.Collections.Generic.HashSet<DirtSpot> subscribedDirtSpots =
+        new System.Collections.Generic.HashSet<DirtSpot>();
 
     public event Action<SwimmingPoolObjective> OnPoolStateChanged;
     public event Action<SwimmingPoolObjective> OnPoolCleaned;
@@ -462,11 +464,7 @@ public class SwimmingPoolObjective : MonoBehaviour
                 for (int i = 0; i < found.Length; i++)
                 {
                     DirtSpot ds = found[i];
-                    if (ds != null && !trackedDirtSpots.Contains(ds))
-                    {
-                        trackedDirtSpots.Add(ds);
-                        ds.OnCleaned += HandleDirtSpotCleaned;
-                    }
+                    TrackDirtSpot(ds);
                 }
             }
         }
@@ -476,41 +474,39 @@ public class SwimmingPoolObjective : MonoBehaviour
             for (int i = 0; i < dirtSpots.Length; i++)
             {
                 DirtSpot ds = dirtSpots[i];
-                if (ds != null && !trackedDirtSpots.Contains(ds))
-                {
-                    trackedDirtSpots.Add(ds);
-                    ds.OnCleaned += HandleDirtSpotCleaned;
-                }
+                TrackDirtSpot(ds);
             }
         }
 
         totalDirtSpotCount = trackedDirtSpots.Count;
     }
 
+    void TrackDirtSpot(DirtSpot dirtSpot)
+    {
+        if (dirtSpot == null)
+            return;
+
+        if (!trackedDirtSpots.Contains(dirtSpot))
+            trackedDirtSpots.Add(dirtSpot);
+
+        if (subscribedDirtSpots.Add(dirtSpot))
+            dirtSpot.OnCleaned += HandleDirtSpotCleaned;
+    }
+
     void RegisterDirtSpotEvents()
     {
         RefreshDirtSpots();
-
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
-        {
-            if (dirtSpots[i] != null)
-                dirtSpots[i].OnCleaned += HandleDirtSpotCleaned;
-        }
     }
 
     void UnregisterDirtSpotEvents()
     {
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
+        foreach (DirtSpot dirtSpot in subscribedDirtSpots)
         {
-            if (dirtSpots[i] != null)
-                dirtSpots[i].OnCleaned -= HandleDirtSpotCleaned;
+            if (dirtSpot != null)
+                dirtSpot.OnCleaned -= HandleDirtSpotCleaned;
         }
+
+        subscribedDirtSpots.Clear();
     }
 
     void AutoBindReferences()

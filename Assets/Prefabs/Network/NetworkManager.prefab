@@ -135,6 +135,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe599ae526c34eb2b9b5a61a88cab1cb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameRunBootstrap
+  gameSceneName: Game
+  gameSceneNames:
+  - Game
+  - Game 1
+  - Game 2
   playerPrefab: {fileID: 5876010552818259310, guid: 03a18d2fa2b460c4199fb86a67700746, type: 3}
   playerSpawn: {fileID: 0}
   playerSpawnName: PlayerSpawn

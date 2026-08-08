@@ -295,7 +295,10 @@ public class PhysicalLobbyManager : NetworkBehaviour
         runStarting = true;
         string sceneName = string.IsNullOrWhiteSpace(gameSceneName) ? "Game" : gameSceneName;
         string safeRegionName = string.IsNullOrWhiteSpace(regionName) ? sceneName : regionName;
-        RegionRunState.SelectSinglePlayerRegion(safeRegionName, sceneName, CreateRunSeed());
+        RegionRunState.SelectSinglePlayerRegion(
+            safeRegionName,
+            sceneName,
+            CreateRunSeed());
         SceneManager.LoadScene(sceneName);
     }
 

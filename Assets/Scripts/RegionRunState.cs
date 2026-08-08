@@ -57,7 +57,10 @@ public static class RegionRunState
         get { return IsMultiplayer && NetworkMode == RunNetworkMode.Relay; }
     }
 
-    public static void SelectRegion(string regionName, string sceneName, int runSeed)
+    public static void SelectRegion(
+        string regionName,
+        string sceneName,
+        int runSeed)
     {
         SelectSinglePlayerRegion(regionName, sceneName, runSeed);
     }

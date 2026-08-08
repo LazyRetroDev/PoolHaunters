@@ -15,6 +15,12 @@ public class GameRunBootstrap : MonoBehaviour
 {
     [Header("Scene")]
     [SerializeField] private string gameSceneName = "Game";
+    [SerializeField] private string[] gameSceneNames =
+    {
+        "Game",
+        "Game 1",
+        "Game 2"
+    };
 
     [Header("Player")]
     [SerializeField] private GameObject playerPrefab;
@@ -104,15 +110,27 @@ public class GameRunBootstrap : MonoBehaviour
 
     private bool ShouldRunInActiveScene()
     {
-        string expectedSceneName = RegionRunState.HasSelectedRegion &&
-            !string.IsNullOrWhiteSpace(RegionRunState.SceneName)
-                ? RegionRunState.SceneName
-                : gameSceneName;
+        string activeSceneName = SceneManager.GetActiveScene().name;
 
-        if (string.IsNullOrWhiteSpace(expectedSceneName))
+        if (RegionRunState.HasSelectedRegion &&
+            !string.IsNullOrWhiteSpace(RegionRunState.SceneName))
+        {
+            return string.Equals(
+                activeSceneName,
+                RegionRunState.SceneName,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (IsConfiguredGameScene(activeSceneName))
             return true;
 
-        return SceneManager.GetActiveScene().name == expectedSceneName;
+        if (string.IsNullOrWhiteSpace(gameSceneName))
+            return true;
+
+        return string.Equals(
+            activeSceneName,
+            gameSceneName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private void StartSinglePlayer()
@@ -476,5 +494,27 @@ public class GameRunBootstrap : MonoBehaviour
             unityTransport = GetComponent<UnityTransport>();
 
         GetPlayerSpawn();
+    }
+
+    private bool IsConfiguredGameScene(string sceneName)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
+            return false;
+
+        if (gameSceneNames != null)
+        {
+            for (int i = 0; i < gameSceneNames.Length; i++)
+            {
+                if (string.Equals(
+                    sceneName,
+                    gameSceneNames[i],
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

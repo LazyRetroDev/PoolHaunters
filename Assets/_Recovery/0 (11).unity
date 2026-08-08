@@ -7822,7 +7822,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 185760602
+  GlobalObjectIdHash: 2329852841
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -11587,8 +11587,8 @@ MonoBehaviour:
   seedOffset: 1847
   spawnChanceMultiplier: 1
   useFallbackSpawnPoints: 1
-  fallbackAttemptsPerRoom: 10
-  fallbackSpawnChance: 0.82
+  fallbackAttemptsPerRoom: 2
+  fallbackSpawnChance: 0.65
   fallbackAllowedCategories: -1
   fallbackEdgePadding: 1.25
   fallbackFloorOffset: 1
@@ -11629,11 +11629,11 @@ MonoBehaviour:
     allowedCategories: 00000000
   - label: Early Run
     minimumRoomIndex: 0
-    maximumRoomIndex: 2
+    maximumRoomIndex: -1
     appliesToFinalRoom: 0
     allowedCategories: 010000000200000004000000
   - label: Mid Run
-    minimumRoomIndex: 2
+    minimumRoomIndex: 0
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
     allowedCategories: 01000000020000000300000004000000
@@ -11641,7 +11641,7 @@ MonoBehaviour:
     minimumRoomIndex: 0
     maximumRoomIndex: -1
     appliesToFinalRoom: 1
-    allowedCategories: 0600000005000000
+    allowedCategories: 06000000
 --- !u!114 &2054101550
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11655,7 +11655,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoomEnemySpawner
   seedOffset: 9361
-  spawnChanceMultiplier: 0.5
+  spawnChanceMultiplier: 1
   requireNavMeshPosition: 1
   navMeshSampleRadius: 2
   navMeshAreaMask: -1

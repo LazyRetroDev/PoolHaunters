@@ -157,6 +157,11 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField] private RoomGenerationProfile generationProfile;
     [SerializeField] private bool applyGenerationProfileOnAwake = true;
 
+    [Header("Phase Profile")]
+    [SerializeField] private bool applyPhaseProfileOnAwake = true;
+    [SerializeField] private RunPhaseProfile fallbackPhaseProfile;
+    [SerializeField] private RunPhaseProfile[] phaseProfiles = new RunPhaseProfile[0];
+
     [Header("Rooms")]
     public GameObject[] roomPrefabs;
     public int startingRoomCount = 2;
@@ -387,14 +392,14 @@ public class RoomGenerator : MonoBehaviour
 
         if (applyGenerationProfileOnAwake)
             ApplyGenerationProfile();
+
+        if (applyPhaseProfileOnAwake)
+            ApplyPhaseProfile(ResolvePhaseProfile());
     }
 
     [ContextMenu("Apply Generation Profile")]
     public void ApplyGenerationProfile()
     {
-        if (generationProfile == null)
-            return;
-
         ApplyGenerationProfile(generationProfile);
     }
 
@@ -477,6 +482,42 @@ public class RoomGenerator : MonoBehaviour
         drawBranchConnectionGizmos = profile.drawBranchConnectionGizmos;
         generationDebugMarkerSize = profile.generationDebugMarkerSize;
         generationDebugLabelHeight = profile.generationDebugLabelHeight;
+    }
+
+    public void ApplyPhaseProfile(RunPhaseProfile profile)
+    {
+        if (profile == null)
+            return;
+
+        minimumBranchCount = profile.minimumBranchCount;
+        maximumBranchCount = profile.maximumBranchCount;
+        minimumRoomsPerBranch = profile.minimumRoomsPerBranch;
+        maximumRoomsPerBranch = profile.maximumRoomsPerBranch;
+
+        requirePoolRoomsInFullMap = profile.requirePoolRoomsInFullMap;
+        minimumRequiredPoolRooms = profile.minimumPoolRoomsInMap;
+    }
+
+    RunPhaseProfile ResolvePhaseProfile()
+    {
+        RunPhaseProfile profile = GetPhaseProfileForCurrentRun();
+        if (profile != null)
+            return profile;
+
+        return fallbackPhaseProfile;
+    }
+
+    RunPhaseProfile GetPhaseProfileForCurrentRun()
+    {
+        if (phaseProfiles == null || phaseProfiles.Length == 0)
+            return null;
+
+        int phaseIndex = RegionRunState.HasSelectedRegion
+            ? RegionRunState.PhaseNumber - 1
+            : 0;
+        phaseIndex = Mathf.Clamp(phaseIndex, 0, phaseProfiles.Length - 1);
+
+        return phaseProfiles[phaseIndex];
     }
 
     void Start()
