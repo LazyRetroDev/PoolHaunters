@@ -166,15 +166,12 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        if (dirtSpots != null)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            for (int i = 0; i < dirtSpots.Length; i++)
+            if (trackedDirtSpots[i] == dirtSpot)
             {
-                if (dirtSpots[i] == dirtSpot)
-                {
-                    dirtSpotIndex = i;
-                    return true;
-                }
+                dirtSpotIndex = i;
+                return true;
             }
         }
 
@@ -190,10 +187,9 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        if (dirtSpots == null ||
-            dirtSpotIndex < 0 ||
-            dirtSpotIndex >= dirtSpots.Length ||
-            dirtSpots[dirtSpotIndex] == null)
+        if (dirtSpotIndex < 0 ||
+            dirtSpotIndex >= trackedDirtSpots.Count ||
+            trackedDirtSpots[dirtSpotIndex] == null)
         {
             return;
         }
@@ -202,7 +198,7 @@ public class SwimmingPoolObjective : MonoBehaviour
 
         try
         {
-            dirtSpots[dirtSpotIndex].ApplySynchronizedPoolCleanAtWorldPoint(
+            trackedDirtSpots[dirtSpotIndex].ApplySynchronizedPoolCleanAtWorldPoint(
                 worldPoint,
                 worldRadius,
                 amount);

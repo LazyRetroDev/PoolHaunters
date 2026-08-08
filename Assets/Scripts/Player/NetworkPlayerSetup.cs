@@ -20,6 +20,9 @@ public class NetworkPlayerSetup : NetworkBehaviour
     [SerializeField] private Behaviour[] ownerOnlyBehaviours;
     [SerializeField] private GameObject[] ownerOnlyObjects;
 
+    private NetworkVariable<Unity.Collections.FixedString32Bytes> playerName = new NetworkVariable<Unity.Collections.FixedString32Bytes>(
+        writePerm: NetworkVariableWritePermission.Server);
+
     private PlayerMovement movement;
     private PlayerInput playerInput;
     private PlayerInventory inventory;
@@ -50,6 +53,70 @@ public class NetworkPlayerSetup : NetworkBehaviour
 
         if (shouldControlLocally && bindHudOnOwner)
             BindLocalHud();
+
+        playerName.OnValueChanged += HandlePlayerNameChanged;
+        if (IsOwner)
+        {
+            string myName = RegionRunState.PlayerName;
+            if (IsServer)
+                playerName.Value = myName;
+            else
+                SetPlayerNameServerRpc(myName);
+        }
+        UpdateNameplate(playerName.Value.ToString());
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        playerName.OnValueChanged -= HandlePlayerNameChanged;
+    }
+
+    [ServerRpc(RequireOwnership = true)]
+    private void SetPlayerNameServerRpc(string newName)
+    {
+        playerName.Value = newName;
+    }
+
+    private void HandlePlayerNameChanged(Unity.Collections.FixedString32Bytes previousValue, Unity.Collections.FixedString32Bytes newValue)
+    {
+        UpdateNameplate(newValue.ToString());
+    }
+
+    private void UpdateNameplate(string newName)
+    {
+        PlayerNameplate nameplate = GetComponentInChildren<PlayerNameplate>(true);
+
+        if (nameplate == null)
+        {
+            Transform nameTagTransform = FindChildByName(transform, "NameTag");
+            if (nameTagTransform != null)
+                nameplate = nameTagTransform.gameObject.AddComponent<PlayerNameplate>();
+        }
+
+        if (nameplate != null)
+        {
+            nameplate.SetName(newName);
+            
+            if (ShouldControlLocally())
+                nameplate.SetVisible(false);
+        }
+    }
+
+    private static Transform FindChildByName(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(childName)) return null;
+        if (root.name.IndexOf(childName, System.StringComparison.OrdinalIgnoreCase) >= 0) return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (child.name.IndexOf(childName, System.StringComparison.OrdinalIgnoreCase) >= 0) return child;
+            
+            Transform match = FindChildByName(child, childName);
+            if (match != null) return match;
+        }
+
+        return null;
     }
 
     public override void OnGainedOwnership()

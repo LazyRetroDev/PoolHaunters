@@ -19,6 +19,7 @@ public class MainMenu : MonoBehaviour
     const string ReadyMessageName = "PoolHaunters_LobbyReady";
     const string SnapshotMessageName = "PoolHaunters_LobbySnapshot";
     const string StartGameMessageName = "PoolHaunters_LobbyStartGame";
+    const string PlayerNameMessageName = "PoolHaunters_LobbyPlayerName";
 
     [Header("Run")]
     [SerializeField] private string regionName = "Submarino";
@@ -54,9 +55,12 @@ public class MainMenu : MonoBehaviour
     [SerializeField] private TMP_Text joinCodeText;
     [SerializeField] private TMP_Text lobbyStatusText;
     [SerializeField] private TMP_InputField joinCodeInput;
+    [SerializeField] private TMP_InputField nameField;
 
     private readonly Dictionary<ulong, bool> lobbyReadyByClientId =
         new Dictionary<ulong, bool>();
+    private readonly Dictionary<ulong, string> lobbyNameByClientId =
+        new Dictionary<ulong, string>();
 
     private bool registeredNetworkCallbacks;
     private bool registeredMessageHandlers;
@@ -374,6 +378,12 @@ public class MainMenu : MonoBehaviour
     {
         UnlockCursorForMenu();
         ResolveReferences();
+        if (nameField != null)
+        {
+            string pName = PlayerPrefs.GetString("PlayerName", "Player");
+            nameField.text = pName;
+            RegionRunState.SetPlayerName(pName);
+        }
         ResetLobbyToInitialState();
     }
 
@@ -570,6 +580,9 @@ public class MainMenu : MonoBehaviour
         networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
             StartGameMessageName,
             HandleStartGameMessage);
+        networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+            PlayerNameMessageName,
+            HandlePlayerNameMessage);
 
         registeredMessageHandlers = true;
     }
@@ -599,6 +612,7 @@ public class MainMenu : MonoBehaviour
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(ReadyMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(SnapshotMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
+        networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(PlayerNameMessageName);
         registeredMessageHandlers = false;
     }
 
@@ -614,6 +628,9 @@ public class MainMenu : MonoBehaviour
             if (!lobbyReadyByClientId.ContainsKey(clientId))
                 lobbyReadyByClientId[clientId] = false;
 
+            if (clientId == NetworkManager.ServerClientId)
+                lobbyNameByClientId[clientId] = RegionRunState.PlayerName;
+
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
         }
@@ -622,6 +639,17 @@ public class MainMenu : MonoBehaviour
         {
             ApplyLobbyState(networkManager.IsHost);
             SetLobbyStatus("Conectado ao lobby.");
+
+            if (!networkManager.IsHost)
+            {
+                using FastBufferWriter writer = new FastBufferWriter(128, Allocator.Temp);
+                writer.WriteValueSafe(RegionRunState.PlayerName);
+                networkManager.CustomMessagingManager.SendNamedMessage(
+                    PlayerNameMessageName,
+                    NetworkManager.ServerClientId,
+                    writer,
+                    NetworkDelivery.ReliableSequenced);
+            }
         }
     }
 
@@ -633,6 +661,7 @@ public class MainMenu : MonoBehaviour
         if (networkManager.IsServer)
         {
             lobbyReadyByClientId.Remove(clientId);
+            lobbyNameByClientId.Remove(clientId);
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
             return;
@@ -666,6 +695,17 @@ public class MainMenu : MonoBehaviour
         BroadcastLobbySnapshot();
     }
 
+    private void HandlePlayerNameMessage(ulong senderClientId, FastBufferReader reader)
+    {
+        if (networkManager == null || !networkManager.IsServer)
+            return;
+
+        reader.ReadValueSafe(out string playerName);
+        lobbyNameByClientId[senderClientId] = playerName;
+        RefreshLobbyUI();
+        BroadcastLobbySnapshot();
+    }
+
     private void HandleSnapshotMessage(ulong senderClientId, FastBufferReader reader)
     {
         if (networkManager == null ||
@@ -677,12 +717,15 @@ public class MainMenu : MonoBehaviour
 
         reader.ReadValueSafe(out int count);
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
 
         for (int i = 0; i < count; i++)
         {
             reader.ReadValueSafe(out ulong clientId);
             reader.ReadValueSafe(out bool isReady);
+            reader.ReadValueSafe(out string pName);
             lobbyReadyByClientId[clientId] = isReady;
+            lobbyNameByClientId[clientId] = pName;
         }
 
         ApplyLobbyState(false);
@@ -725,6 +768,9 @@ public class MainMenu : MonoBehaviour
         {
             writer.WriteValueSafe(player.Key);
             writer.WriteValueSafe(player.Value);
+            
+            string pName = lobbyNameByClientId.TryGetValue(player.Key, out string name) ? name : (player.Key == NetworkManager.ServerClientId ? "Host" : $"Player {player.Key}");
+            writer.WriteValueSafe(pName);
         }
 
         networkManager.CustomMessagingManager.SendNamedMessage(
@@ -769,9 +815,11 @@ public class MainMenu : MonoBehaviour
         foreach (KeyValuePair<ulong, bool> player in lobbyReadyByClientId)
         {
             bool isHost = player.Key == NetworkManager.ServerClientId;
+            string pName = lobbyNameByClientId.TryGetValue(player.Key, out string name) ? name : (isHost ? "Host" : $"Player {player.Key}");
+
             players.Add(new LobbyUI.PlayerView(
                 player.Key,
-                isHost ? "Host" : $"Player {player.Key}",
+                pName,
                 isHost,
                 player.Value,
                 player.Key == localClientId));
@@ -811,6 +859,13 @@ public class MainMenu : MonoBehaviour
         SetActive(disconnectButton, true);
         SetActive(readyToggle, true);
         SetActive(joinCodeInput, false);
+        SetActive(nameField, false);
+
+        if (nameField != null)
+        {
+            PlayerPrefs.SetString("PlayerName", nameField.text);
+            RegionRunState.SetPlayerName(nameField.text);
+        }
 
         if (joinCodeText != null)
         {
@@ -830,6 +885,7 @@ public class MainMenu : MonoBehaviour
         gameStartInProgress = false;
         characterSelectConfirmed = false;
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
 
         if (lobbyUI != null)
             lobbyUI.ClearPlayers();
@@ -840,6 +896,7 @@ public class MainMenu : MonoBehaviour
         SetActive(disconnectButton, false);
         SetActive(readyToggle, false);
         SetActive(joinCodeInput, true);
+        SetActive(nameField, true);
 
         if (joinCodeText != null)
             joinCodeText.gameObject.SetActive(false);

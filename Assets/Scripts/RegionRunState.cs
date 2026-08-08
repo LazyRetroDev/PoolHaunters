@@ -30,6 +30,7 @@ public static class RegionRunState
     public static string RelayJoinCode { get; private set; } = string.Empty;
     public static string RelayConnectionType { get; private set; } = "dtls";
     public static int RelayMaxConnections { get; private set; } = 3;
+    public static string PlayerName { get; private set; } = "Player";
 
     public static bool IsSinglePlayer
     {
@@ -230,6 +231,11 @@ public static class RegionRunState
         RelayJoinCode = SanitizeRelayJoinCode(joinCode);
     }
 
+    public static void SetPlayerName(string name)
+    {
+        PlayerName = string.IsNullOrWhiteSpace(name) ? "Player" : name.Trim();
+    }
+
     public static void Clear()
     {
         HasSelectedRegion = false;
@@ -245,6 +251,7 @@ public static class RegionRunState
         RelayJoinCode = string.Empty;
         RelayConnectionType = "dtls";
         RelayMaxConnections = 3;
+        PlayerName = "Player";
     }
 
     static string SanitizeRelayJoinCode(string joinCode)
