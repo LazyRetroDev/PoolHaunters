@@ -381,6 +381,8 @@ public class RoomGenerator : MonoBehaviour
 
         if (enemySpawner == null)
             enemySpawner = GetComponent<RoomEnemySpawner>();
+        if (enemySpawner == null)
+            enemySpawner = gameObject.AddComponent<RoomEnemySpawner>();
 
         if (progression == null)
             progression = GetComponent<RoomProgressionController>();
@@ -1638,6 +1640,8 @@ public class RoomGenerator : MonoBehaviour
 
         if (enemySpawner != null)
         {
+            enemySpawner.DespawnRunEnemies();
+
             for (int i = 0; i < spawnedRooms.Count; i++)
                 enemySpawner.DespawnEnemiesForRoom(spawnedRooms[i]);
         }
@@ -3248,6 +3252,9 @@ public class RoomGenerator : MonoBehaviour
             SpawnRoomContent(pending.room, pending.roomIndex);
         }
 
+        if (enemySpawner != null && enemySpawner.UsesPhaseBasedRunSelection)
+            enemySpawner.SpawnEnemiesForGeneratedMap(spawnedRooms, seed);
+
         if (pendingInitialTimeCamperSpawn)
         {
             pendingInitialTimeCamperSpawn = false;
@@ -3320,6 +3327,8 @@ public class RoomGenerator : MonoBehaviour
     void TrySpawnInitialTimeCamper()
     {
         if (initialEnemySpawned) return;
+        if (enemySpawner != null && enemySpawner.UsesPhaseBasedRunSelection)
+            return;
         if (!spawnTimeCamperAfterStartingRooms) return;
         if (spawnedRooms.Count < startingRoomCount) return;
         if (EnemySpawner.Instance == null) return;
