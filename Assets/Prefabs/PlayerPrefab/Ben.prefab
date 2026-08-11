@@ -844,7 +844,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 4228279152
+  GlobalObjectIdHash: 2056559034
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -902,7 +902,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   crouchSpeed: 2.5
   crouchColliderHeight: 1.2
-  crouchView: {fileID: 0}
+  crouchView: {fileID: 7620439176708316678}
   crouchViewOffset: 0.65
   crouchTransitionSpeed: 10
   maxStamina: 100

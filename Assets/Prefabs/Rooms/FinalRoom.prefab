@@ -1542,7 +1542,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SubmarineReturnController
   requireLevelCompleted: 1
   onlyPlayersCanTrigger: 1
-  allowTriggerReturn: 0
+  allowTriggerReturn: 1
   allowInteractionReturn: 1
   requireSpecificRoomCategory: 1
   requiredRoomCategory: 0
@@ -1564,9 +1564,21 @@ MonoBehaviour:
   blockPreviousScene: 0
   useRandomSeed: 1
   fixedSeed: 0
+  requireAllLivingPlayersInMultiplayer: 1
+  confirmationText: {fileID: 0}
+  confirmationTextChildName: ConfirmationText
+  createConfirmationTextIfMissing: 1
+  hideConfirmationTextUntilFirstConfirm: 1
+  billboardConfirmationText: 1
+  confirmationTextLocalOffset: {x: 0, y: 1.25, z: 0}
+  confirmationTextFontSize: 2
+  confirmationTextColor: {r: 1, g: 1, b: 1, a: 1}
   transitionStarted: 0
   selectedNextScene: 
   selectedDestinationScene: 
+  confirmedLivingPlayers: 0
+  requiredLivingPlayers: 0
+  transitionQueued: 0
 --- !u!1 &6034398736303208771
 GameObject:
   m_ObjectHideFlags: 0
