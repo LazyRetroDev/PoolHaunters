@@ -34,6 +34,7 @@ public class MainMenu : MonoBehaviour
     };
     [SerializeField] private bool useRandomSeed = true;
     [SerializeField] private int fixedSeed;
+    [SerializeField] private RunDifficulty selectedDifficulty = RunDifficulty.Gradual;
 
     [Header("Multiplayer LAN / Direct")]
     [SerializeField] private string connectionAddress = "127.0.0.1";
@@ -64,6 +65,7 @@ public class MainMenu : MonoBehaviour
     [SerializeField] private TMP_Text lobbyStatusText;
     [SerializeField] private TMP_InputField joinCodeInput;
     [SerializeField] private TMP_InputField nameField;
+    [SerializeField] private TMP_Dropdown difficultyDropdown;
 
     private readonly Dictionary<ulong, bool> lobbyReadyByClientId =
         new Dictionary<ulong, bool>();
@@ -93,7 +95,8 @@ public class MainMenu : MonoBehaviour
         RegionRunState.SelectSinglePlayerRegion(
             GetRegionName(selectedScene),
             selectedScene.sceneName,
-            CreateRunSeed());
+            CreateRunSeed(),
+            selectedDifficulty);
         LoadGameScene(selectedScene.sceneName);
     }
 
@@ -110,7 +113,8 @@ public class MainMenu : MonoBehaviour
             GetRegionName(selectedScene),
             selectedScene.sceneName,
             CreateRunSeed(),
-            GetConnectionPort());
+            GetConnectionPort(),
+            selectedDifficulty);
 
         LoadGameScene(selectedScene.sceneName);
     }
@@ -129,7 +133,8 @@ public class MainMenu : MonoBehaviour
             selectedScene.sceneName,
             CreateRunSeed(),
             connectionAddress,
-            GetConnectionPort());
+            GetConnectionPort(),
+            selectedDifficulty);
 
         LoadGameScene(selectedScene.sceneName);
     }
@@ -317,7 +322,8 @@ public class MainMenu : MonoBehaviour
             selectedScene.sceneName,
             runSeed,
             relayMaxConnections,
-            relayConnectionType);
+            relayConnectionType,
+            selectedDifficulty);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
 
         SendStartGameMessage(runSeed, selectedScene);
@@ -389,6 +395,53 @@ public class MainMenu : MonoBehaviour
             : connectionType.Trim().ToLowerInvariant();
     }
 
+    public void SetRunDifficultyByIndex(int difficultyIndex)
+    {
+        SetRunDifficulty((RunDifficulty)Mathf.Clamp(
+            difficultyIndex,
+            0,
+            Enum.GetValues(typeof(RunDifficulty)).Length - 1));
+    }
+
+    public void SetRunDifficultyByName(string difficultyName)
+    {
+        if (Enum.TryParse(difficultyName, true, out RunDifficulty parsed))
+            SetRunDifficulty(parsed);
+    }
+
+    public void SetRunDifficultyEasy()
+    {
+        SetRunDifficulty(RunDifficulty.Easy);
+    }
+
+    public void SetRunDifficultyMedium()
+    {
+        SetRunDifficulty(RunDifficulty.Medium);
+    }
+
+    public void SetRunDifficultyHard()
+    {
+        SetRunDifficulty(RunDifficulty.Hard);
+    }
+
+    public void SetRunDifficultyGradual()
+    {
+        SetRunDifficulty(RunDifficulty.Gradual);
+    }
+
+    void SetRunDifficulty(RunDifficulty difficulty)
+    {
+        selectedDifficulty = difficulty;
+        RegionRunState.SetDifficulty(selectedDifficulty);
+
+        if (difficultyDropdown != null &&
+            difficultyDropdown.value != (int)selectedDifficulty)
+        {
+            difficultyDropdown.SetValueWithoutNotify((int)selectedDifficulty);
+            difficultyDropdown.RefreshShownValue();
+        }
+    }
+
     public void QuitButton()
     {
         Application.Quit();
@@ -406,6 +459,7 @@ public class MainMenu : MonoBehaviour
         UnlockCursorForMenu();
         ResolveReferences();
         InitializePlayerNameField();
+        InitializeDifficultyDropdown();
         ResetLobbyToInitialState();
     }
 
@@ -504,7 +558,8 @@ public class MainMenu : MonoBehaviour
             fallbackScene.sceneName,
             CreateRunSeed(),
             relayMaxConnections,
-            connectionType);
+            connectionType,
+            selectedDifficulty);
         RegionRunState.SetRelayJoinCode(joinCode);
 
         relayConnectionType = connectionType;
@@ -535,7 +590,8 @@ public class MainMenu : MonoBehaviour
             fallbackScene.sceneName,
             CreateRunSeed(),
             joinCode,
-            connectionType);
+            connectionType,
+            selectedDifficulty);
 
         relayConnectionType = connectionType;
         SetRelayJoinCode(joinCode);
@@ -794,12 +850,17 @@ public class MainMenu : MonoBehaviour
         reader.ReadValueSafe(out int runSeed);
         reader.ReadValueSafe(out string selectedRegionName);
         reader.ReadValueSafe(out string selectedSceneName);
+        reader.ReadValueSafe(out int difficultyIndex);
         RegionRunState.SelectRelayClientRegion(
             selectedRegionName,
             selectedSceneName,
             runSeed,
             relayJoinCode,
-            relayConnectionType);
+            relayConnectionType,
+            (RunDifficulty)Mathf.Clamp(
+                difficultyIndex,
+                0,
+                Enum.GetValues(typeof(RunDifficulty)).Length - 1));
     }
 
     private void BroadcastLobbySnapshot()
@@ -854,6 +915,7 @@ public class MainMenu : MonoBehaviour
             writer.WriteValueSafe(runSeed);
             writer.WriteValueSafe(GetRegionName(selectedScene));
             writer.WriteValueSafe(selectedScene.sceneName);
+            writer.WriteValueSafe((int)selectedDifficulty);
             networkManager.CustomMessagingManager.SendNamedMessage(
                 StartGameMessageName,
                 clientId,
@@ -1053,6 +1115,25 @@ public class MainMenu : MonoBehaviour
         RegionRunState.SetPlayerName(GetPlayerNameFromInput());
     }
 
+    private void InitializeDifficultyDropdown()
+    {
+        RegionRunState.SetDifficulty(selectedDifficulty);
+
+        if (difficultyDropdown == null)
+            return;
+
+        difficultyDropdown.ClearOptions();
+        difficultyDropdown.AddOptions(new List<string>
+        {
+            "Easy",
+            "Medium",
+            "Hard",
+            "Gradual"
+        });
+        difficultyDropdown.SetValueWithoutNotify((int)selectedDifficulty);
+        difficultyDropdown.RefreshShownValue();
+    }
+
     private string GetPlayerNameFromInput()
     {
         if (nameField != null && !string.IsNullOrWhiteSpace(nameField.text))
@@ -1109,6 +1190,12 @@ public class MainMenu : MonoBehaviour
             readyToggle.onValueChanged.AddListener(SetLobbyReady);
         }
 
+        if (difficultyDropdown != null)
+        {
+            difficultyDropdown.onValueChanged.RemoveListener(SetRunDifficultyByIndex);
+            difficultyDropdown.onValueChanged.AddListener(SetRunDifficultyByIndex);
+        }
+
         if (nameField != null)
         {
             nameField.onValueChanged.RemoveListener(HandlePlayerNameChanged);
@@ -1157,6 +1244,9 @@ public class MainMenu : MonoBehaviour
 
         if (nameField == null)
             nameField = FindComponentByName<TMP_InputField>(root, "NameField");
+
+        if (difficultyDropdown == null)
+            difficultyDropdown = FindComponentByName<TMP_Dropdown>(root, "Difficulty");
 
         if (nameField == joinCodeInput)
         {

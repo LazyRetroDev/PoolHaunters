@@ -26,9 +26,19 @@ public class ContaminationStormController : MonoBehaviour
     public bool spawnDirtSpots = true;
     public int dirtSpotsPerRoom = 4;
     public int contaminationZonesPerRoom = 1;
+    public bool scaleDirtByRunDifficulty = true;
+    public float easyDirtMultiplier = 0.75f;
+    public float mediumDirtMultiplier = 1f;
+    public float hardDirtMultiplier = 1.35f;
+    public float gradualStartingDirtMultiplier = 0.75f;
+    public float gradualEndingDirtMultiplier = 1.35f;
+    [Min(1)] public int gradualDirtMaxPhase = 8;
     public float spawnHeightOffset = 0.08f;
     public float navMeshSampleRadius = 6f;
     public float roomBoundsInset = 1f;
+    public LayerMask dirtPlacementMask = ~0;
+    [Range(0f, 1f)] public float minimumFloorNormalDot = 0.65f;
+    public float dirtPlacementRaycastPadding = 2f;
 
     [Header("Multiplayer")]
     public bool runOnlyOnServer = true;
@@ -256,7 +266,7 @@ public class ContaminationStormController : MonoBehaviour
     {
         if (dirtSpotPrefab == null) return;
 
-        int count = Mathf.Max(0, dirtSpotsPerRoom);
+        int count = GetEffectiveDirtSpotCount();
         for (int i = 0; i < count; i++)
         {
             Vector3 position;
@@ -270,6 +280,47 @@ public class ContaminationStormController : MonoBehaviour
                 0.35f,
                 dirtSpot.contaminatedGrowthPerWaterChunk,
                 dirtSpot.contaminatedWaterPerGrowthChunk);
+        }
+    }
+
+    int GetEffectiveDirtSpotCount()
+    {
+        int baseCount = Mathf.Max(0, dirtSpotsPerRoom);
+        if (!scaleDirtByRunDifficulty || baseCount <= 0)
+            return baseCount;
+
+        float multiplier = GetDirtMultiplierForCurrentRun();
+        return Mathf.Max(0, Mathf.RoundToInt(baseCount * multiplier));
+    }
+
+    float GetDirtMultiplierForCurrentRun()
+    {
+        switch (RegionRunState.Difficulty)
+        {
+            case RunDifficulty.Easy:
+                return Mathf.Max(0f, easyDirtMultiplier);
+
+            case RunDifficulty.Medium:
+                return Mathf.Max(0f, mediumDirtMultiplier);
+
+            case RunDifficulty.Hard:
+                return Mathf.Max(0f, hardDirtMultiplier);
+
+            case RunDifficulty.Gradual:
+                int phase = Mathf.Max(1, RegionRunState.PhaseNumber);
+                int maxPhase = Mathf.Max(1, gradualDirtMaxPhase);
+                float t = maxPhase <= 1
+                    ? 1f
+                    : Mathf.Clamp01((phase - 1f) / (maxPhase - 1f));
+                return Mathf.Max(
+                    0f,
+                    Mathf.Lerp(
+                        gradualStartingDirtMultiplier,
+                        gradualEndingDirtMultiplier,
+                        t));
+
+            default:
+                return 1f;
         }
     }
 
@@ -326,7 +377,7 @@ public class ContaminationStormController : MonoBehaviour
             max = bounds.max;
         }
 
-        for (int attempt = 0; attempt < 8; attempt++)
+        for (int attempt = 0; attempt < 16; attempt++)
         {
             Vector3 candidate = new Vector3(
                 Random.Range(min.x, max.x),
@@ -336,13 +387,89 @@ public class ContaminationStormController : MonoBehaviour
             NavMeshHit hit;
             if (NavMesh.SamplePosition(candidate, out hit, navMeshSampleRadius, NavMesh.AllAreas))
             {
-                position = hit.position + Vector3.up * spawnHeightOffset;
+                if (TryFindFloorAtRoomPoint(
+                    hit.position,
+                    bounds,
+                    out RaycastHit floorHit))
+                {
+                    position = floorHit.point + floorHit.normal.normalized * spawnHeightOffset;
+                    return true;
+                }
+            }
+
+            if (TryFindFloorAtRoomPoint(candidate, bounds, out RaycastHit randomFloorHit))
+            {
+                position = randomFloorHit.point +
+                    randomFloorHit.normal.normalized * spawnHeightOffset;
                 return true;
             }
         }
 
-        position = bounds.center + Vector3.up * spawnHeightOffset;
-        return true;
+        if (TryFindFloorAtRoomPoint(bounds.center, bounds, out RaycastHit fallbackHit))
+        {
+            position = fallbackHit.point +
+                fallbackHit.normal.normalized * spawnHeightOffset;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryFindFloorAtRoomPoint(
+        Vector3 point,
+        Bounds roomBounds,
+        out RaycastHit floorHit)
+    {
+        floorHit = default;
+
+        float padding = Mathf.Max(0.1f, dirtPlacementRaycastPadding);
+        Vector3 origin = new Vector3(
+            point.x,
+            Mathf.Min(point.y + padding, roomBounds.max.y + padding),
+            point.z);
+        float maxDistance = Mathf.Max(0.1f, padding * 2f);
+
+        RaycastHit[] hits = Physics.RaycastAll(
+            origin,
+            Vector3.down,
+            maxDistance,
+            dirtPlacementMask,
+            QueryTriggerInteraction.Ignore);
+
+        if (hits == null || hits.Length == 0)
+            return false;
+
+        float minimumDot = Mathf.Clamp01(minimumFloorNormalDot);
+        float bestY = float.NegativeInfinity;
+        bool found = false;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (hit.collider == null)
+                continue;
+
+            if (Vector3.Dot(hit.normal.normalized, Vector3.up) < minimumDot)
+                continue;
+
+            if (hit.collider.GetComponentInParent<DirtSpot>() != null)
+                continue;
+
+            if (hit.point.y < roomBounds.min.y - padding ||
+                hit.point.y > roomBounds.max.y + padding)
+            {
+                continue;
+            }
+
+            if (!found || hit.point.y > bestY)
+            {
+                floorHit = hit;
+                bestY = hit.point.y;
+                found = true;
+            }
+        }
+
+        return found;
     }
 
     Bounds GetRoomBounds(GameObject room)

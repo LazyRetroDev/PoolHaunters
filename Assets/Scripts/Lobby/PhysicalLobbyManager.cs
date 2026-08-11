@@ -272,14 +272,16 @@ public class PhysicalLobbyManager : NetworkBehaviour
             ToFixedString(sceneName),
             runSeed,
             ToFixedString(relayJoinCode),
-            ToFixedString(relayConnectionType));
+            ToFixedString(relayConnectionType),
+            (int)RegionRunState.Difficulty);
 
         RegionRunState.SelectRelayHostRegion(
             safeRegionName,
             sceneName,
             runSeed,
             relayMaxConnections,
-            relayConnectionType);
+            relayConnectionType,
+            RegionRunState.Difficulty);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
 
         SetStatus("Starting run...");
@@ -298,7 +300,8 @@ public class PhysicalLobbyManager : NetworkBehaviour
         RegionRunState.SelectSinglePlayerRegion(
             safeRegionName,
             sceneName,
-            CreateRunSeed());
+            CreateRunSeed(),
+            RegionRunState.Difficulty);
         SceneManager.LoadScene(sceneName);
     }
 
@@ -424,7 +427,8 @@ public class PhysicalLobbyManager : NetworkBehaviour
         FixedString128Bytes sceneName,
         int runSeed,
         FixedString128Bytes relayJoinCode,
-        FixedString128Bytes relayConnectionType)
+        FixedString128Bytes relayConnectionType,
+        int difficultyIndex)
     {
         if (IsServer)
             return;
@@ -434,6 +438,10 @@ public class PhysicalLobbyManager : NetworkBehaviour
             sceneName.ToString(),
             runSeed,
             relayJoinCode.ToString(),
-            relayConnectionType.ToString());
+            relayConnectionType.ToString(),
+            (RunDifficulty)Mathf.Clamp(
+                difficultyIndex,
+                0,
+                System.Enum.GetValues(typeof(RunDifficulty)).Length - 1));
     }
 }

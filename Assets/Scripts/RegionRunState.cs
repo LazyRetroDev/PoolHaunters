@@ -13,6 +13,14 @@ public enum RunNetworkMode
     Relay
 }
 
+public enum RunDifficulty
+{
+    Easy,
+    Medium,
+    Hard,
+    Gradual
+}
+
 public static class RegionRunState
 {
     public static bool HasSelectedRegion { get; private set; }
@@ -31,6 +39,8 @@ public static class RegionRunState
     public static string RelayConnectionType { get; private set; } = "dtls";
     public static int RelayMaxConnections { get; private set; } = 3;
     public static string PlayerName { get; private set; } = "Player";
+    public static RunDifficulty Difficulty { get; private set; } =
+        RunDifficulty.Gradual;
 
     public static bool IsSinglePlayer
     {
@@ -68,7 +78,8 @@ public static class RegionRunState
     public static void SelectSinglePlayerRegion(
         string regionName,
         string sceneName,
-        int runSeed)
+        int runSeed,
+        RunDifficulty difficulty = RunDifficulty.Gradual)
     {
         SelectRegion(
             regionName,
@@ -82,14 +93,16 @@ public static class RegionRunState
             "dtls",
             3,
             1,
-            string.Empty);
+            string.Empty,
+            difficulty);
     }
 
     public static void SelectMultiplayerHostRegion(
         string regionName,
         string sceneName,
         int runSeed,
-        ushort port = 7777)
+        ushort port = 7777,
+        RunDifficulty difficulty = RunDifficulty.Gradual)
     {
         SelectRegion(
             regionName,
@@ -103,7 +116,8 @@ public static class RegionRunState
             "dtls",
             3,
             1,
-            string.Empty);
+            string.Empty,
+            difficulty);
     }
 
     public static void SelectMultiplayerClientRegion(
@@ -111,7 +125,8 @@ public static class RegionRunState
         string sceneName,
         int runSeed,
         string address,
-        ushort port = 7777)
+        ushort port = 7777,
+        RunDifficulty difficulty = RunDifficulty.Gradual)
     {
         SelectRegion(
             regionName,
@@ -125,7 +140,8 @@ public static class RegionRunState
             "dtls",
             3,
             1,
-            string.Empty);
+            string.Empty,
+            difficulty);
     }
 
     public static void SelectRelayHostRegion(
@@ -133,7 +149,8 @@ public static class RegionRunState
         string sceneName,
         int runSeed,
         int maxConnections = 3,
-        string connectionType = "dtls")
+        string connectionType = "dtls",
+        RunDifficulty difficulty = RunDifficulty.Gradual)
     {
         SelectRegion(
             regionName,
@@ -147,7 +164,8 @@ public static class RegionRunState
             connectionType,
             maxConnections,
             1,
-            string.Empty);
+            string.Empty,
+            difficulty);
     }
 
     public static void SelectRelayClientRegion(
@@ -155,7 +173,8 @@ public static class RegionRunState
         string sceneName,
         int runSeed,
         string joinCode,
-        string connectionType = "dtls")
+        string connectionType = "dtls",
+        RunDifficulty difficulty = RunDifficulty.Gradual)
     {
         SelectRegion(
             regionName,
@@ -169,7 +188,8 @@ public static class RegionRunState
             connectionType,
             1,
             1,
-            string.Empty);
+            string.Empty,
+            difficulty);
     }
 
     public static void SelectNextPhaseRegion(
@@ -192,7 +212,8 @@ public static class RegionRunState
             RelayConnectionType,
             RelayMaxConnections,
             nextPhaseNumber,
-            previousSceneName);
+            previousSceneName,
+            Difficulty);
     }
 
     static void SelectRegion(
@@ -207,7 +228,8 @@ public static class RegionRunState
         string relayConnectionType,
         int relayMaxConnections,
         int phaseNumber,
-        string previousSceneName)
+        string previousSceneName,
+        RunDifficulty difficulty)
     {
         HasSelectedRegion = true;
         RegionName = string.IsNullOrWhiteSpace(regionName) ? sceneName : regionName;
@@ -224,9 +246,10 @@ public static class RegionRunState
         RelayJoinCode = SanitizeRelayJoinCode(relayJoinCode);
         RelayConnectionType = SanitizeRelayConnectionType(relayConnectionType);
         RelayMaxConnections = Mathf.Max(1, relayMaxConnections);
+        Difficulty = difficulty;
 
         Debug.Log(
-            $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}.");
+            $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}. Difficulty: {Difficulty}.");
     }
 
     public static void SetRelayJoinCode(string joinCode)
@@ -237,6 +260,11 @@ public static class RegionRunState
     public static void SetPlayerName(string name)
     {
         PlayerName = string.IsNullOrWhiteSpace(name) ? "Player" : name.Trim();
+    }
+
+    public static void SetDifficulty(RunDifficulty difficulty)
+    {
+        Difficulty = difficulty;
     }
 
     public static void Clear()
@@ -255,6 +283,7 @@ public static class RegionRunState
         RelayConnectionType = "dtls";
         RelayMaxConnections = 3;
         PlayerName = "Player";
+        Difficulty = RunDifficulty.Gradual;
     }
 
     static string SanitizeRelayJoinCode(string joinCode)
