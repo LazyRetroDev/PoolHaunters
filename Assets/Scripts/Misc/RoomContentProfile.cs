@@ -37,6 +37,12 @@ public class RoomContentProfile : ScriptableObject
         public GameObject prefab;
         public RoomEnemyCategory category = RoomEnemyCategory.Common;
 
+        [Tooltip("Difficulty used by the global phase enemy planner.")]
+        public RunEnemyDifficulty difficulty = RunEnemyDifficulty.Easy;
+
+        [Tooltip("Support enemies cannot be the only creature selected for a run.")]
+        public bool requiresCompanion;
+
         [Min(0f)]
         public float weight = 1f;
 
