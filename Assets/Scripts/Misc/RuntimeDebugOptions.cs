@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -9,11 +10,17 @@ public class RuntimeDebugOptions : MonoBehaviour
     public Key toggleKey = Key.F1;
 
     [Header("Resource Toggles")]
+    public bool infiniteHealth;
     public bool infiniteWater;
     public bool infiniteStamina;
     public bool petrifyImmunity;
     public WaterQuality debugWaterQuality = WaterQuality.Clean;
     public int debugGermsAmount = 50;
+
+    [Header("Enemy Debug")]
+    public bool enemyTracking;
+    public float enemyTrackingMaxDistance = 120f;
+    public Vector2 enemyTrackingListPosition = new Vector2(24f, 540f);
 
     [Header("Character")]
     public bool persistDebugCharacterSelection = true;
@@ -24,6 +31,19 @@ public class RuntimeDebugOptions : MonoBehaviour
     private bool visible;
     private bool cursorUnlockRequested;
     private Vector2 scrollPosition;
+
+    private static readonly string[] EnemyTypeNames =
+    {
+        "BathroomBlondeBehavior",
+        "GhostWaterBehavior",
+        "GoldenMouthBehavior",
+        "Photographer",
+        "RaccoonBehavior",
+        "TimeCamper",
+        "TubaraoBehavior",
+        "VictoriaRegiaBehavior",
+        "WillOWispBehavior"
+    };
 
     void Update()
     {
@@ -52,14 +72,20 @@ public class RuntimeDebugOptions : MonoBehaviour
 
     void OnGUI()
     {
-        if (!IsAllowed() || !visible)
+        if (!IsAllowed())
             return;
 
-        windowRect = GUILayout.Window(
-            GetInstanceID(),
-            windowRect,
-            DrawWindow,
-            "Debug Options");
+        if (enemyTracking)
+            DrawEnemyTrackingOverlay();
+
+        if (visible)
+        {
+            windowRect = GUILayout.Window(
+                GetInstanceID(),
+                windowRect,
+                DrawWindow,
+                "Debug Options");
+        }
     }
 
     void DrawWindow(int windowId)
@@ -67,6 +93,13 @@ public class RuntimeDebugOptions : MonoBehaviour
         scrollPosition = GUILayout.BeginScrollView(scrollPosition);
 
         GUILayout.Label("Resources");
+        bool nextInfiniteHealth = GUILayout.Toggle(infiniteHealth, "Infinite Health");
+        if (nextInfiniteHealth != infiniteHealth)
+        {
+            infiniteHealth = nextInfiniteHealth;
+            ApplyDebugToggles();
+        }
+
         bool nextInfiniteWater = GUILayout.Toggle(infiniteWater, "Infinite Water");
         if (nextInfiniteWater != infiniteWater)
         {
@@ -101,6 +134,9 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (GUILayout.Button("Fill Stamina"))
             FillStamina();
 
+        if (GUILayout.Button("Fill Health"))
+            FillHealth();
+
         GUILayout.Label($"Germs: {PlayerCurrencyState.Germs}");
         GUILayout.BeginHorizontal();
         if (GUILayout.Button($"+{debugGermsAmount} Germs"))
@@ -115,6 +151,12 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (GUILayout.Button("Activate Water Valve"))
             ActivateWaterValve();
 
+        if (GUILayout.Button("Start Storm"))
+            StartStorm();
+
+        if (GUILayout.Button("Spread Storm Now"))
+            SpreadStormNow();
+
         if (GUILayout.Button("Clean All Pools"))
             CleanAllPools();
 
@@ -128,6 +170,15 @@ public class RuntimeDebugOptions : MonoBehaviour
             RevealMinimap();
 
         DrawObjectiveSummary();
+
+        GUILayout.Space(12f);
+        GUILayout.Label("Enemy Debug");
+        enemyTracking = GUILayout.Toggle(enemyTracking, "Enemy Tracking");
+        GUILayout.Label($"Tracking range: {Mathf.RoundToInt(enemyTrackingMaxDistance)}m");
+        enemyTrackingMaxDistance = GUILayout.HorizontalSlider(
+            enemyTrackingMaxDistance,
+            10f,
+            250f);
 
         GUILayout.Space(12f);
         GUILayout.Label("Character");
@@ -196,7 +247,10 @@ public class RuntimeDebugOptions : MonoBehaviour
         for (int i = 0; i < statuses.Length; i++)
         {
             if (statuses[i] != null)
+            {
+                statuses[i].SetDebugInfiniteHealth(infiniteHealth);
                 statuses[i].SetDebugInfiniteWater(infiniteWater);
+            }
         }
 
         PlayerMovement[] movements =
@@ -224,6 +278,17 @@ public class RuntimeDebugOptions : MonoBehaviour
         {
             if (statuses[i] != null)
                 statuses[i].DebugFillWater(debugWaterQuality);
+        }
+    }
+
+    void FillHealth()
+    {
+        PlayerStatus[] statuses =
+            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < statuses.Length; i++)
+        {
+            if (statuses[i] != null)
+                statuses[i].DebugFillHealth();
         }
     }
 
@@ -265,6 +330,31 @@ public class RuntimeDebugOptions : MonoBehaviour
     {
         if (LevelObjectiveManager.Instance != null)
             LevelObjectiveManager.Instance.ActivateWaterValve();
+    }
+
+    void StartStorm()
+    {
+        ContaminationStormController[] storms =
+            FindObjectsByType<ContaminationStormController>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < storms.Length; i++)
+        {
+            if (storms[i] != null)
+                storms[i].StartStorm();
+        }
+    }
+
+    void SpreadStormNow()
+    {
+        ContaminationStormController[] storms =
+            FindObjectsByType<ContaminationStormController>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < storms.Length; i++)
+        {
+            if (storms[i] != null)
+            {
+                storms[i].StartStorm();
+                storms[i].SpreadToNextRoom();
+            }
+        }
     }
 
     void CleanAllPools()
@@ -371,6 +461,119 @@ public class RuntimeDebugOptions : MonoBehaviour
         GUILayout.Label($"Pools: {objectiveManager.CleanedRequiredPoolCount}/{objectiveManager.RequiredPoolCount}");
         GUILayout.Label($"Pool progress: {Mathf.RoundToInt(objectiveManager.CurrentPoolCleanPercent * 100f)}%");
         GUILayout.Label($"Completed: {(objectiveManager.LevelCompleted ? "Yes" : "No")}");
+    }
+
+    void DrawEnemyTrackingOverlay()
+    {
+        Camera camera = Camera.main;
+        List<GameObject> enemies = FindEnemyObjects();
+
+        GUILayout.BeginArea(new Rect(
+            enemyTrackingListPosition.x,
+            enemyTrackingListPosition.y,
+            360f,
+            240f),
+            GUI.skin.box);
+
+        GUILayout.Label($"Enemies: {enemies.Count}");
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            GameObject enemy = enemies[i];
+            if (enemy == null)
+                continue;
+
+            float distance = 0f;
+            PlayerStatus closest = FindNearestPlayer(enemy.transform.position, out distance);
+            string closestText = closest != null ? $"{Mathf.RoundToInt(distance)}m" : "no player";
+            GUILayout.Label($"{enemy.name} - {closestText}");
+        }
+
+        GUILayout.EndArea();
+
+        if (camera == null)
+            return;
+
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            GameObject enemy = enemies[i];
+            if (enemy == null)
+                continue;
+
+            float distance;
+            FindNearestPlayer(enemy.transform.position, out distance);
+            if (distance > enemyTrackingMaxDistance)
+                continue;
+
+            Vector3 screen = camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * 1.8f);
+            if (screen.z <= 0f)
+                continue;
+
+            Rect labelRect = new Rect(
+                screen.x - 90f,
+                Screen.height - screen.y - 14f,
+                180f,
+                28f);
+            GUI.Label(labelRect, $"{enemy.name} [{Mathf.RoundToInt(distance)}m]");
+        }
+    }
+
+    List<GameObject> FindEnemyObjects()
+    {
+        List<GameObject> enemies = new List<GameObject>();
+        HashSet<GameObject> seen = new HashSet<GameObject>();
+        MonoBehaviour[] behaviours =
+            FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude);
+
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            MonoBehaviour behaviour = behaviours[i];
+            if (behaviour == null)
+                continue;
+
+            if (!IsKnownEnemyType(behaviour.GetType().Name))
+                continue;
+
+            GameObject enemyObject = behaviour.gameObject;
+            if (enemyObject != null && seen.Add(enemyObject))
+                enemies.Add(enemyObject);
+        }
+
+        return enemies;
+    }
+
+    bool IsKnownEnemyType(string typeName)
+    {
+        for (int i = 0; i < EnemyTypeNames.Length; i++)
+        {
+            if (EnemyTypeNames[i] == typeName)
+                return true;
+        }
+
+        return false;
+    }
+
+    PlayerStatus FindNearestPlayer(Vector3 position, out float distance)
+    {
+        distance = float.PositiveInfinity;
+        PlayerStatus closest = null;
+        PlayerStatus[] players =
+            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
+
+        for (int i = 0; i < players.Length; i++)
+        {
+            PlayerStatus player = players[i];
+            if (player == null)
+                continue;
+
+            float currentDistance = Vector3.Distance(position, player.transform.position);
+            if (currentDistance < distance)
+            {
+                distance = currentDistance;
+                closest = player;
+            }
+        }
+
+        return closest;
     }
 
     bool IsAllowed()

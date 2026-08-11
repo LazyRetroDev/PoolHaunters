@@ -68,6 +68,7 @@ public class PlayerStatus : NetworkBehaviour
     private bool localStateInitialized;
     private bool serverStateInitialized;
     private WaterZone activeWaterZone;
+    private bool debugInfiniteHealth;
     private bool debugInfiniteWater;
 
     private PlayerMovement movement;
@@ -394,6 +395,41 @@ public class PlayerStatus : NetworkBehaviour
         SyncWaterState();
     }
 
+    public void SetDebugInfiniteHealth(bool value)
+    {
+        debugInfiniteHealth = value;
+
+        if (!debugInfiniteHealth || IsClientReplica() || isDead || deathTransformationApplied)
+            return;
+
+        if (isKnockedOut)
+        {
+            Revive(maxHealth);
+            return;
+        }
+
+        if (currentHealth < maxHealth)
+        {
+            currentHealth = maxHealth;
+            SyncCoreState();
+        }
+    }
+
+    public void DebugFillHealth()
+    {
+        if (IsClientReplica() || isDead || deathTransformationApplied)
+            return;
+
+        if (isKnockedOut)
+        {
+            Revive(maxHealth);
+            return;
+        }
+
+        currentHealth = maxHealth;
+        SyncCoreState();
+    }
+
     public bool AddWater(
         float amount,
         WaterQuality quality,
@@ -497,6 +533,13 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (damage <= 0f || isDead || isKnockedOut || deathTransformationApplied)
             return false;
+
+        if (debugInfiniteHealth)
+        {
+            currentHealth = maxHealth;
+            SyncCoreState();
+            return false;
+        }
 
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
