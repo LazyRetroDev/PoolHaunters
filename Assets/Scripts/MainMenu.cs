@@ -65,6 +65,8 @@ public class MainMenu : MonoBehaviour
     [SerializeField] private TMP_Text lobbyStatusText;
     [SerializeField] private TMP_InputField joinCodeInput;
     [SerializeField] private TMP_InputField nameField;
+    [SerializeField] private TMP_Dropdown singleplayerDifficultyDropdown;
+    [SerializeField] private TMP_Dropdown multiplayerDifficultyDropdown;
     [SerializeField] private TMP_Dropdown difficultyDropdown;
 
     private readonly Dictionary<ulong, bool> lobbyReadyByClientId =
@@ -434,12 +436,7 @@ public class MainMenu : MonoBehaviour
         selectedDifficulty = difficulty;
         RegionRunState.SetDifficulty(selectedDifficulty);
 
-        if (difficultyDropdown != null &&
-            difficultyDropdown.value != (int)selectedDifficulty)
-        {
-            difficultyDropdown.SetValueWithoutNotify((int)selectedDifficulty);
-            difficultyDropdown.RefreshShownValue();
-        }
+        SyncDifficultyDropdowns();
     }
 
     public void QuitButton()
@@ -1119,19 +1116,45 @@ public class MainMenu : MonoBehaviour
     {
         RegionRunState.SetDifficulty(selectedDifficulty);
 
-        if (difficultyDropdown == null)
+        ConfigureDifficultyDropdown(singleplayerDifficultyDropdown);
+        ConfigureDifficultyDropdown(multiplayerDifficultyDropdown);
+        ConfigureDifficultyDropdown(difficultyDropdown);
+        SyncDifficultyDropdowns();
+    }
+
+    private void ConfigureDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
             return;
 
-        difficultyDropdown.ClearOptions();
-        difficultyDropdown.AddOptions(new List<string>
+        dropdown.ClearOptions();
+        dropdown.AddOptions(new List<string>
         {
             "Easy",
             "Medium",
             "Hard",
             "Gradual"
         });
-        difficultyDropdown.SetValueWithoutNotify((int)selectedDifficulty);
-        difficultyDropdown.RefreshShownValue();
+        dropdown.SetValueWithoutNotify((int)selectedDifficulty);
+        dropdown.RefreshShownValue();
+    }
+
+    private void SyncDifficultyDropdowns()
+    {
+        SyncDifficultyDropdown(singleplayerDifficultyDropdown);
+        SyncDifficultyDropdown(multiplayerDifficultyDropdown);
+        SyncDifficultyDropdown(difficultyDropdown);
+    }
+
+    private void SyncDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
+            return;
+
+        if (dropdown.value != (int)selectedDifficulty)
+            dropdown.SetValueWithoutNotify((int)selectedDifficulty);
+
+        dropdown.RefreshShownValue();
     }
 
     private string GetPlayerNameFromInput()
@@ -1190,11 +1213,9 @@ public class MainMenu : MonoBehaviour
             readyToggle.onValueChanged.AddListener(SetLobbyReady);
         }
 
-        if (difficultyDropdown != null)
-        {
-            difficultyDropdown.onValueChanged.RemoveListener(SetRunDifficultyByIndex);
-            difficultyDropdown.onValueChanged.AddListener(SetRunDifficultyByIndex);
-        }
+        RegisterDifficultyDropdown(singleplayerDifficultyDropdown);
+        RegisterDifficultyDropdown(multiplayerDifficultyDropdown);
+        RegisterDifficultyDropdown(difficultyDropdown);
 
         if (nameField != null)
         {
@@ -1205,6 +1226,15 @@ public class MainMenu : MonoBehaviour
         }
 
         registeredUiListeners = true;
+    }
+
+    private void RegisterDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
+            return;
+
+        dropdown.onValueChanged.RemoveListener(SetRunDifficultyByIndex);
+        dropdown.onValueChanged.AddListener(SetRunDifficultyByIndex);
     }
 
     private void ResolveReferences()
@@ -1218,6 +1248,7 @@ public class MainMenu : MonoBehaviour
         if (characterSelectMenu == null)
             characterSelectMenu = gameObject.AddComponent<CharacterSelectMenu>();
 
+        Transform singleplayerMenu = FindChildByName(null, "SingleplayerMenu");
         Transform multiplayerMenu = FindChildByName(null, "MultiplayerMenu");
         Transform root = multiplayerMenu != null ? multiplayerMenu : transform.root;
 
@@ -1245,8 +1276,46 @@ public class MainMenu : MonoBehaviour
         if (nameField == null)
             nameField = FindComponentByName<TMP_InputField>(root, "NameField");
 
-        if (difficultyDropdown == null)
-            difficultyDropdown = FindComponentByName<TMP_Dropdown>(root, "Difficulty");
+        if (singleplayerDifficultyDropdown == null)
+        {
+            singleplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    singleplayerMenu,
+                    "Difficulty");
+        }
+
+        if (singleplayerDifficultyDropdown == null)
+        {
+            singleplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    transform.root,
+                    "SingleplayerDifficulty");
+        }
+
+        if (multiplayerDifficultyDropdown == null)
+        {
+            multiplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    multiplayerMenu,
+                    "Difficulty");
+        }
+
+        if (multiplayerDifficultyDropdown == null)
+        {
+            multiplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    transform.root,
+                    "MultiplayerDifficulty");
+        }
+
+        if (difficultyDropdown == null &&
+            singleplayerDifficultyDropdown == null &&
+            multiplayerDifficultyDropdown == null)
+        {
+            difficultyDropdown = FindComponentByName<TMP_Dropdown>(
+                transform.root,
+                "Difficulty");
+        }
 
         if (nameField == joinCodeInput)
         {
