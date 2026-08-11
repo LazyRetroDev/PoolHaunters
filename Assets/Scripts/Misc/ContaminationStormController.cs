@@ -38,6 +38,12 @@ public class ContaminationStormController : MonoBehaviour
     public float roomBoundsInset = 1f;
     public LayerMask dirtPlacementMask = ~0;
     [Range(0f, 1f)] public float minimumFloorNormalDot = 0.65f;
+    public bool allowWallDirtSpots = true;
+    [Range(0f, 1f)] public float wallDirtChance = 0.35f;
+    [Range(-1f, 1f)] public float minimumWallSurfaceUpDot = -0.1f;
+    [Range(0f, 1f)] public float maximumWallSurfaceUpDot = 0.35f;
+    public float wallDirtSearchRadius = 5f;
+    public float wallDirtHeightOffset = 1.2f;
     public float dirtPlacementRaycastPadding = 2f;
 
     [Header("Multiplayer")]
@@ -270,7 +276,7 @@ public class ContaminationStormController : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             Vector3 position;
-            if (!TryGetRoomSpawnPosition(room, out position)) continue;
+            if (!TryGetDirtSpotSpawnPosition(room, out position)) continue;
 
             DirtSpot dirtSpot = Instantiate(dirtSpotPrefab, position, Quaternion.identity);
             if (!TrySpawnNetworkDirtSpot(dirtSpot))
@@ -281,6 +287,22 @@ public class ContaminationStormController : MonoBehaviour
                 dirtSpot.contaminatedGrowthPerWaterChunk,
                 dirtSpot.contaminatedWaterPerGrowthChunk);
         }
+    }
+
+    bool TryGetDirtSpotSpawnPosition(GameObject room, out Vector3 position)
+    {
+        if (allowWallDirtSpots &&
+            Random.value < wallDirtChance &&
+            TryGetRoomWallSpawnPosition(room, out position))
+        {
+            return true;
+        }
+
+        if (TryGetRoomSpawnPosition(room, out position))
+            return true;
+
+        return allowWallDirtSpots &&
+            TryGetRoomWallSpawnPosition(room, out position);
     }
 
     int GetEffectiveDirtSpotCount()
@@ -452,14 +474,8 @@ public class ContaminationStormController : MonoBehaviour
             if (Vector3.Dot(hit.normal.normalized, Vector3.up) < minimumDot)
                 continue;
 
-            if (hit.collider.GetComponentInParent<DirtSpot>() != null)
+            if (!IsValidDirtSurfaceHit(hit, roomBounds))
                 continue;
-
-            if (hit.point.y < roomBounds.min.y - padding ||
-                hit.point.y > roomBounds.max.y + padding)
-            {
-                continue;
-            }
 
             if (!found || hit.point.y > bestY)
             {
@@ -470,6 +486,139 @@ public class ContaminationStormController : MonoBehaviour
         }
 
         return found;
+    }
+
+    bool TryGetRoomWallSpawnPosition(GameObject room, out Vector3 position)
+    {
+        position = room != null ? room.transform.position : transform.position;
+        if (room == null) return false;
+
+        Bounds bounds = GetRoomBounds(room);
+        Vector3 min = bounds.min + Vector3.one * roomBoundsInset;
+        Vector3 max = bounds.max - Vector3.one * roomBoundsInset;
+
+        if (min.x > max.x || min.z > max.z)
+        {
+            min = bounds.min;
+            max = bounds.max;
+        }
+
+        for (int attempt = 0; attempt < 16; attempt++)
+        {
+            Vector3 candidate = new Vector3(
+                Random.Range(min.x, max.x),
+                bounds.center.y,
+                Random.Range(min.z, max.z));
+
+            NavMeshHit navHit;
+            if (NavMesh.SamplePosition(
+                candidate,
+                out navHit,
+                navMeshSampleRadius,
+                NavMesh.AllAreas))
+            {
+                candidate = navHit.position;
+            }
+
+            candidate.y = Mathf.Clamp(
+                candidate.y + wallDirtHeightOffset,
+                bounds.min.y,
+                bounds.max.y);
+
+            if (TryFindWallNearPoint(candidate, bounds, out RaycastHit wallHit))
+            {
+                position = wallHit.point +
+                    wallHit.normal.normalized * spawnHeightOffset;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool TryFindWallNearPoint(
+        Vector3 point,
+        Bounds roomBounds,
+        out RaycastHit wallHit)
+    {
+        wallHit = default;
+
+        float searchRadius = Mathf.Max(0.1f, wallDirtSearchRadius);
+        float minimumUpDot = minimumWallSurfaceUpDot;
+        float maximumUpDot = maximumWallSurfaceUpDot;
+        if (minimumUpDot > maximumUpDot)
+        {
+            float temp = minimumUpDot;
+            minimumUpDot = maximumUpDot;
+            maximumUpDot = temp;
+        }
+
+        Vector3[] directions =
+        {
+            Vector3.forward,
+            Vector3.back,
+            Vector3.left,
+            Vector3.right,
+            new Vector3(1f, 0f, 1f).normalized,
+            new Vector3(-1f, 0f, 1f).normalized,
+            new Vector3(1f, 0f, -1f).normalized,
+            new Vector3(-1f, 0f, -1f).normalized
+        };
+
+        float bestDistance = float.MaxValue;
+        bool found = false;
+
+        for (int i = 0; i < directions.Length; i++)
+        {
+            RaycastHit[] hits = Physics.RaycastAll(
+                point,
+                directions[i],
+                searchRadius,
+                dirtPlacementMask,
+                QueryTriggerInteraction.Ignore);
+
+            for (int hitIndex = 0; hitIndex < hits.Length; hitIndex++)
+            {
+                RaycastHit hit = hits[hitIndex];
+                if (!IsValidDirtSurfaceHit(hit, roomBounds))
+                    continue;
+
+                float upDot = Vector3.Dot(hit.normal.normalized, Vector3.up);
+                if (upDot < minimumUpDot || upDot > maximumUpDot)
+                    continue;
+
+                if (hit.distance >= bestDistance)
+                    continue;
+
+                wallHit = hit;
+                bestDistance = hit.distance;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    bool IsValidDirtSurfaceHit(RaycastHit hit, Bounds roomBounds)
+    {
+        if (hit.collider == null)
+            return false;
+
+        if (hit.collider.GetComponentInParent<DirtSpot>() != null)
+            return false;
+
+        float padding = Mathf.Max(0.1f, dirtPlacementRaycastPadding);
+        if (hit.point.x < roomBounds.min.x - padding ||
+            hit.point.x > roomBounds.max.x + padding ||
+            hit.point.y < roomBounds.min.y - padding ||
+            hit.point.y > roomBounds.max.y + padding ||
+            hit.point.z < roomBounds.min.z - padding ||
+            hit.point.z > roomBounds.max.z + padding)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     Bounds GetRoomBounds(GameObject room)
