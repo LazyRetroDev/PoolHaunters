@@ -8,6 +8,7 @@ public class ContaminationStormController : MonoBehaviour
 {
     [Header("Timing")]
     public bool startStormOnStart = true;
+    public bool startStormWhenWaterValveActivated = true;
     public float initialDelay = 480f;
     public float spreadInterval = 120f;
     public bool contaminateFirstRoomImmediately = false;
@@ -69,6 +70,12 @@ public class ContaminationStormController : MonoBehaviour
         CacheRoomGeneratorField();
         ResetSpreadTimerForStormStart();
         stormRunning = startStormOnStart;
+        RegisterObjectiveEvents();
+    }
+
+    void OnDisable()
+    {
+        UnregisterObjectiveEvents();
     }
 
     void Update()
@@ -88,6 +95,27 @@ public class ContaminationStormController : MonoBehaviour
         stormRunning = true;
         finalRoomReached = false;
         ResetSpreadTimerForStormStart();
+    }
+
+    void RegisterObjectiveEvents()
+    {
+        if (!startStormWhenWaterValveActivated ||
+            LevelObjectiveManager.Instance == null)
+        {
+            return;
+        }
+
+        LevelObjectiveManager.Instance.OnWaterValveActivated -= StartStorm;
+        LevelObjectiveManager.Instance.OnWaterValveActivated += StartStorm;
+
+        if (LevelObjectiveManager.Instance.WaterValveActivated)
+            StartStorm();
+    }
+
+    void UnregisterObjectiveEvents()
+    {
+        if (LevelObjectiveManager.Instance != null)
+            LevelObjectiveManager.Instance.OnWaterValveActivated -= StartStorm;
     }
 
     public void StopStorm()
