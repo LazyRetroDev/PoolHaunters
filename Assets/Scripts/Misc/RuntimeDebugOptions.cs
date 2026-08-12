@@ -168,6 +168,12 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (GUILayout.Button("Spread Storm Now"))
             SpreadStormNow();
 
+        if (GUILayout.Button("Start Flood"))
+            StartFlood();
+
+        if (GUILayout.Button("Reset Flood"))
+            ResetFlood();
+
         if (GUILayout.Button("Clean All Pools"))
             CleanAllPools();
 
@@ -403,6 +409,28 @@ public class RuntimeDebugOptions : MonoBehaviour
         }
     }
 
+    void StartFlood()
+    {
+        LevelFloodController[] floods =
+            FindObjectsByType<LevelFloodController>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < floods.Length; i++)
+        {
+            if (floods[i] != null)
+                floods[i].StartFlood();
+        }
+    }
+
+    void ResetFlood()
+    {
+        LevelFloodController[] floods =
+            FindObjectsByType<LevelFloodController>(FindObjectsInactive.Exclude);
+        for (int i = 0; i < floods.Length; i++)
+        {
+            if (floods[i] != null)
+                floods[i].ResetFlood();
+        }
+    }
+
     void CleanAllPools()
     {
         if (LevelObjectiveManager.Instance != null)
@@ -519,10 +547,35 @@ public class RuntimeDebugOptions : MonoBehaviour
 
         PlayerStatus player = FindNearestPlayer(camera.transform.position, out _);
         EnsureEnemyTrackingStyles();
+        DrawEnemyTrackingPanel(enemies);
         DrawEnemyCompass(camera, player, enemies);
 
         if (debugNoclip)
             DrawGmodText();
+    }
+
+    void DrawEnemyTrackingPanel(List<GameObject> enemies)
+    {
+        GUILayout.BeginArea(new Rect(24f, 540f, 360f, 240f), GUI.skin.box);
+
+        GUILayout.Label($"Enemies: {enemies.Count}");
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            GameObject enemy = enemies[i];
+            if (enemy == null)
+                continue;
+
+            float distance = 0f;
+            PlayerStatus closest = FindNearestPlayer(enemy.transform.position, out distance);
+            string closestText = closest != null ? $"{Mathf.RoundToInt(distance)}m" : "no player";
+
+            Color previousColor = GUI.color;
+            GUI.color = GetEnemyTrackingColor(enemy);
+            GUILayout.Label($"{GetEnemyShortName(enemy)} - {enemy.name} - {closestText}");
+            GUI.color = previousColor;
+        }
+
+        GUILayout.EndArea();
     }
 
     void DrawEnemyCompass(

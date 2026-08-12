@@ -762,6 +762,7 @@ public class PlayerStatus : NetworkBehaviour
         {
             Renderer targetRenderer = renderers[i];
             if (targetRenderer == null) continue;
+            if (ShouldIgnoreDeathPresentationRenderer(targetRenderer)) continue;
 
             targetRenderer.enabled = true;
             Material[] materials = targetRenderer.materials;
@@ -868,6 +869,7 @@ public class PlayerStatus : NetworkBehaviour
         {
             Renderer targetRenderer = renderers[i];
             if (targetRenderer == null || !targetRenderer.enabled) continue;
+            if (ShouldIgnoreDeathPresentationRenderer(targetRenderer)) continue;
 
             Material[] materials = targetRenderer.materials;
             for (int m = 0; m < materials.Length; m++)
@@ -909,6 +911,23 @@ public class PlayerStatus : NetworkBehaviour
         material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         material.DisableKeyword("_ALPHATEST_ON");
         material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+    }
+
+    bool ShouldIgnoreDeathPresentationRenderer(Renderer targetRenderer)
+    {
+        if (targetRenderer == null)
+            return true;
+
+        if (targetRenderer is ParticleSystemRenderer)
+            return true;
+
+        if (targetRenderer.GetComponentInParent<WaterCannon>() != null)
+            return true;
+
+        if (targetRenderer.GetComponentInParent<JennyMopCleaner>() != null)
+            return true;
+
+        return false;
     }
 
     void ActivateSpectatorMode()

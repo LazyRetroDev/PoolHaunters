@@ -32,6 +32,9 @@ public class LevelObjectiveManager : MonoBehaviour
     public bool requireAllRequiredPoolsClean = true;
     public bool completeOnlyOnce = true;
 
+    [Header("Flooding")]
+    public bool ensureFloodController = true;
+
     [Header("Random Mandatory Pools")]
     public bool randomizeMandatoryPools = false;
     [HideInInspector]
@@ -142,6 +145,9 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (GetComponent<LevelRewardTracker>() == null)
             gameObject.AddComponent<LevelRewardTracker>();
+
+        if (ensureFloodController && GetComponent<LevelFloodController>() == null)
+            gameObject.AddComponent<LevelFloodController>();
     }
 
     void OnEnable()
