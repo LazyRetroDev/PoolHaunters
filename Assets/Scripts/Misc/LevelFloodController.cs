@@ -12,7 +12,7 @@ public class LevelFloodController : MonoBehaviour
     public Transform floodVisual;
     public float startHeightOffset = -1.25f;
     public float maxHeightOffset = 5f;
-    public float riseSpeed = 0.18f;
+    public float riseSpeed = 0.07f;
     public bool scaleRiseSpeedByRunDifficulty = true;
     public float easyRiseMultiplier = 0.75f;
     public float mediumRiseMultiplier = 1f;
