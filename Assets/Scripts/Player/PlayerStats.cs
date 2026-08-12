@@ -453,6 +453,7 @@ public class PlayerStatus : NetworkBehaviour
 
         RestoreDeathPresentation();
         RestoreConfiguredComponents();
+        RestoreToolObjectsForDebugResurrection();
         ApplyLocalControlState();
         SyncAllState();
 
@@ -1003,6 +1004,32 @@ public class PlayerStatus : NetworkBehaviour
             inventory.enabled = CanAct();
         if (waterCannon != null)
             waterCannon.enabled = CanUseWaterCannon();
+    }
+
+    void RestoreToolObjectsForDebugResurrection()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        bool canUseWaterCannon = CanUseWaterCannon();
+        WaterCannon[] waterCannons = GetComponentsInChildren<WaterCannon>(true);
+        for (int i = 0; i < waterCannons.Length; i++)
+        {
+            WaterCannon cannon = waterCannons[i];
+            if (cannon == null)
+                continue;
+
+            if (canUseWaterCannon && !cannon.gameObject.activeSelf)
+                cannon.gameObject.SetActive(true);
+
+            cannon.enabled = canUseWaterCannon;
+        }
+
+        PlayerAgentLoadout loadout = GetComponent<PlayerAgentLoadout>();
+        if (loadout != null)
+            loadout.ApplyAgent(loadout.currentAgent);
+
+        CacheReferences();
     }
 
     void ApplyLocalControlState()

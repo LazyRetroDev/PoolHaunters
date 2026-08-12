@@ -85,11 +85,7 @@ public class PlayerAgentLoadout : MonoBehaviour
                 continue;
             }
 
-            bool originalActive = originalWaterCannonObjectStates != null &&
-                originalWaterCannonObjectStates.Length > i
-                    ? originalWaterCannonObjectStates[i]
-                    : true;
-            bool shouldBeActive = isJenny ? false : originalActive;
+            bool shouldBeActive = !isJenny;
             if (waterCannons[i].gameObject.activeSelf != shouldBeActive)
                 waterCannons[i].gameObject.SetActive(shouldBeActive);
         }
