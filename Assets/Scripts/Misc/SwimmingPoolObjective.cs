@@ -217,6 +217,57 @@ public class SwimmingPoolObjective : MonoBehaviour
         }
     }
 
+    public void ApplyWaterAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount,
+        WaterQuality waterQuality,
+        PlayerStatus cleaner = null)
+    {
+        RefreshDirtSpots();
+
+        if (trackedDirtSpots.Count == 0)
+            return;
+
+        bool changed = false;
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
+        {
+            DirtSpot dirt = trackedDirtSpots[i];
+            if (dirt == null || dirt.IsCleaned)
+                continue;
+
+            float previousDirtPercent = dirt.GetDirtPercent();
+            if (waterQuality == WaterQuality.Contaminated)
+            {
+                dirt.ApplyContaminatedWaterAtWorldPoint(
+                    worldPoint,
+                    worldRadius,
+                    amount);
+            }
+            else
+            {
+                dirt.CleanAtWorldPoint(
+                    worldPoint,
+                    worldRadius,
+                    amount,
+                    cleaner);
+            }
+
+            if (!Mathf.Approximately(previousDirtPercent, dirt.GetDirtPercent()))
+                changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        NotifyActivelyCleaned();
+        RefreshCleanProgress();
+        if (filled && !cleaned && IsPoolCleanComplete())
+            MarkCleaned();
+        else
+            NotifyStateChanged();
+    }
+
     public void ApplySynchronizedState(byte state)
     {
         applyingSynchronizedState = true;

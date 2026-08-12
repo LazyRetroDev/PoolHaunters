@@ -262,12 +262,17 @@ public class JennyMopCleaner : MonoBehaviour
             if (pool != null && !poolHits.Contains(pool))
             {
                 poolHits.Add(pool);
+                float poolContactRadius = Mathf.Max(
+                    cleanContactRadius,
+                    Mathf.Max(halfExtents.x, halfExtents.z));
+
                 pool.ApplyWaterAtWorldPoint(
                     contactPoint,
-                    cleanContactRadius,
+                    poolContactRadius,
                     poolCleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
                     waterThisFrame,
-                    waterQuality);
+                    waterQuality,
+                    playerStatus);
             }
         }
     }

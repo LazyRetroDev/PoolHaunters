@@ -471,7 +471,8 @@ public class WaterCannon : MonoBehaviour
                     cleanContactRadius,
                     cleanAmount,
                     waterAmount,
-                    waterQuality);
+                    waterQuality,
+                    playerStatus);
 
                 if (waterQuality == WaterQuality.Contaminated)
                     handledContaminatedDirt = true;

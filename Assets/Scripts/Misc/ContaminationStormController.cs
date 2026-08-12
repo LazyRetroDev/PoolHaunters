@@ -11,6 +11,13 @@ public class ContaminationStormController : MonoBehaviour
     public bool startStormWhenWaterValveActivated = true;
     public float initialDelay = 480f;
     public float spreadInterval = 120f;
+    public bool scaleTimingByRunDifficulty = true;
+    public float easyTimingMultiplier = 1.25f;
+    public float mediumTimingMultiplier = 1f;
+    public float hardTimingMultiplier = 0.75f;
+    public float gradualStartingTimingMultiplier = 1.25f;
+    public float gradualEndingTimingMultiplier = 0.75f;
+    [Min(1)] public int gradualTimingMaxPhase = 8;
     public bool contaminateFirstRoomImmediately = false;
     public bool stopAfterFinalRoom = true;
 
@@ -86,7 +93,7 @@ public class ContaminationStormController : MonoBehaviour
         spreadTimer -= Time.deltaTime;
         if (spreadTimer > 0f) return;
 
-        spreadTimer = Mathf.Max(0.01f, spreadInterval);
+        spreadTimer = GetEffectiveSpreadInterval();
         SpreadToNextRoom();
     }
 
@@ -135,7 +142,7 @@ public class ContaminationStormController : MonoBehaviour
     {
         spreadTimer = contaminateFirstRoomImmediately
             ? 0f
-            : Mathf.Max(0.01f, initialDelay);
+            : GetEffectiveInitialDelay();
     }
 
     [ContextMenu("Spread To Next Room")]
@@ -367,6 +374,50 @@ public class ContaminationStormController : MonoBehaviour
                     Mathf.Lerp(
                         gradualStartingDirtMultiplier,
                         gradualEndingDirtMultiplier,
+                        t));
+
+            default:
+                return 1f;
+        }
+    }
+
+    float GetEffectiveInitialDelay()
+    {
+        return Mathf.Max(0.01f, initialDelay * GetTimingMultiplierForCurrentRun());
+    }
+
+    float GetEffectiveSpreadInterval()
+    {
+        return Mathf.Max(0.01f, spreadInterval * GetTimingMultiplierForCurrentRun());
+    }
+
+    float GetTimingMultiplierForCurrentRun()
+    {
+        if (!scaleTimingByRunDifficulty)
+            return 1f;
+
+        switch (RegionRunState.Difficulty)
+        {
+            case RunDifficulty.Easy:
+                return Mathf.Max(0.01f, easyTimingMultiplier);
+
+            case RunDifficulty.Medium:
+                return Mathf.Max(0.01f, mediumTimingMultiplier);
+
+            case RunDifficulty.Hard:
+                return Mathf.Max(0.01f, hardTimingMultiplier);
+
+            case RunDifficulty.Gradual:
+                int phase = Mathf.Max(1, RegionRunState.PhaseNumber);
+                int maxPhase = Mathf.Max(1, gradualTimingMaxPhase);
+                float t = maxPhase <= 1
+                    ? 1f
+                    : Mathf.Clamp01((phase - 1f) / (maxPhase - 1f));
+                return Mathf.Max(
+                    0.01f,
+                    Mathf.Lerp(
+                        gradualStartingTimingMultiplier,
+                        gradualEndingTimingMultiplier,
                         t));
 
             default:

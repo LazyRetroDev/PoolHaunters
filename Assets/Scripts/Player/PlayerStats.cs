@@ -343,6 +343,17 @@ public class PlayerStatus : NetworkBehaviour
         ApplyDeath(false);
     }
 
+    public void DebugResurrect()
+    {
+        if (IsClientReplica())
+        {
+            DebugResurrectServerRpc();
+            return;
+        }
+
+        ApplyDebugResurrection();
+    }
+
     public void ApplyDeathTransformation()
     {
         if (!CanWriteState())
@@ -428,6 +439,25 @@ public class PlayerStatus : NetworkBehaviour
 
         currentHealth = maxHealth;
         SyncCoreState();
+    }
+
+    void ApplyDebugResurrection()
+    {
+        bool wasDeadOrKnockedOut = isDead || isKnockedOut || deathTransformationApplied;
+
+        isDead = false;
+        isKnockedOut = false;
+        deathTransformationApplied = false;
+        knockoutTimer = 0f;
+        currentHealth = maxHealth;
+
+        RestoreDeathPresentation();
+        RestoreConfiguredComponents();
+        ApplyLocalControlState();
+        SyncAllState();
+
+        if (wasDeadOrKnockedOut)
+            OnRevived?.Invoke(this);
     }
 
     public bool AddWater(
@@ -668,6 +698,120 @@ public class PlayerStatus : NetworkBehaviour
             for (int i = 0; i < colliders.Length; i++)
                 colliders[i].enabled = false;
         }
+    }
+
+    void RestoreDeathPresentation()
+    {
+        RestoreGravityAndMotion();
+        RestoreDeathHud();
+        RestoreBodyVisibility();
+        EndSpectatorMode();
+    }
+
+    void RestoreGravityAndMotion()
+    {
+        if (!disableGravityOnDeath) return;
+
+        Rigidbody[] bodies = GetComponentsInChildren<Rigidbody>(true);
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            if (bodies[i] == null) continue;
+            bodies[i].useGravity = true;
+            bodies[i].isKinematic = false;
+            bodies[i].linearVelocity = Vector3.zero;
+            bodies[i].angularVelocity = Vector3.zero;
+        }
+    }
+
+    void RestoreDeathHud()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        if (hudsToDisableOnDeath != null && hudsToDisableOnDeath.Length > 0)
+        {
+            for (int i = 0; i < hudsToDisableOnDeath.Length; i++)
+                EnableHud(hudsToDisableOnDeath[i]);
+
+            return;
+        }
+
+        HUD[] huds = FindObjectsByType<HUD>(FindObjectsInactive.Include);
+        for (int i = 0; i < huds.Length; i++)
+        {
+            if (huds[i] != null && huds[i].playerStatus == this)
+                EnableHud(huds[i]);
+        }
+    }
+
+    void EnableHud(HUD hud)
+    {
+        if (hud == null) return;
+
+        Canvas canvas = hud.GetComponent<Canvas>();
+        if (canvas != null)
+            canvas.enabled = true;
+        else
+            hud.gameObject.SetActive(true);
+    }
+
+    void RestoreBodyVisibility()
+    {
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer targetRenderer = renderers[i];
+            if (targetRenderer == null) continue;
+
+            targetRenderer.enabled = true;
+            Material[] materials = targetRenderer.materials;
+            for (int m = 0; m < materials.Length; m++)
+                RestoreMaterialAlpha(materials[m]);
+        }
+
+        Collider[] colliders = GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = true;
+        }
+    }
+
+    void RestoreMaterialAlpha(Material material)
+    {
+        if (material == null) return;
+
+        if (material.HasProperty("_BaseColor"))
+        {
+            Color color = material.GetColor("_BaseColor");
+            color.a = 1f;
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            Color color = material.GetColor("_Color");
+            color.a = 1f;
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_Surface"))
+            material.SetFloat("_Surface", 0f);
+        if (material.HasProperty("_ZWrite"))
+            material.SetFloat("_ZWrite", 1f);
+
+        material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.renderQueue = -1;
+    }
+
+    void EndSpectatorMode()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        PlayerSpectatorMode spectator = FindFirstObjectByType<PlayerSpectatorMode>();
+        if (spectator != null)
+            spectator.EndSpectating();
     }
 
     void DisableGravityAndMotion()
@@ -1063,6 +1207,12 @@ public class PlayerStatus : NetworkBehaviour
     void RequestImmediateDeathServerRpc()
     {
         ApplyDeath(false);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void DebugResurrectServerRpc()
+    {
+        ApplyDebugResurrection();
     }
 
     [ServerRpc]

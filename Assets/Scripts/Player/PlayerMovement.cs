@@ -10,6 +10,10 @@ public class PlayerMovement : NetworkBehaviour
     public float sprintSpeed = 9f;
     public float knockedOutCrawlSpeed = 1.35f;
 
+    [Header("Debug Movement")]
+    public float debugSpeedMultiplier = 1f;
+    public float debugNoclipVerticalSpeed = 6f;
+
     [Header("Jump")]
     public float jumpVelocity = 5.5f;
     public float groundCheckRadius = 0.4f;
@@ -65,6 +69,11 @@ public class PlayerMovement : NetworkBehaviour
     private float footstepTimer;
     private bool acceptsInput = true;
     private bool debugInfiniteStamina;
+    private bool debugNoclip;
+    private bool debugSavedGravity;
+    private bool debugSavedKinematic;
+    private bool debugSavedColliderEnabled;
+    private bool hasDebugPhysicsState;
     private PlayerVignetteEffect localVignetteEffect;
     private float lastThreatEffectSendTime = -999f;
     private float lastThreatEffectSentIntensity = -1f;
@@ -192,6 +201,11 @@ public class PlayerMovement : NetworkBehaviour
             UpdateLocalLocomotionState(false, false);
             return;
         }
+        if (debugNoclip)
+        {
+            UpdateDebugNoclipMovement();
+            return;
+        }
         if (IsMovementBlockedByCharacterAbility())
         {
             UpdateLocalLocomotionState(false, false);
@@ -227,6 +241,7 @@ public class PlayerMovement : NetworkBehaviour
             : isCrouching
                 ? crouchSpeed
                 : canSprint ? sprintSpeed : walkSpeed;
+        speed *= GetDebugSpeedMultiplier();
 
         Vector3 move = camForward * moveInput.y + camRight * moveInput.x;
         rb.MovePosition(rb.position + move * speed * Time.fixedDeltaTime);
@@ -271,6 +286,46 @@ public class PlayerMovement : NetworkBehaviour
             jennyMopCleaner = GetComponent<JennyMopCleaner>();
 
         return jennyMopCleaner != null && jennyMopCleaner.IsSurfDashing;
+    }
+
+    void UpdateDebugNoclipMovement()
+    {
+        Camera movementCamera = Camera.main;
+        if (movementCamera == null || rb == null)
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
+
+        Vector3 camForward = movementCamera.transform.forward;
+        Vector3 camRight = movementCamera.transform.right;
+        Vector3 horizontalMove = camForward * moveInput.y + camRight * moveInput.x;
+        if (horizontalMove.sqrMagnitude > 1f)
+            horizontalMove.Normalize();
+
+        float vertical = 0f;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.spaceKey.isPressed || Keyboard.current.eKey.isPressed)
+                vertical += 1f;
+            if (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.qKey.isPressed)
+                vertical -= 1f;
+        }
+
+        bool sprintPressed = playerInput != null &&
+            playerInput.actions["Sprint"].IsPressed();
+        float speedMultiplier = GetDebugSpeedMultiplier();
+        float baseSpeed = (sprintPressed ? sprintSpeed : walkSpeed) * speedMultiplier;
+        Vector3 move =
+            horizontalMove * baseSpeed +
+            Vector3.up * vertical * debugNoclipVerticalSpeed * speedMultiplier;
+
+        rb.MovePosition(rb.position + move * Time.fixedDeltaTime);
+        rb.MoveRotation(Quaternion.Euler(
+            0f,
+            movementCamera.transform.eulerAngles.y,
+            0f));
+        UpdateLocalLocomotionState(moveInput != Vector2.zero || vertical != 0f, sprintPressed);
     }
 
     void UpdateCrouchState(bool knockedOut)
@@ -1166,6 +1221,82 @@ public class PlayerMovement : NetworkBehaviour
     public void DebugFillStamina()
     {
         currentStamina = maxStamina;
+    }
+
+    public void SetDebugSpeedMultiplier(float multiplier)
+    {
+        debugSpeedMultiplier = Mathf.Clamp(multiplier, 0.1f, 10f);
+    }
+
+    public void SetDebugNoclip(bool value)
+    {
+        if (debugNoclip == value)
+            return;
+
+        debugNoclip = value;
+
+        if (debugNoclip)
+            ApplyDebugNoclipPhysics();
+        else
+            RestoreDebugNoclipPhysics();
+    }
+
+    public bool IsDebugNoclipEnabled()
+    {
+        return debugNoclip;
+    }
+
+    float GetDebugSpeedMultiplier()
+    {
+        return Mathf.Clamp(debugSpeedMultiplier, 0.1f, 10f);
+    }
+
+    void ApplyDebugNoclipPhysics()
+    {
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
+        if (bodyCollider == null)
+            bodyCollider = GetComponent<CapsuleCollider>();
+
+        if (!hasDebugPhysicsState)
+        {
+            debugSavedGravity = rb != null && rb.useGravity;
+            debugSavedKinematic = rb != null && rb.isKinematic;
+            debugSavedColliderEnabled = bodyCollider == null || bodyCollider.enabled;
+            hasDebugPhysicsState = true;
+        }
+
+        if (rb != null)
+        {
+            rb.useGravity = false;
+            rb.isKinematic = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (bodyCollider != null)
+            bodyCollider.enabled = false;
+    }
+
+    void RestoreDebugNoclipPhysics()
+    {
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
+        if (bodyCollider == null)
+            bodyCollider = GetComponent<CapsuleCollider>();
+
+        if (rb != null)
+        {
+            rb.useGravity = hasDebugPhysicsState ? debugSavedGravity : true;
+            rb.isKinematic = hasDebugPhysicsState && debugSavedKinematic;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (bodyCollider != null)
+            bodyCollider.enabled = !hasDebugPhysicsState || debugSavedColliderEnabled;
+
+        hasDebugPhysicsState = false;
     }
 
     void UpdateTimedStaminaMultiplier()

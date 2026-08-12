@@ -20,7 +20,12 @@ public class RuntimeDebugOptions : MonoBehaviour
     [Header("Enemy Debug")]
     public bool enemyTracking;
     public float enemyTrackingMaxDistance = 120f;
-    public Vector2 enemyTrackingListPosition = new Vector2(24f, 540f);
+    public float enemyCompassWidth = 520f;
+    public float enemyCompassTopOffset = 64f;
+
+    [Header("Movement Debug")]
+    public float debugSpeedMultiplier = 1f;
+    public bool debugNoclip;
 
     [Header("Character")]
     public bool persistDebugCharacterSelection = true;
@@ -31,6 +36,9 @@ public class RuntimeDebugOptions : MonoBehaviour
     private bool visible;
     private bool cursorUnlockRequested;
     private Vector2 scrollPosition;
+    private GUIStyle enemyCompassStyle;
+    private GUIStyle enemyCompassCenterStyle;
+    private GUIStyle gmodTextStyle;
 
     private static readonly string[] EnemyTypeNames =
     {
@@ -137,6 +145,9 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (GUILayout.Button("Fill Health"))
             FillHealth();
 
+        if (GUILayout.Button("Resurrect Player"))
+            ResurrectPlayers();
+
         GUILayout.Label($"Germs: {PlayerCurrencyState.Germs}");
         GUILayout.BeginHorizontal();
         if (GUILayout.Button($"+{debugGermsAmount} Germs"))
@@ -179,6 +190,26 @@ public class RuntimeDebugOptions : MonoBehaviour
             enemyTrackingMaxDistance,
             10f,
             250f);
+
+        GUILayout.Space(12f);
+        GUILayout.Label("Movement Debug");
+        GUILayout.Label($"Speed: {debugSpeedMultiplier:0.0}x");
+        float nextSpeedMultiplier = GUILayout.HorizontalSlider(
+            debugSpeedMultiplier,
+            0.5f,
+            5f);
+        if (!Mathf.Approximately(nextSpeedMultiplier, debugSpeedMultiplier))
+        {
+            debugSpeedMultiplier = nextSpeedMultiplier;
+            ApplyDebugToggles();
+        }
+
+        bool nextNoclip = GUILayout.Toggle(debugNoclip, "Noclip");
+        if (nextNoclip != debugNoclip)
+        {
+            debugNoclip = nextNoclip;
+            ApplyDebugToggles();
+        }
 
         GUILayout.Space(12f);
         GUILayout.Label("Character");
@@ -258,7 +289,11 @@ public class RuntimeDebugOptions : MonoBehaviour
         for (int i = 0; i < movements.Length; i++)
         {
             if (movements[i] != null)
+            {
                 movements[i].SetDebugInfiniteStamina(infiniteStamina);
+                movements[i].SetDebugSpeedMultiplier(debugSpeedMultiplier);
+                movements[i].SetDebugNoclip(debugNoclip);
+            }
         }
 
         PlayerPetrify[] petrifyComponents =
@@ -289,6 +324,17 @@ public class RuntimeDebugOptions : MonoBehaviour
         {
             if (statuses[i] != null)
                 statuses[i].DebugFillHealth();
+        }
+    }
+
+    void ResurrectPlayers()
+    {
+        PlayerStatus[] statuses =
+            FindObjectsByType<PlayerStatus>(FindObjectsInactive.Include);
+        for (int i = 0; i < statuses.Length; i++)
+        {
+            if (statuses[i] != null)
+                statuses[i].DebugResurrect();
         }
     }
 
@@ -468,30 +514,34 @@ public class RuntimeDebugOptions : MonoBehaviour
         Camera camera = Camera.main;
         List<GameObject> enemies = FindEnemyObjects();
 
-        GUILayout.BeginArea(new Rect(
-            enemyTrackingListPosition.x,
-            enemyTrackingListPosition.y,
-            360f,
-            240f),
-            GUI.skin.box);
-
-        GUILayout.Label($"Enemies: {enemies.Count}");
-        for (int i = 0; i < enemies.Count; i++)
-        {
-            GameObject enemy = enemies[i];
-            if (enemy == null)
-                continue;
-
-            float distance = 0f;
-            PlayerStatus closest = FindNearestPlayer(enemy.transform.position, out distance);
-            string closestText = closest != null ? $"{Mathf.RoundToInt(distance)}m" : "no player";
-            GUILayout.Label($"{enemy.name} - {closestText}");
-        }
-
-        GUILayout.EndArea();
-
         if (camera == null)
             return;
+
+        PlayerStatus player = FindNearestPlayer(camera.transform.position, out _);
+        EnsureEnemyTrackingStyles();
+        DrawEnemyCompass(camera, player, enemies);
+
+        if (debugNoclip)
+            DrawGmodText();
+    }
+
+    void DrawEnemyCompass(
+        Camera camera,
+        PlayerStatus player,
+        List<GameObject> enemies)
+    {
+        float width = Mathf.Clamp(enemyCompassWidth, 220f, Screen.width - 32f);
+        Rect compassRect = new Rect(
+            (Screen.width - width) * 0.5f,
+            enemyCompassTopOffset,
+            width,
+            30f);
+
+        GUI.Box(compassRect, GUIContent.none);
+        GUI.Label(
+            new Rect(compassRect.center.x - 12f, compassRect.y - 2f, 24f, 24f),
+            "^",
+            enemyCompassCenterStyle);
 
         for (int i = 0; i < enemies.Count; i++)
         {
@@ -500,21 +550,49 @@ public class RuntimeDebugOptions : MonoBehaviour
                 continue;
 
             float distance;
-            FindNearestPlayer(enemy.transform.position, out distance);
+            if (player != null)
+                distance = Vector3.Distance(player.transform.position, enemy.transform.position);
+            else
+                FindNearestPlayer(enemy.transform.position, out distance);
+
             if (distance > enemyTrackingMaxDistance)
                 continue;
 
-            Vector3 screen = camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * 1.8f);
-            if (screen.z <= 0f)
-                continue;
+            Vector3 direction = enemy.transform.position - camera.transform.position;
+            float signedAngle = Vector3.SignedAngle(
+                camera.transform.forward,
+                direction,
+                Vector3.up);
+            float normalizedAngle = Mathf.Clamp(signedAngle / 90f, -1f, 1f);
+            float x = Mathf.Lerp(
+                compassRect.xMin + 12f,
+                compassRect.xMax - 12f,
+                (normalizedAngle + 1f) * 0.5f);
 
             Rect labelRect = new Rect(
-                screen.x - 90f,
-                Screen.height - screen.y - 14f,
-                180f,
-                28f);
-            GUI.Label(labelRect, $"{enemy.name} [{Mathf.RoundToInt(distance)}m]");
+                x - 58f,
+                compassRect.yMax + 4f + (i % 2) * 18f,
+                116f,
+                18f);
+
+            Color previousColor = GUI.color;
+            GUI.color = GetEnemyTrackingColor(enemy);
+            GUI.Label(
+                labelRect,
+                $"{GetEnemyShortName(enemy)} {Mathf.RoundToInt(distance)}m",
+                enemyCompassStyle);
+            GUI.color = previousColor;
         }
+    }
+
+    void DrawGmodText()
+    {
+        Rect textRect = new Rect(
+            Screen.width - 260f,
+            16f,
+            244f,
+            28f);
+        GUI.Label(textRect, "woah like the gmod :D", gmodTextStyle);
     }
 
     List<GameObject> FindEnemyObjects()
@@ -550,6 +628,113 @@ public class RuntimeDebugOptions : MonoBehaviour
         }
 
         return false;
+    }
+
+    string GetEnemyShortName(GameObject enemy)
+    {
+        string typeName = GetEnemyTypeName(enemy);
+        switch (typeName)
+        {
+            case "BathroomBlondeBehavior":
+                return "Blonde";
+            case "GhostWaterBehavior":
+                return "Ghost";
+            case "GoldenMouthBehavior":
+                return "Mouth";
+            case "Photographer":
+                return "Photo";
+            case "RaccoonBehavior":
+                return "Raccoon";
+            case "TimeCamper":
+                return "Camper";
+            case "TubaraoBehavior":
+                return "Shark";
+            case "VictoriaRegiaBehavior":
+                return "Victoria";
+            case "WillOWispBehavior":
+                return "Wisp";
+            default:
+                return enemy != null ? enemy.name : "Enemy";
+        }
+    }
+
+    Color GetEnemyTrackingColor(GameObject enemy)
+    {
+        string typeName = GetEnemyTypeName(enemy);
+        switch (typeName)
+        {
+            case "GoldenMouthBehavior":
+                return Color.yellow;
+            case "Photographer":
+                return Color.red;
+            case "RaccoonBehavior":
+                return new Color(0.55f, 0.32f, 0.12f, 1f);
+            case "TubaraoBehavior":
+                return new Color(0.2f, 0.65f, 1f, 1f);
+            case "TimeCamper":
+                return new Color(1f, 0.45f, 0.1f, 1f);
+            case "GhostWaterBehavior":
+                return new Color(0.45f, 0.9f, 1f, 1f);
+            case "BathroomBlondeBehavior":
+                return new Color(1f, 0.85f, 0.25f, 1f);
+            case "VictoriaRegiaBehavior":
+                return new Color(1f, 0.25f, 0.75f, 1f);
+            case "WillOWispBehavior":
+                return new Color(0.65f, 0.45f, 1f, 1f);
+            default:
+                return Color.white;
+        }
+    }
+
+    string GetEnemyTypeName(GameObject enemy)
+    {
+        if (enemy == null)
+            return string.Empty;
+
+        MonoBehaviour[] behaviours =
+            enemy.GetComponents<MonoBehaviour>();
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            if (behaviours[i] == null)
+                continue;
+
+            string typeName = behaviours[i].GetType().Name;
+            if (IsKnownEnemyType(typeName))
+                return typeName;
+        }
+
+        return string.Empty;
+    }
+
+    void EnsureEnemyTrackingStyles()
+    {
+        if (enemyCompassStyle == null)
+        {
+            enemyCompassStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold
+            };
+        }
+
+        if (enemyCompassCenterStyle == null)
+        {
+            enemyCompassCenterStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold
+            };
+        }
+
+        if (gmodTextStyle == null)
+        {
+            gmodTextStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleRight,
+                fontStyle = FontStyle.Bold,
+                fontSize = 18
+            };
+        }
     }
 
     PlayerStatus FindNearestPlayer(Vector3 position, out float distance)
