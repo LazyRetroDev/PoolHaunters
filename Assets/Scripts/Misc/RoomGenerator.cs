@@ -174,6 +174,9 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField] private bool requirePoolRoomsInFullMap = true;
     [Min(0)]
     [SerializeField] private int minimumRequiredPoolRooms = 1;
+    [SerializeField] private bool spreadRequiredPoolRooms = true;
+    [Min(0)]
+    [SerializeField] private int minimumPoolRoomCellDistance = 1;
 
     [Min(1)]
     public int minimumBranchCount = 3;
@@ -275,6 +278,12 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField, Min(0f)] private float waterValveSidePadding = 1.25f;
     [SerializeField, Min(1)] private int waterValveWallProbeAttempts = 16;
     [SerializeField] private Vector3 waterValveRotationOffset;
+    [SerializeField, Min(0f)] private float waterValveMinimumDoorDistance = 2.5f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceWidth = 1.0f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceHeight = 1.2f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceDepth = 0.6f;
+    [SerializeField, Min(0f)] private float waterValveClearanceForwardOffset = 0.15f;
+    [SerializeField] private LayerMask waterValveBlockingLayers = ~0;
 
     [Header("Run Progression")]
     [SerializeField] private RoomProgressionController progression;
@@ -2143,6 +2152,18 @@ public class RoomGenerator : MonoBehaviour
         List<GameObject> rejectedPrefabs,
         RoomGenerationRole role)
     {
+        if (ShouldPrioritizeRequiredPoolRoom(role))
+        {
+            GameObject poolPrefab = ChooseRoomPrefabForRoleAndCategory(
+                expansionConnector,
+                rejectedPrefabs,
+                role,
+                RoomCategory.Pool,
+                requirePoolSpread: true);
+            if (poolPrefab != null)
+                return poolPrefab;
+        }
+
         float totalWeight = 0f;
 
         for (int i = 0; i < roomPrefabs.Length; i++)
@@ -2150,6 +2171,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
             totalWeight += GetRoomPrefabWeight(prefab);
         }
@@ -2163,6 +2185,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
 
             roll -= GetRoomPrefabWeight(prefab);
@@ -2171,6 +2194,126 @@ public class RoomGenerator : MonoBehaviour
         }
 
         return null;
+    }
+
+    GameObject ChooseRoomPrefabForRoleAndCategory(
+        RoomConnector expansionConnector,
+        List<GameObject> rejectedPrefabs,
+        RoomGenerationRole role,
+        RoomCategory category,
+        bool requirePoolSpread)
+    {
+        if (requirePoolSpread &&
+            category == RoomCategory.Pool &&
+            IsTargetCellTooCloseToRoomCategory(
+                expansionConnector,
+                RoomCategory.Pool,
+                minimumPoolRoomCellDistance))
+        {
+            return null;
+        }
+
+        float totalWeight = 0f;
+
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
+            if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (!IsRoomPrefabCategory(prefab, category)) continue;
+            if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
+            totalWeight += GetRoomPrefabWeight(prefab);
+        }
+
+        if (totalWeight <= 0f)
+            return null;
+
+        float roll = Random.Range(0f, totalWeight);
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
+            if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (!IsRoomPrefabCategory(prefab, category)) continue;
+            if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
+
+            roll -= GetRoomPrefabWeight(prefab);
+            if (roll <= 0f)
+                return prefab;
+        }
+
+        return null;
+    }
+
+    bool ShouldPrioritizeRequiredPoolRoom(RoomGenerationRole role)
+    {
+        if (!isGeneratingFullMap || !requirePoolRoomsInFullMap)
+            return false;
+        if (role != RoomGenerationRole.BranchMiddle)
+            return false;
+
+        int requiredPools = Mathf.Max(0, minimumRequiredPoolRooms);
+        return requiredPools > 0 &&
+            CountRoomsInCategory(RoomCategory.Pool) < requiredPools;
+    }
+
+    bool IsTargetCellTooCloseToRoomCategory(
+        RoomConnector expansionConnector,
+        RoomCategory category,
+        int minimumCellDistance)
+    {
+        if (!spreadRequiredPoolRooms)
+            return false;
+
+        int distance = Mathf.Max(0, minimumCellDistance);
+        if (distance <= 0)
+            return false;
+
+        Vector2Int targetCell;
+        if (!TryGetConnectorTargetCell(expansionConnector, out targetCell))
+            return false;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            RoomPlacement placement = pair.Value;
+            if (room == null || placement == null)
+                continue;
+
+            RoomDefinition definition = GetRoomDefinition(room);
+            if (definition == null || definition.category != category)
+                continue;
+
+            int cellDistance =
+                Mathf.Abs(targetCell.x - placement.cell.x) +
+                Mathf.Abs(targetCell.y - placement.cell.y);
+            if (cellDistance <= distance)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool IsRoomPrefabCategory(GameObject prefab, RoomCategory category)
+    {
+        RoomDefinition definition = GetRoomDefinition(prefab);
+        return definition != null && definition.category == category;
+    }
+
+    bool ShouldAvoidPoolRoomForSpread(
+        GameObject prefab,
+        RoomConnector expansionConnector,
+        RoomGenerationRole role)
+    {
+        if (role != RoomGenerationRole.BranchMiddle)
+            return false;
+        if (!IsRoomPrefabCategory(prefab, RoomCategory.Pool))
+            return false;
+
+        return IsTargetCellTooCloseToRoomCategory(
+            expansionConnector,
+            RoomCategory.Pool,
+            minimumPoolRoomCellDistance);
     }
 
     bool CanSpawnRoomPrefabForRole(GameObject prefab, RoomGenerationRole role)
@@ -2192,6 +2335,15 @@ public class RoomGenerator : MonoBehaviour
             GetGeneratedPrefabCount(prefab),
             generatedRoomCount,
             GetRoomsSinceLastInstance(prefab)))
+        {
+            return false;
+        }
+
+        if (progression != null &&
+            !progression.AllowsRoom(
+                definition,
+                generatedRoomCount,
+                maxGeneratedRooms))
         {
             return false;
         }
@@ -3493,7 +3645,8 @@ public class RoomGenerator : MonoBehaviour
                     wallNormal = -wallNormal;
 
                 BuildWaterValvePoseFromWall(hit.point, wallNormal, out position, out rotation);
-                return true;
+                if (IsWaterValvePoseValid(room, hit.point, wallNormal, rotation))
+                    return true;
             }
         }
 
@@ -3669,7 +3822,113 @@ public class RoomGenerator : MonoBehaviour
                 break;
         }
 
-        BuildWaterValvePoseFromWall(position, -outwardNormal, out position, out rotation);
+        Vector3 wallPoint = position;
+        Vector3 roomNormal = -outwardNormal;
+        BuildWaterValvePoseFromWall(wallPoint, roomNormal, out position, out rotation);
+        return IsWaterValvePoseValid(room, wallPoint, roomNormal, rotation);
+    }
+
+    bool IsWaterValvePoseValid(
+        GameObject room,
+        Vector3 wallPoint,
+        Vector3 roomNormal,
+        Quaternion rotation)
+    {
+        if (room == null)
+            return false;
+
+        if (roomNormal.sqrMagnitude <= 0.0001f)
+            roomNormal = rotation * Vector3.forward;
+        if (roomNormal.sqrMagnitude <= 0.0001f)
+            roomNormal = Vector3.forward;
+
+        roomNormal.Normalize();
+
+        if (IsWaterValveTooCloseToDoor(room, wallPoint))
+            return false;
+
+        return HasWaterValveClearance(room, wallPoint, roomNormal);
+    }
+
+    bool IsWaterValveTooCloseToDoor(GameObject room, Vector3 wallPoint)
+    {
+        float minimumDistance = Mathf.Max(0f, waterValveMinimumDoorDistance);
+        if (minimumDistance <= 0f)
+            return false;
+
+        float minimumSqrDistance = minimumDistance * minimumDistance;
+        RoomConnector[] connectors =
+            room.GetComponentsInChildren<RoomConnector>(true);
+
+        for (int i = 0; i < connectors.Length; i++)
+        {
+            RoomConnector connector = connectors[i];
+            Transform point = connector != null ? connector.Point : null;
+            if (point == null)
+                continue;
+
+            if ((point.position - wallPoint).sqrMagnitude < minimumSqrDistance)
+                return true;
+        }
+
+        DoorTrigger[] triggers = room.GetComponentsInChildren<DoorTrigger>(true);
+        for (int i = 0; i < triggers.Length; i++)
+        {
+            DoorTrigger trigger = triggers[i];
+            if (trigger == null)
+                continue;
+
+            if ((trigger.transform.position - wallPoint).sqrMagnitude < minimumSqrDistance)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool HasWaterValveClearance(
+        GameObject room,
+        Vector3 wallPoint,
+        Vector3 roomNormal)
+    {
+        float width = Mathf.Max(0.05f, waterValveClearanceWidth);
+        float height = Mathf.Max(0.05f, waterValveClearanceHeight);
+        float depth = Mathf.Max(0.05f, waterValveClearanceDepth);
+        float forwardOffset = Mathf.Max(0f, waterValveClearanceForwardOffset);
+        Vector3 center = wallPoint +
+            roomNormal * (forwardOffset + depth * 0.5f);
+        Quaternion boxRotation = Quaternion.LookRotation(roomNormal, Vector3.up);
+        Vector3 halfExtents = new Vector3(
+            width * 0.5f,
+            height * 0.5f,
+            depth * 0.5f);
+
+        Collider[] overlaps = Physics.OverlapBox(
+            center,
+            halfExtents,
+            boxRotation,
+            waterValveBlockingLayers,
+            QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            Collider overlap = overlaps[i];
+            if (overlap == null)
+                continue;
+            if (IsDoorwayIgnoredLayer(overlap.gameObject.layer))
+                continue;
+            if (overlap.GetComponentInParent<RoomConnector>() != null ||
+                overlap.GetComponentInParent<DoorTrigger>() != null)
+            {
+                return false;
+            }
+
+            Transform overlapTransform = overlap.transform;
+            if (overlapTransform.IsChildOf(room.transform))
+                return false;
+
+            return false;
+        }
+
         return true;
     }
 

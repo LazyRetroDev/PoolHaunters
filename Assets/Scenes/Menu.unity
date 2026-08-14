@@ -3404,8 +3404,8 @@ MonoBehaviour:
   - regionName: Hotel
     sceneName: Game 2
     weight: 1
-  useRandomSeed: 0
-  fixedSeed: 2109917110
+  useRandomSeed: 1
+  fixedSeed: 0
   selectedDifficulty: 3
   connectionAddress: 127.0.0.1
   connectionPort: 7777

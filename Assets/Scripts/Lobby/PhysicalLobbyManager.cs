@@ -273,7 +273,7 @@ public class PhysicalLobbyManager : NetworkBehaviour
             runSeed,
             ToFixedString(relayJoinCode),
             ToFixedString(relayConnectionType),
-            (int)RegionRunState.Difficulty);
+            (int)RegionRunState.DifficultyMode);
 
         RegionRunState.SelectRelayHostRegion(
             safeRegionName,
@@ -281,7 +281,7 @@ public class PhysicalLobbyManager : NetworkBehaviour
             runSeed,
             relayMaxConnections,
             relayConnectionType,
-            RegionRunState.Difficulty);
+            RegionRunState.DifficultyMode);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
 
         SetStatus("Starting run...");
@@ -301,7 +301,7 @@ public class PhysicalLobbyManager : NetworkBehaviour
             safeRegionName,
             sceneName,
             CreateRunSeed(),
-            RegionRunState.Difficulty);
+            RegionRunState.DifficultyMode);
         SceneManager.LoadScene(sceneName);
     }
 

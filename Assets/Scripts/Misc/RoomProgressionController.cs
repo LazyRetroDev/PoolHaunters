@@ -169,19 +169,18 @@ public class RoomProgressionController : MonoBehaviour
             {
                 label = "Early Run",
                 minimumRoomIndex = 1,
-                maximumRoomIndex = 2,
+                maximumRoomIndex = 1,
                 allowedCategories = new[]
                 {
                     RoomCategory.Corridor,
                     RoomCategory.Common,
-                    RoomCategory.Water,
-                    RoomCategory.Pool
+                    RoomCategory.Water
                 }
             },
             new RoomProgressionRule
             {
                 label = "Mid Run",
-                minimumRoomIndex = 3,
+                minimumRoomIndex = 2,
                 maximumRoomIndex = -1,
                 allowedCategories = new[]
                 {

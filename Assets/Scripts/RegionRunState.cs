@@ -39,6 +39,8 @@ public static class RegionRunState
     public static string RelayConnectionType { get; private set; } = "dtls";
     public static int RelayMaxConnections { get; private set; } = 3;
     public static string PlayerName { get; private set; } = "Player";
+    public static RunDifficulty DifficultyMode { get; private set; } =
+        RunDifficulty.Gradual;
     public static RunDifficulty Difficulty { get; private set; } =
         RunDifficulty.Gradual;
 
@@ -213,7 +215,7 @@ public static class RegionRunState
             RelayMaxConnections,
             nextPhaseNumber,
             previousSceneName,
-            Difficulty);
+            DifficultyMode);
     }
 
     static void SelectRegion(
@@ -246,10 +248,11 @@ public static class RegionRunState
         RelayJoinCode = SanitizeRelayJoinCode(relayJoinCode);
         RelayConnectionType = SanitizeRelayConnectionType(relayConnectionType);
         RelayMaxConnections = Mathf.Max(1, relayMaxConnections);
-        Difficulty = difficulty;
+        DifficultyMode = difficulty;
+        Difficulty = ResolveEffectiveDifficulty(difficulty, PhaseNumber);
 
         Debug.Log(
-            $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}. Difficulty: {Difficulty}.");
+            $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}. Difficulty mode: {DifficultyMode}. Effective difficulty: {Difficulty}.");
     }
 
     public static void SetRelayJoinCode(string joinCode)
@@ -264,7 +267,8 @@ public static class RegionRunState
 
     public static void SetDifficulty(RunDifficulty difficulty)
     {
-        Difficulty = difficulty;
+        DifficultyMode = difficulty;
+        Difficulty = ResolveEffectiveDifficulty(difficulty, PhaseNumber);
     }
 
     public static void Clear()
@@ -283,7 +287,24 @@ public static class RegionRunState
         RelayConnectionType = "dtls";
         RelayMaxConnections = 3;
         PlayerName = "Player";
+        DifficultyMode = RunDifficulty.Gradual;
         Difficulty = RunDifficulty.Gradual;
+    }
+
+    static RunDifficulty ResolveEffectiveDifficulty(
+        RunDifficulty difficulty,
+        int phaseNumber)
+    {
+        if (difficulty != RunDifficulty.Gradual)
+            return difficulty;
+
+        int phase = Mathf.Max(1, phaseNumber);
+        if (phase <= 2)
+            return RunDifficulty.Easy;
+        if (phase <= 4)
+            return RunDifficulty.Medium;
+
+        return RunDifficulty.Hard;
     }
 
     static string SanitizeRelayJoinCode(string joinCode)

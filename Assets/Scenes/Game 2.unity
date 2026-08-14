@@ -663,8 +663,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ContaminationStormController
   startStormOnStart: 0
+  startStormWhenWaterValveActivated: 1
   initialDelay: 120
   spreadInterval: 120
+  scaleTimingByRunDifficulty: 1
+  easyTimingMultiplier: 1.25
+  mediumTimingMultiplier: 1
+  hardTimingMultiplier: 0.75
+  gradualStartingTimingMultiplier: 1.25
+  gradualEndingTimingMultiplier: 0.75
+  gradualTimingMaxPhase: 8
   contaminateFirstRoomImmediately: 0
   stopAfterFinalRoom: 1
   roomGenerator: {fileID: 201567249}
@@ -677,9 +685,27 @@ MonoBehaviour:
   spawnDirtSpots: 1
   dirtSpotsPerRoom: 18
   contaminationZonesPerRoom: 1
+  scaleDirtByRunDifficulty: 1
+  easyDirtMultiplier: 0.75
+  mediumDirtMultiplier: 1
+  hardDirtMultiplier: 1.35
+  gradualStartingDirtMultiplier: 0.75
+  gradualEndingDirtMultiplier: 1.35
+  gradualDirtMaxPhase: 8
   spawnHeightOffset: 0.08
   navMeshSampleRadius: 6
   roomBoundsInset: 1
+  dirtPlacementMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  minimumFloorNormalDot: 0.65
+  allowWallDirtSpots: 1
+  wallDirtChance: 0.35
+  minimumWallSurfaceUpDot: -0.1
+  maximumWallSurfaceUpDot: 0.35
+  wallDirtSearchRadius: 5
+  wallDirtHeightOffset: 1.2
+  dirtPlacementRaycastPadding: 2
   runOnlyOnServer: 1
   logSpread: 1
   nextRoomIndex: 0
@@ -779,19 +805,19 @@ MonoBehaviour:
     allowedCategories: 00000000
   - label: Early Run
     minimumRoomIndex: 0
-    maximumRoomIndex: -1
+    maximumRoomIndex: 1
     appliesToFinalRoom: 0
     allowedCategories: 010000000200000004000000
   - label: Mid Run
-    minimumRoomIndex: 0
+    minimumRoomIndex: 2
     maximumRoomIndex: -1
     appliesToFinalRoom: 0
-    allowedCategories: 01000000020000000300000004000000
+    allowedCategories: 0100000002000000030000000400000005000000
   - label: Final
     minimumRoomIndex: 0
     maximumRoomIndex: -1
     appliesToFinalRoom: 1
-    allowedCategories: 06000000
+    allowedCategories: 0600000005000000
 --- !u!114 &201567248
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -806,11 +832,59 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomEnemySpawner
   seedOffset: 9361
   spawnChanceMultiplier: 1
+  usePhaseBasedRunSelection: 1
+  runEnemyProfile: {fileID: 0}
+  fallbackPlacementAttemptsPerEnemy: 40
+  minimumEnemySeparation: 2.5
+  fallbackNavMeshSampleRadius: 6
+  logRunEnemyPlan: 1
+  encounterDirectorSettings:
+    useDynamicEncounters: 1
+    maximumSimultaneouslyActive: 2
+    maximumSimultaneousEncounters: 1
+    evaluationInterval: 2
+    initialActivationDelay: 10
+    minimumSpawnAttemptInterval: 5
+    encounterCooldown: 20
+    baseActivationChance: 0.15
+    quietPressureStartsAfter: 15
+    guaranteedActivationAfter: 60
+    isolatedPlayerDistance: 18
+    isolatedPlayerChanceBonus: 0.15
+    minimumActiveDuration: 25
+    maximumActiveDuration: 80
+    encounterDetectionDistance: 16
+    encounterDisengageDistance: 25
+    disengageGracePeriod: 8
+    despawnDelayAfterDisengage: 8
+    inactiveSlotCooldown: 20
+    minimumDespawnDistance: 16
+    minimumSpawnDistance: 14
+    maximumSpawnDistance: 65
+    playerFieldOfView: 100
+    playerEyeHeight: 1.6
+    monsterEyeHeight: 1
+    visibilityBlockingLayers:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    clearanceRadius: 0.65
+    clearanceHeight: 2
+    spawnBlockingLayers:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    requireCompleteNavMeshPathToPlayer: 1
+    playerNavMeshSampleRadius: 3
+    logDirectorEvents: 1
+  encounterDirector: {fileID: 0}
   requireNavMeshPosition: 1
   navMeshSampleRadius: 2
   navMeshAreaMask: -1
   requireNetworkObjectOnline: 1
   logInvalidNetworkPrefabs: 1
+  runEnemiesSpawned: 0
+  lastPlannedPhase: 1
+  lastPlannedEnemyCount: 0
+  lastPlannedEnemies: 
 --- !u!114 &201567249
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -847,6 +921,8 @@ MonoBehaviour:
   generateFullMapOnStart: 1
   requirePoolRoomsInFullMap: 1
   minimumRequiredPoolRooms: 3
+  spreadRequiredPoolRooms: 1
+  minimumPoolRoomCellDistance: 1
   minimumBranchCount: 4
   maximumBranchCount: 6
   minimumRoomsPerBranch: 6
@@ -860,7 +936,7 @@ MonoBehaviour:
   maximumAdjacentBranchConnectionDoorDistance: 12
   enforceFinalRoomMinimumDistance: 1
   validateFullMapAfterGeneration: 1
-  fullMapGenerationAttempts: 20
+  fullMapGenerationAttempts: 100
   validateClosedDoorObjects: 1
   validateConnectedNavMeshLinks: 1
   logGenerationReport: 1
@@ -891,6 +967,14 @@ MonoBehaviour:
   waterValveSidePadding: 1.25
   waterValveWallProbeAttempts: 16
   waterValveRotationOffset: {x: 0, y: 0, z: 0}
+  waterValveMinimumDoorDistance: 2.5
+  waterValveClearanceWidth: 1
+  waterValveClearanceHeight: 1.2
+  waterValveClearanceDepth: 0.6
+  waterValveClearanceForwardOffset: 0.15
+  waterValveBlockingLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
   progression: {fileID: 201567247}
   useGridOccupancy: 1
   useBoundsOverlapCheck: 1
@@ -3983,6 +4067,7 @@ MonoBehaviour:
   requireAllWaterSourcesClean: 0
   requireAllRequiredPoolsClean: 1
   completeOnlyOnce: 1
+  ensureFloodController: 1
   randomizeMandatoryPools: 1
   minMandatoryPools: 1
   maxMandatoryPools: 3
@@ -5934,11 +6019,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RuntimeDebugOptions
   enableInReleaseBuild: 0
   toggleKey: 94
+  infiniteHealth: 0
   infiniteWater: 0
   infiniteStamina: 0
   petrifyImmunity: 0
   debugWaterQuality: 0
   debugGermsAmount: 50
+  enemyTracking: 0
+  enemyTrackingMaxDistance: 120
+  enemyCompassWidth: 520
+  enemyCompassTopOffset: 64
+  debugSpeedMultiplier: 1
+  debugNoclip: 0
   persistDebugCharacterSelection: 1
   windowRect:
     serializedVersion: 2
