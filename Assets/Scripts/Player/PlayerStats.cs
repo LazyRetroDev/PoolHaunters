@@ -12,6 +12,12 @@ public class PlayerStatus : NetworkBehaviour
     [Range(0.01f, 1f)] public float reviveHealthPercent = 0.35f;
     public bool disableControlsWhileKnockedOut = true;
 
+    [Header("Player Revive")]
+    public bool canBeRevivedByPlayers = true;
+    public float playerReviveRange = 2.75f;
+    public bool requireReviverCanAct = true;
+    public bool autoAddReviveInteractable = true;
+
     [Header("Water")]
     public float maxWater = 100f;
     public float fillRate = 10f;
@@ -81,6 +87,7 @@ public class PlayerStatus : NetworkBehaviour
     void Awake()
     {
         CacheReferences();
+        EnsureReviveInteractable();
     }
 
     public override void OnNetworkSpawn()
@@ -152,6 +159,15 @@ public class PlayerStatus : NetworkBehaviour
             inventory = GetComponent<PlayerInventory>();
         if (waterCannon == null)
             waterCannon = GetComponentInChildren<WaterCannon>(true);
+    }
+
+    void EnsureReviveInteractable()
+    {
+        if (!autoAddReviveInteractable)
+            return;
+
+        if (GetComponent<PlayerReviveInteractable>() == null)
+            gameObject.AddComponent<PlayerReviveInteractable>();
     }
 
     void InitializeLocalState()
@@ -322,6 +338,31 @@ public class PlayerStatus : NetworkBehaviour
         SyncAllState();
         OnRevived?.Invoke(this);
         return true;
+    }
+
+    public bool RequestReviveFrom(PlayerInventory reviverInventory)
+    {
+        if (reviverInventory == null)
+            return false;
+
+        PlayerStatus reviver = reviverInventory.GetComponent<PlayerStatus>();
+        if (reviver == null)
+            return false;
+
+        if (IsClientReplica())
+        {
+            if (!TryGetNetworkObjectReference(
+                reviver,
+                out NetworkObjectReference reviverReference))
+            {
+                return false;
+            }
+
+            RequestReviveServerRpc(reviverReference);
+            return false;
+        }
+
+        return ApplyReviveFrom(reviver);
     }
 
     public void Die()
@@ -599,6 +640,33 @@ public class PlayerStatus : NetworkBehaviour
         ApplyLocalControlState();
         SyncAllState();
         OnKnockedOut?.Invoke(this);
+    }
+
+    bool ApplyReviveFrom(PlayerStatus reviver)
+    {
+        if (!CanBeRevivedBy(reviver))
+            return false;
+
+        return Revive(maxHealth * reviveHealthPercent);
+    }
+
+    public bool CanBeRevivedBy(PlayerStatus reviver)
+    {
+        if (!canBeRevivedByPlayers)
+            return false;
+
+        if (reviver == null || reviver == this)
+            return false;
+
+        if (!isKnockedOut || isDead || deathTransformationApplied)
+            return false;
+
+        if (requireReviverCanAct && !reviver.CanAct())
+            return false;
+
+        float range = Mathf.Max(0f, playerReviveRange);
+        Vector3 offset = reviver.transform.position - transform.position;
+        return offset.sqrMagnitude <= range * range;
     }
 
     void ApplyDeath(bool transformed)
@@ -1243,6 +1311,37 @@ public class PlayerStatus : NetworkBehaviour
         SyncControlLockState();
     }
 
+    bool TryGetNetworkObjectReference(
+        PlayerStatus status,
+        out NetworkObjectReference reference)
+    {
+        NetworkObject networkObject =
+            status != null ? status.GetComponent<NetworkObject>() : null;
+
+        if (networkObject == null)
+        {
+            reference = default;
+            return false;
+        }
+
+        reference = networkObject;
+        return true;
+    }
+
+    bool CanProcessReviveRequest(
+        PlayerStatus reviver,
+        ServerRpcParams serverRpcParams)
+    {
+        if (!IsNetworked())
+            return true;
+
+        if (reviver == null || reviver.NetworkObject == null)
+            return false;
+
+        return reviver.NetworkObject.OwnerClientId ==
+            serverRpcParams.Receive.SenderClientId;
+    }
+
     [ServerRpc]
     void TakeDamageServerRpc(float damage)
     {
@@ -1259,6 +1358,24 @@ public class PlayerStatus : NetworkBehaviour
     void DebugResurrectServerRpc()
     {
         ApplyDebugResurrection();
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void RequestReviveServerRpc(
+        NetworkObjectReference reviverReference,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!reviverReference.TryGet(out NetworkObject reviverObject) ||
+            reviverObject == null)
+        {
+            return;
+        }
+
+        PlayerStatus reviver = reviverObject.GetComponent<PlayerStatus>();
+        if (!CanProcessReviveRequest(reviver, serverRpcParams))
+            return;
+
+        ApplyReviveFrom(reviver);
     }
 
     [ServerRpc]

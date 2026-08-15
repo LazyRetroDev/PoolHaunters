@@ -23,6 +23,12 @@ public class NetworkPlayerSetup : NetworkBehaviour
     private NetworkVariable<Unity.Collections.FixedString32Bytes> playerName = new NetworkVariable<Unity.Collections.FixedString32Bytes>(
         writePerm: NetworkVariableWritePermission.Server);
 
+    private readonly NetworkVariable<int> playerAgent =
+        new NetworkVariable<int>(
+            (int)PlayerAgentType.JennyPie,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+
     private PlayerMovement movement;
     private PlayerInput playerInput;
     private PlayerInventory inventory;
@@ -55,31 +61,84 @@ public class NetworkPlayerSetup : NetworkBehaviour
             BindLocalHud();
 
         playerName.OnValueChanged += HandlePlayerNameChanged;
+        playerAgent.OnValueChanged += HandlePlayerAgentChanged;
         if (IsOwner)
         {
             string myName = RegionRunState.PlayerName;
+            int myAgent = (int)AgentSelectionState.SelectedAgent;
+
             if (IsServer)
+            {
                 playerName.Value = myName;
+                playerAgent.Value = myAgent;
+            }
             else
+            {
                 SetPlayerNameServerRpc(myName);
+                SetPlayerAgentServerRpc(myAgent);
+            }
         }
         UpdateNameplate(playerName.Value.ToString());
+        ApplySyncedAgent(playerAgent.Value);
     }
 
     public override void OnNetworkDespawn()
     {
         playerName.OnValueChanged -= HandlePlayerNameChanged;
+        playerAgent.OnValueChanged -= HandlePlayerAgentChanged;
     }
 
-    [ServerRpc(RequireOwnership = true)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
     private void SetPlayerNameServerRpc(string newName)
     {
         playerName.Value = newName;
     }
 
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void SetPlayerAgentServerRpc(int newAgent)
+    {
+        if (!TryGetAgent(newAgent, out _))
+            return;
+
+        playerAgent.Value = newAgent;
+    }
+
     private void HandlePlayerNameChanged(Unity.Collections.FixedString32Bytes previousValue, Unity.Collections.FixedString32Bytes newValue)
     {
         UpdateNameplate(newValue.ToString());
+    }
+
+    private void HandlePlayerAgentChanged(int previousValue, int newValue)
+    {
+        ApplySyncedAgent(newValue);
+    }
+
+    private void ApplySyncedAgent(int agentValue)
+    {
+        if (!TryGetAgent(agentValue, out PlayerAgentType agent))
+            return;
+
+        PlayerAgentLoadout loadout = GetComponent<PlayerAgentLoadout>();
+        if (loadout == null)
+            loadout = gameObject.AddComponent<PlayerAgentLoadout>();
+
+        loadout.applySelectionOnStart = false;
+        loadout.ApplyAgent(agent);
+
+        if (IsSpawned)
+            ApplyOwnershipState(ShouldControlLocally());
+    }
+
+    private static bool TryGetAgent(int value, out PlayerAgentType agent)
+    {
+        if (System.Enum.IsDefined(typeof(PlayerAgentType), value))
+        {
+            agent = (PlayerAgentType)value;
+            return true;
+        }
+
+        agent = PlayerAgentType.JennyPie;
+        return false;
     }
 
     private void UpdateNameplate(string newName)
