@@ -24,11 +24,19 @@ public class HUD : MonoBehaviour
     [Header("Death")]
     public bool hideWhenPlayerDies = true;
 
+    [Header("Interaction Prompt")]
+    public TMP_Text interactionPromptText;
+    public bool createInteractionPromptIfMissing = true;
+    public Vector2 interactionPromptAnchoredPosition = new Vector2(0f, -150f);
+    public int interactionPromptFontSize = 28;
+    public Color interactionPromptColor = Color.white;
+
     private Canvas canvas;
 
     void Awake()
     {
         canvas = GetComponent<Canvas>();
+        EnsureInteractionPrompt();
     }
 
     void OnEnable()
@@ -58,8 +66,22 @@ public class HUD : MonoBehaviour
         if (canvas != null)
             canvas.enabled = true;
 
+        EnsureInteractionPrompt();
+        SetInteractionPrompt(string.Empty, false);
+
         if (isActiveAndEnabled && playerStatus != null)
             playerStatus.OnDeath += HandlePlayerDeath;
+    }
+
+    public void SetInteractionPrompt(string prompt, bool visible)
+    {
+        EnsureInteractionPrompt();
+
+        if (interactionPromptText == null)
+            return;
+
+        interactionPromptText.text = visible ? prompt : string.Empty;
+        interactionPromptText.gameObject.SetActive(visible);
     }
 
     void Update()
@@ -81,10 +103,45 @@ public class HUD : MonoBehaviour
     {
         if (!hideWhenPlayerDies || deadPlayer != playerStatus) return;
 
+        SetInteractionPrompt(string.Empty, false);
+
         if (canvas != null)
             canvas.enabled = false;
         else
             gameObject.SetActive(false);
+    }
+
+    void EnsureInteractionPrompt()
+    {
+        if (interactionPromptText != null || !createInteractionPromptIfMissing)
+            return;
+
+        if (canvas == null)
+            canvas = GetComponent<Canvas>();
+
+        if (canvas == null)
+            return;
+
+        GameObject promptObject = new GameObject(
+            "InteractionPrompt",
+            typeof(RectTransform),
+            typeof(TextMeshProUGUI));
+        promptObject.transform.SetParent(canvas.transform, false);
+
+        RectTransform rect = promptObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = interactionPromptAnchoredPosition;
+        rect.sizeDelta = new Vector2(520f, 64f);
+
+        interactionPromptText = promptObject.GetComponent<TMP_Text>();
+        interactionPromptText.alignment = TextAlignmentOptions.Center;
+        interactionPromptText.fontSize = interactionPromptFontSize;
+        interactionPromptText.color = interactionPromptColor;
+        interactionPromptText.raycastTarget = false;
+        interactionPromptText.text = string.Empty;
+        interactionPromptText.gameObject.SetActive(false);
     }
 
     void UpdateWaterHUD()

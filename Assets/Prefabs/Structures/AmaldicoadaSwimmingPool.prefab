@@ -1605,8 +1605,9 @@ GameObject:
   - component: {fileID: 4037228026181189148}
   - component: {fileID: 8461132694855017602}
   - component: {fileID: 7732218644104282369}
+  - component: {fileID: 3422981839236994501}
   m_Layer: 0
-  m_Name: SwimmingPool
+  m_Name: AmaldicoadaSwimmingPool
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1668,6 +1669,7 @@ MonoBehaviour:
   autoFindDirtSpots: 1
   dirtSpots: []
   poolCleanCompletionThreshold: 0.95
+  cleaningLocked: 0
   debugSyncId: 0
   filled: 0
   cleaned: 0
@@ -1698,6 +1700,32 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!114 &3422981839236994501
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4456091574275649116}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e938381dcef240bf94307889e33c2fda, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  poolObjective: {fileID: 8461132694855017602}
+  cleanBox: {fileID: 2275608709150317368}
+  requiredItemName: AguaBenta
+  holyWaterPrefab: {fileID: 7050421153851751743, guid: e1d3afa8eca80654e871e918c0aa5c6b, type: 3}
+  spawnHolyWaterAfterMapGeneration: 1
+  avoidCurrentPoolRoom: 1
+  avoidSubmarineAndFinalRooms: 1
+  avoidPoolRooms: 1
+  spawnAttemptsPerRoom: 6
+  roomEdgePadding: 1.25
+  floorOffset: 0.08
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!1 &4500586883525018112
 GameObject:
   m_ObjectHideFlags: 0
@@ -2822,6 +2850,7 @@ GameObject:
   m_Component:
   - component: {fileID: 5512331255149624538}
   - component: {fileID: 3817042927286201252}
+  - component: {fileID: 2275608709150317368}
   m_Layer: 0
   m_Name: CleanBox
   m_TagString: Untagged
@@ -2870,6 +2899,19 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 0.5, y: 0.2, z: 0.5}
   m_Center: {x: 0, y: 0.15, z: 0}
+--- !u!114 &2275608709150317368
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6955567908820246848}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c27f1a5c5244edea410253385376e22, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  acceptedItemTag: Item
 --- !u!1 &7740425297493252103
 GameObject:
   m_ObjectHideFlags: 0

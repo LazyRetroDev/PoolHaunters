@@ -2278,8 +2278,8 @@ Camera:
   m_TargetTexture: {fileID: 8400000, guid: 619221501ea5b3b4b9caedd109736311, type: 2}
   m_TargetDisplay: 0
   m_TargetEye: 3
-  m_HDR: 0
-  m_AllowMSAA: 0
+  m_HDR: 1
+  m_AllowMSAA: 1
   m_AllowDynamicResolution: 0
   m_ForceIntoRT: 0
   m_OcclusionCulling: 1
@@ -7842,7 +7842,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 185760602
+  GlobalObjectIdHash: 2857146892
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -10023,7 +10023,7 @@ Transform:
   m_GameObject: {fileID: 1835621535}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.77527, y: 1, z: 0.6991}
+  m_LocalPosition: {x: -4.77527, y: 1.64179, z: 0.6991}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -10885,7 +10885,6 @@ MonoBehaviour:
   - {fileID: 11400000, guid: b118fdfd19f641e197b4a5aa059160a1, type: 2}
   - {fileID: 11400000, guid: b219fad362b946699c384bb6699e0462, type: 2}
   - {fileID: 11400000, guid: b31a0c9826a445d09ab89f7f89b4779f, type: 2}
-  - {fileID: 11400000, guid: 7e9d5eb6292eeff4e9af1c04838739ee, type: 2}
   objectiveText: {fileID: 6143981}
   progressText: {fileID: 902106067}
   cleaningProgressText: {fileID: 2044452493}
@@ -11455,7 +11454,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomGenerator
   generationProfile: {fileID: 0}
   applyGenerationProfileOnAwake: 0
-  applyPhaseProfileOnAwake: 1
+  applyPhaseProfileOnAwake: 0
   fallbackPhaseProfile: {fileID: 11400000, guid: b118fdfd19f641e197b4a5aa059160a1, type: 2}
   phaseProfiles:
   - {fileID: 11400000, guid: b118fdfd19f641e197b4a5aa059160a1, type: 2}
@@ -11473,17 +11472,17 @@ MonoBehaviour:
   - {fileID: 3378611166528902296, guid: 20f7c2250cdda38468ef0662bca58c1f, type: 3}
   - {fileID: 3378611166528902296, guid: 8748f9de8c073064bad472429157f4b2, type: 3}
   startingRoomCount: 2
-  maxGeneratedRooms: 200
+  maxGeneratedRooms: 25
   generateFullMapOnStart: 1
   requirePoolRoomsInFullMap: 1
   minimumRequiredPoolRooms: 3
   spreadRequiredPoolRooms: 1
   minimumPoolRoomCellDistance: 1
-  minimumBranchCount: 10
-  maximumBranchCount: 15
-  minimumRoomsPerBranch: 6
-  maximumRoomsPerBranch: 10
-  branchGenerationAttempts: 20
+  minimumBranchCount: 4
+  maximumBranchCount: 6
+  minimumRoomsPerBranch: 14
+  maximumRoomsPerBranch: 18
+  branchGenerationAttempts: 50
   guaranteeMinimumBranchCount: 1
   allowRepeatingFinalRoomsForBranches: 1
   connectAdjacentBranches: 1
@@ -11492,7 +11491,7 @@ MonoBehaviour:
   maximumAdjacentBranchConnectionDoorDistance: 12
   enforceFinalRoomMinimumDistance: 1
   validateFullMapAfterGeneration: 1
-  fullMapGenerationAttempts: 20
+  fullMapGenerationAttempts: 50
   validateClosedDoorObjects: 1
   validateConnectedNavMeshLinks: 1
   logGenerationReport: 1
@@ -12570,15 +12569,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7165801827447823788, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8656405033086166165, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -9.98
+      value: -13.444729
       objectReference: {fileID: 0}
     - target: {fileID: 8656405033086166165, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0
+      value: -0.64179003
       objectReference: {fileID: 0}
     - target: {fileID: 8656405033086166165, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
       propertyPath: m_LocalPosition.z
@@ -13060,7 +13059,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5412464524439198848, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 10.9
+      value: 10.88527
       objectReference: {fileID: 0}
     - target: {fileID: 5412464524439198848, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
       propertyPath: m_LocalPosition.y
@@ -13068,7 +13067,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5412464524439198848, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -25.3
+      value: 2.69984
       objectReference: {fileID: 0}
     - target: {fileID: 5412464524439198848, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
       propertyPath: m_LocalRotation.w
@@ -13104,7 +13103,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6578610292248419955, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

@@ -28,6 +28,10 @@ public class PlayerMovement : NetworkBehaviour
     public float crouchTransitionSpeed = 10f;
     public bool IsCrouching() => isCrouching;
 
+    [Header("Ladder")]
+    public float ladderClimbSpeed = 3f;
+    public string ladderTriggerName = "Ladder";
+
     [Header("Stamina")]
     public float maxStamina = 100f;
     public float staminaDrainRate = 20f;
@@ -74,6 +78,10 @@ public class PlayerMovement : NetworkBehaviour
     private bool debugSavedKinematic;
     private bool debugSavedColliderEnabled;
     private bool hasDebugPhysicsState;
+    private Transform activeLadder;
+    private int ladderTriggerCount;
+    private bool isClimbingLadder;
+    private bool ladderSavedGravity;
     private PlayerVignetteEffect localVignetteEffect;
     private float lastThreatEffectSendTime = -999f;
     private float lastThreatEffectSentIntensity = -1f;
@@ -104,6 +112,7 @@ public class PlayerMovement : NetworkBehaviour
             crouchRequested = false;
             jumpRequested = false;
             footstepTimer = 0f;
+            RestoreLadderPhysics();
 
             if (footstepAudioSource != null)
                 footstepAudioSource.Stop();
@@ -160,6 +169,9 @@ public class PlayerMovement : NetworkBehaviour
         if (!acceptsInput || !value.isPressed)
             return;
 
+        if (IsInsideLadderTrigger())
+            return;
+
         crouchRequested = !crouchRequested;
     }
 
@@ -203,14 +215,21 @@ public class PlayerMovement : NetworkBehaviour
         }
         if (debugNoclip)
         {
+            RestoreLadderPhysics();
             UpdateDebugNoclipMovement();
             return;
         }
         if (IsMovementBlockedByCharacterAbility())
         {
+            RestoreLadderPhysics();
             UpdateLocalLocomotionState(false, false);
             return;
         }
+
+        if (TryUpdateLadderMovement())
+            return;
+
+        RestoreLadderPhysics();
 
         bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
         UpdateCrouchState(knockedOut);
@@ -286,6 +305,154 @@ public class PlayerMovement : NetworkBehaviour
             jennyMopCleaner = GetComponent<JennyMopCleaner>();
 
         return jennyMopCleaner != null && jennyMopCleaner.IsSurfDashing;
+    }
+
+    bool TryUpdateLadderMovement()
+    {
+        if (!IsInsideLadderTrigger() || rb == null)
+            return false;
+        if (playerStatus != null && !playerStatus.CanAct())
+            return false;
+
+        float verticalInput = GetLadderVerticalInput();
+        if (Mathf.Approximately(verticalInput, 0f))
+            return false;
+
+        if (isCrouching)
+        {
+            crouchRequested = false;
+            isCrouching = false;
+            ApplyColliderHeight();
+        }
+
+        ApplyLadderPhysics();
+
+        Vector3 climbDirection = GetLadderClimbDirection();
+        Vector3 targetPosition =
+            rb.position +
+            climbDirection * verticalInput * ladderClimbSpeed * Time.fixedDeltaTime;
+
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.MovePosition(targetPosition);
+
+        Camera movementCamera = Camera.main;
+        if (movementCamera != null)
+        {
+            rb.MoveRotation(Quaternion.Euler(
+                0f,
+                movementCamera.transform.eulerAngles.y,
+                0f));
+        }
+
+        UpdateLocalLocomotionState(true, false);
+        return true;
+    }
+
+    float GetLadderVerticalInput()
+    {
+        if (Keyboard.current == null)
+            return 0f;
+
+        float vertical = 0f;
+        if (Keyboard.current.leftShiftKey.isPressed ||
+            Keyboard.current.rightShiftKey.isPressed)
+        {
+            vertical += 1f;
+        }
+
+        if (Keyboard.current.leftCtrlKey.isPressed ||
+            Keyboard.current.rightCtrlKey.isPressed)
+        {
+            vertical -= 1f;
+        }
+
+        return Mathf.Clamp(vertical, -1f, 1f);
+    }
+
+    Vector3 GetLadderClimbDirection()
+    {
+        if (activeLadder == null)
+            return Vector3.up;
+
+        Vector3 ladderUp = activeLadder.up;
+        return Mathf.Abs(Vector3.Dot(ladderUp.normalized, Vector3.up)) > 0.25f
+            ? ladderUp.normalized
+            : Vector3.up;
+    }
+
+    bool IsInsideLadderTrigger()
+    {
+        return ladderTriggerCount > 0 && activeLadder != null;
+    }
+
+    void ApplyLadderPhysics()
+    {
+        if (rb == null || isClimbingLadder)
+            return;
+
+        ladderSavedGravity = rb.useGravity;
+        rb.useGravity = false;
+        isClimbingLadder = true;
+    }
+
+    void RestoreLadderPhysics()
+    {
+        if (!isClimbingLadder)
+            return;
+
+        if (rb != null)
+        {
+            rb.useGravity = ladderSavedGravity;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        isClimbingLadder = false;
+    }
+
+    void OnTriggerEnter(Collider other)
+    {
+        if (!IsLadderTrigger(other))
+            return;
+
+        ladderTriggerCount++;
+        activeLadder = other.transform;
+    }
+
+    void OnTriggerExit(Collider other)
+    {
+        if (!IsLadderTrigger(other))
+            return;
+
+        ladderTriggerCount = Mathf.Max(0, ladderTriggerCount - 1);
+        if (ladderTriggerCount == 0 || activeLadder == other.transform)
+        {
+            activeLadder = null;
+            RestoreLadderPhysics();
+        }
+    }
+
+    bool IsLadderTrigger(Collider other)
+    {
+        if (other == null || !other.isTrigger)
+            return false;
+
+        Transform current = other.transform;
+        while (current != null)
+        {
+            if (string.Equals(
+                current.name,
+                ladderTriggerName,
+                System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
     }
 
     void UpdateDebugNoclipMovement()
@@ -613,6 +780,26 @@ public class PlayerMovement : NetworkBehaviour
 
     [ServerRpc]
     void EmitFootstepNoiseServerRpc(Vector3 noisePosition, float noiseRadius)
+    {
+        NoiseEvent.Emit(noisePosition, noiseRadius, gameObject);
+    }
+
+    public void EmitVoiceNoiseForEnemies(float noiseRadius)
+    {
+        if (noiseRadius <= 0f)
+            return;
+
+        if (IsSpawned && !IsServer)
+        {
+            EmitVoiceNoiseServerRpc(transform.position, noiseRadius);
+            return;
+        }
+
+        NoiseEvent.Emit(transform.position, noiseRadius, gameObject);
+    }
+
+    [ServerRpc]
+    void EmitVoiceNoiseServerRpc(Vector3 noisePosition, float noiseRadius)
     {
         NoiseEvent.Emit(noisePosition, noiseRadius, gameObject);
     }

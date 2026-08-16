@@ -218,6 +218,43 @@ public static class RegionRunState
             DifficultyMode);
     }
 
+    public static void SelectSyncedMultiplayerPhase(
+        string regionName,
+        string sceneName,
+        int runSeed,
+        int phaseNumber,
+        string previousSceneName,
+        string relayJoinCode,
+        string relayConnectionType,
+        int relayMaxConnections,
+        RunDifficulty difficulty)
+    {
+        RunLaunchMode launchMode = IsHost
+            ? RunLaunchMode.MultiplayerHost
+            : RunLaunchMode.MultiplayerClient;
+        RunNetworkMode networkMode = NetworkMode;
+
+        if (!IsMultiplayer)
+            networkMode = string.IsNullOrWhiteSpace(relayJoinCode)
+                ? RunNetworkMode.Direct
+                : RunNetworkMode.Relay;
+
+        SelectRegion(
+            regionName,
+            sceneName,
+            runSeed,
+            launchMode,
+            networkMode,
+            ConnectionAddress,
+            ConnectionPort,
+            relayJoinCode,
+            relayConnectionType,
+            relayMaxConnections,
+            Mathf.Max(1, phaseNumber),
+            previousSceneName,
+            difficulty);
+    }
+
     static void SelectRegion(
         string regionName,
         string sceneName,

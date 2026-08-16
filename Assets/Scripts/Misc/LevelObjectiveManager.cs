@@ -1123,16 +1123,19 @@ public class LevelObjectiveManager : MonoBehaviour
         if (!IsValidPoolCleanPayload(worldPoint, worldRadius, amount))
             return;
 
-        ApplyPoolDirtCleanNetworkState(
-            poolSyncId,
-            dirtSpotIndex,
-            worldPoint,
-            worldRadius,
-            amount);
-
         SwimmingPoolObjective pool;
         if (TryFindPoolBySyncId(poolSyncId, out pool))
         {
+            if (pool.IsCleaningLocked)
+                return;
+
+            ApplyPoolDirtCleanNetworkState(
+                poolSyncId,
+                dirtSpotIndex,
+                worldPoint,
+                worldRadius,
+                amount);
+
             SendPoolDirtCleanToConnectedClients(
                 pool,
                 dirtSpotIndex,

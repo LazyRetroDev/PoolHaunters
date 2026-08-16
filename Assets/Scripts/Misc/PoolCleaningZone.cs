@@ -71,19 +71,26 @@ public class PoolCleaningZone : MonoBehaviour
         WaterQuality waterQuality,
         PlayerStatus cleaner = null)
     {
+        SwimmingPoolObjective poolObjective =
+            GetComponentInParent<SwimmingPoolObjective>();
+
         ForwardWaterToPoolDirtSpots(
             worldPoint,
             contactRadius,
             cleanAmount,
             waterAmount,
             waterQuality,
-            cleaner);
+            cleaner,
+            poolObjective);
 
         if (waterQuality == WaterQuality.Contaminated)
         {
             ApplyContaminatedWater(waterAmount);
             return;
         }
+
+        if (poolObjective != null && poolObjective.IsCleaningLocked)
+            return;
 
         Clean(cleanAmount);
     }
@@ -94,13 +101,12 @@ public class PoolCleaningZone : MonoBehaviour
         float cleanAmount,
         float waterAmount,
         WaterQuality waterQuality,
-        PlayerStatus cleaner)
+        PlayerStatus cleaner,
+        SwimmingPoolObjective poolObjective)
     {
         if (!forwardWaterToPoolDirtSpots)
             return;
 
-        SwimmingPoolObjective poolObjective =
-            GetComponentInParent<SwimmingPoolObjective>();
         if (poolObjective == null)
             return;
 
@@ -120,6 +126,11 @@ public class PoolCleaningZone : MonoBehaviour
 
     public void Clean(float amount)
     {
+        SwimmingPoolObjective poolObjective =
+            GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null && poolObjective.IsCleaningLocked)
+            return;
+
         if (IsCleaned || amount <= 0f)
             return;
 

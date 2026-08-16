@@ -26,6 +26,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     [SerializeField] private bool autoFindDirtSpots = true;
     [SerializeField] private DirtSpot[] dirtSpots = new DirtSpot[0];
     [SerializeField, Range(0.01f, 1f)] private float poolCleanCompletionThreshold = 0.95f;
+    [SerializeField] private bool cleaningLocked;
 
     [Header("Debug")]
     [SerializeField] private int debugSyncId;
@@ -52,6 +53,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     }
     public bool IsFilled => filled;
     public bool IsCleaned => cleaned;
+    public bool IsCleaningLocked => cleaningLocked;
     public bool IsApplyingSynchronizedState => applyingSynchronizedState;
     public int SyncId => GetSyncId();
     public byte SyncState => (byte)GetState();
@@ -136,6 +138,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     public void ForceClean()
     {
         filled = true;
+        cleaningLocked = false;
 
         RefreshDirtSpots();
         if (dirtSpots != null)
@@ -187,6 +190,9 @@ public class SwimmingPoolObjective : MonoBehaviour
         float worldRadius,
         float amount)
     {
+        if (cleaningLocked)
+            return;
+
         RefreshDirtSpots();
 
         if (dirtSpotIndex < 0 ||
@@ -224,6 +230,9 @@ public class SwimmingPoolObjective : MonoBehaviour
         WaterQuality waterQuality,
         PlayerStatus cleaner = null)
     {
+        if (cleaningLocked && waterQuality != WaterQuality.Contaminated)
+            return;
+
         RefreshDirtSpots();
 
         if (trackedDirtSpots.Count == 0)
@@ -312,6 +321,15 @@ public class SwimmingPoolObjective : MonoBehaviour
         {
             applyingSynchronizedState = false;
         }
+    }
+
+    public void SetCleaningLocked(bool locked)
+    {
+        if (cleaningLocked == locked)
+            return;
+
+        cleaningLocked = locked;
+        NotifyStateChanged();
     }
 
     void HandleWaterValveActivated()

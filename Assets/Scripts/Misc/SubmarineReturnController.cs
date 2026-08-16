@@ -11,6 +11,7 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
 {
     const string ConfirmRequestMessageName = "SubmarineReturnConfirmRequest";
     const string ConfirmStateMessageName = "SubmarineReturnConfirmState";
+    const string NextPhaseStateMessageName = "SubmarineReturnNextPhaseState";
 
     [Header("Return Rules")]
     public bool requireLevelCompleted = true;
@@ -61,6 +62,7 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
     private NetworkManager registeredNetworkManager;
     private bool registeredConfirmRequestHandler;
     private bool registeredConfirmStateHandler;
+    private bool registeredNextPhaseStateHandler;
 
     void Reset()
     {
@@ -194,9 +196,11 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
             networkManager.IsListening &&
             networkManager.SceneManager != null)
         {
-            networkManager.SceneManager.LoadScene(
+            BroadcastNextPhaseState(networkManager);
+            StartCoroutine(LoadNetworkSceneAfterStateSync(
+                networkManager,
                 selectedDestinationScene,
-                LoadSceneMode.Single);
+                "final objective"));
             return;
         }
 
@@ -435,6 +439,14 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
                 HandleConfirmStateMessage);
             registeredConfirmStateHandler = true;
         }
+
+        if (networkManager.IsClient && !registeredNextPhaseStateHandler)
+        {
+            networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+                NextPhaseStateMessageName,
+                HandleNextPhaseStateMessage);
+            registeredNextPhaseStateHandler = true;
+        }
     }
 
     void UnregisterNetworkMessages()
@@ -460,9 +472,16 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
                 ConfirmStateMessageName);
         }
 
+        if (registeredNextPhaseStateHandler)
+        {
+            registeredNetworkManager.CustomMessagingManager.UnregisterNamedMessageHandler(
+                NextPhaseStateMessageName);
+        }
+
         registeredNetworkManager = null;
         registeredConfirmRequestHandler = false;
         registeredConfirmStateHandler = false;
+        registeredNextPhaseStateHandler = false;
     }
 
     bool ShouldHandleMessagesForThisObjective()
@@ -494,6 +513,102 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
         reader.ReadValueSafe(out confirmedLivingPlayers);
         reader.ReadValueSafe(out requiredLivingPlayers);
         RefreshConfirmationText();
+    }
+
+    void BroadcastNextPhaseState(NetworkManager networkManager)
+    {
+        if (networkManager == null ||
+            !networkManager.IsServer ||
+            networkManager.CustomMessagingManager == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<ulong> clients = networkManager.ConnectedClientsIds;
+        for (int i = 0; i < clients.Count; i++)
+        {
+            ulong clientId = clients[i];
+            if (clientId == NetworkManager.ServerClientId)
+                continue;
+
+            using FastBufferWriter writer = new FastBufferWriter(1024, Allocator.Temp);
+            writer.WriteValueSafe(ToFixedString(RegionRunState.RegionName));
+            writer.WriteValueSafe(ToFixedString(RegionRunState.SceneName));
+            writer.WriteValueSafe(RegionRunState.RunSeed);
+            writer.WriteValueSafe(RegionRunState.PhaseNumber);
+            writer.WriteValueSafe(ToFixedString(RegionRunState.PreviousSceneName));
+            writer.WriteValueSafe(ToFixedString(RegionRunState.RelayJoinCode));
+            writer.WriteValueSafe(ToFixedString(RegionRunState.RelayConnectionType));
+            writer.WriteValueSafe(RegionRunState.RelayMaxConnections);
+            writer.WriteValueSafe((int)RegionRunState.DifficultyMode);
+
+            networkManager.CustomMessagingManager.SendNamedMessage(
+                NextPhaseStateMessageName,
+                clientId,
+                writer,
+                NetworkDelivery.ReliableSequenced);
+        }
+    }
+
+    void HandleNextPhaseStateMessage(ulong senderClientId, FastBufferReader reader)
+    {
+        if (senderClientId != NetworkManager.ServerClientId)
+            return;
+
+        reader.ReadValueSafe(out FixedString128Bytes regionName);
+        reader.ReadValueSafe(out FixedString128Bytes sceneName);
+        reader.ReadValueSafe(out int runSeed);
+        reader.ReadValueSafe(out int phaseNumber);
+        reader.ReadValueSafe(out FixedString128Bytes previousSceneName);
+        reader.ReadValueSafe(out FixedString128Bytes relayJoinCode);
+        reader.ReadValueSafe(out FixedString128Bytes relayConnectionType);
+        reader.ReadValueSafe(out int relayMaxConnections);
+        reader.ReadValueSafe(out int difficultyIndex);
+
+        RegionRunState.SelectSyncedMultiplayerPhase(
+            regionName.ToString(),
+            sceneName.ToString(),
+            runSeed,
+            phaseNumber,
+            previousSceneName.ToString(),
+            relayJoinCode.ToString(),
+            relayConnectionType.ToString(),
+            relayMaxConnections,
+            (RunDifficulty)Mathf.Clamp(
+                difficultyIndex,
+                0,
+                Enum.GetValues(typeof(RunDifficulty)).Length - 1));
+    }
+
+    System.Collections.IEnumerator LoadNetworkSceneAfterStateSync(
+        NetworkManager networkManager,
+        string sceneName,
+        string reason)
+    {
+        yield return null;
+        yield return null;
+
+        if (networkManager == null ||
+            !networkManager.IsListening ||
+            networkManager.SceneManager == null)
+        {
+            SceneManager.LoadScene(sceneName);
+            yield break;
+        }
+
+        SceneEventProgressStatus status =
+            networkManager.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
+        if (status != SceneEventProgressStatus.Started)
+        {
+            Debug.LogWarning(
+                $"SubmarineReturnController could not load scene '{sceneName}' from {reason}. Scene event status: {status}.");
+        }
+    }
+
+    FixedString128Bytes ToFixedString(string value)
+    {
+        return new FixedString128Bytes(
+            string.IsNullOrWhiteSpace(value) ? string.Empty : value);
     }
 
     string GetDestinationSceneName(RunSceneOption nextScene)

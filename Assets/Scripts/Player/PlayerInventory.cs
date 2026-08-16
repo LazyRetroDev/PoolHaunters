@@ -28,6 +28,7 @@ public class PlayerInventory : NetworkBehaviour
     private int selectedSlot = 0;
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
+    private HUD hud;
 
     void Awake()
     {
@@ -102,7 +103,15 @@ public class PlayerInventory : NetworkBehaviour
 
     void Update()
     {
-        if (!CanHandleLocalInput() || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput())
+        {
+            SetInteractionPrompt(string.Empty, false);
+            return;
+        }
+
+        UpdateInteractionPrompt();
+
+        if (IsInventoryLocked()) return;
         if (Keyboard.current == null) return;
 
         for (int i = 0; i < inventorySize; i++)
@@ -163,6 +172,63 @@ public class PlayerInventory : NetworkBehaviour
     {
         if (playerStatus != null && !playerStatus.CanAct()) return true;
         return playerPetrify != null && playerPetrify.IsPetrified();
+    }
+
+    void UpdateInteractionPrompt()
+    {
+        if (IsInventoryLocked())
+        {
+            SetInteractionPrompt(string.Empty, false);
+            return;
+        }
+
+        if (TryGetLookedRevivePrompt(out string prompt))
+            SetInteractionPrompt(prompt, true);
+        else
+            SetInteractionPrompt(string.Empty, false);
+    }
+
+    bool TryGetLookedRevivePrompt(out string prompt)
+    {
+        prompt = string.Empty;
+
+        Camera cameraToUse = GetInteractionCamera();
+        if (cameraToUse == null)
+            return false;
+
+        Ray ray = cameraToUse.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        if (!Physics.Raycast(ray, out RaycastHit hit, pickupRange))
+            return false;
+
+        PlayerReviveInteractable revive =
+            hit.collider.GetComponentInParent<PlayerReviveInteractable>();
+        return revive != null &&
+            revive.TryGetInteractionPrompt(this, out prompt);
+    }
+
+    void SetInteractionPrompt(string prompt, bool visible)
+    {
+        HUD boundHud = GetBoundHud();
+        if (boundHud != null)
+            boundHud.SetInteractionPrompt(prompt, visible);
+    }
+
+    HUD GetBoundHud()
+    {
+        if (hud != null && hud.inventory == this)
+            return hud;
+
+        HUD[] huds = FindObjectsByType<HUD>(FindObjectsInactive.Include);
+        for (int i = 0; i < huds.Length; i++)
+        {
+            if (huds[i] == null || huds[i].inventory != this)
+                continue;
+
+            hud = huds[i];
+            return hud;
+        }
+
+        return null;
     }
 
     void TryPickup(Item item)

@@ -1,0 +1,62 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7457680648722535455
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3669489888172844545}
+  - component: {fileID: 1442850816361659935}
+  m_Layer: 0
+  m_Name: VivoxVoiceChatManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3669489888172844545
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7457680648722535455}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -1.71226, y: 0, z: -24.96568}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1442850816361659935
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7457680648722535455}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fbaad987f78f4891bf919c774bf5cecd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VivoxVoiceChatManager
+  autoStartInMultiplayer: 1
+  autoStartInSinglePlayer: 1
+  logStatus: 1
+  leaveChannelOnDestroy: 1
+  audibleDistance: 20
+  conversationalDistance: 10
+  audioFadeIntensity: 1.35
+  audioFadeModel: 3
+  positionUpdateInterval: 0.3
+  allowStereoPanning: 1
+  muteInputAtStart: 0
+  inputVolume: 0
+  outputVolume: 0
+  emitVoiceNoiseForEnemies: 1
+  voiceNoiseRadius: 10
+  voiceNoiseInterval: 0.45

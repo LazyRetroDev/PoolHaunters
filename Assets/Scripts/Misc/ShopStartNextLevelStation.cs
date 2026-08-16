@@ -1,3 +1,4 @@
+using System.Collections;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine;
@@ -12,6 +13,7 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
     [SerializeField] private bool onlyHostCanStart = true;
     [SerializeField] private bool allowFallbackSceneWhenNoRunState = true;
     [SerializeField] private string fallbackSceneName = "Game";
+    [SerializeField] private bool transitionStarted;
 
     void Awake()
     {
@@ -28,17 +30,36 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
 
     public void Interact(PlayerInventory inventory)
     {
+        if (transitionStarted)
+            return;
+
         if (!CanStart())
             return;
 
+        transitionStarted = true;
         string sceneName = GetNextSceneName();
+        StartCoroutine(LoadSceneAfterInteractionFrame(sceneName));
+    }
+
+    IEnumerator LoadSceneAfterInteractionFrame(string sceneName)
+    {
+        yield return null;
+
         NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager != null &&
             networkManager.IsListening &&
             networkManager.SceneManager != null)
         {
-            networkManager.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
-            return;
+            SceneEventProgressStatus status =
+                networkManager.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
+            if (status != SceneEventProgressStatus.Started)
+            {
+                Debug.LogWarning(
+                    $"ShopStartNextLevelStation could not load scene '{sceneName}'. Scene event status: {status}.");
+                transitionStarted = false;
+            }
+
+            yield break;
         }
 
         SceneManager.LoadScene(sceneName);
