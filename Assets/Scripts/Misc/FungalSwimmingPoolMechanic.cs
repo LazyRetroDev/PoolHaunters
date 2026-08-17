@@ -1,0 +1,415 @@
+using System.Collections;
+using System.Collections.Generic;
+using Unity.Netcode;
+using UnityEngine;
+
+[DisallowMultipleComponent]
+public class FungalSwimmingPoolMechanic : MonoBehaviour
+{
+    [Header("Pool")]
+    [SerializeField] private SwimmingPoolObjective poolObjective;
+
+    [Header("Mushrooms")]
+    [SerializeField] private FungalMushroomHazard mushroomPrefab;
+    [SerializeField] private FungalMushroomHazard goodMushroomPrefab;
+    [SerializeField, Min(0)] private int mushroomsAroundPool = 6;
+    [SerializeField, Min(0)] private int mushroomsAroundMap = 8;
+    [SerializeField, Min(0)] private int goodMushroomsAroundPool = 2;
+    [SerializeField, Range(0.05f, 1f)] private float goodMushroomCleanPortion = 0.35f;
+    [SerializeField, Min(0.2f)] private float poolMushroomRadius = 4f;
+    [SerializeField, Min(0f)] private float spawnFloorOffset = 0.04f;
+    [SerializeField, Min(1)] private int spawnAttemptsPerMushroom = 12;
+    [SerializeField] private LayerMask groundLayers = ~0;
+    [SerializeField] private bool lockCleaningUntilMushroomsRemoved = true;
+
+    private readonly HashSet<FungalMushroomHazard> activeMushrooms =
+        new HashSet<FungalMushroomHazard>();
+
+    private bool spawnedMapContent;
+    private Coroutine waitForMapRoutine;
+
+    public int ActiveMushroomCount
+    {
+        get
+        {
+            PruneMushrooms();
+            return activeMushrooms.Count;
+        }
+    }
+    public int ActiveHarmfulMushroomCount
+    {
+        get
+        {
+            int count = 0;
+            FungalMushroomHazard[] mushrooms = GetActiveMushroomsSnapshot();
+            for (int i = 0; i < mushrooms.Length; i++)
+            {
+                if (mushrooms[i] != null && !mushrooms[i].IsGoodFungus)
+                    count++;
+            }
+
+            return count;
+        }
+    }
+
+    private void Awake()
+    {
+        AutoBindReferences();
+        RefreshPoolLock();
+    }
+
+    private void OnEnable()
+    {
+        AutoBindReferences();
+
+        RoomGenerator.OnGeneratedMapReady += HandleGeneratedMapReady;
+        waitForMapRoutine = StartCoroutine(WaitForExistingGeneratedMap());
+        RefreshPoolLock();
+    }
+
+    private void OnDisable()
+    {
+        RoomGenerator.OnGeneratedMapReady -= HandleGeneratedMapReady;
+
+        if (waitForMapRoutine != null)
+        {
+            StopCoroutine(waitForMapRoutine);
+            waitForMapRoutine = null;
+        }
+    }
+
+    public void RegisterMushroom(FungalMushroomHazard mushroom)
+    {
+        if (mushroom == null)
+            return;
+
+        if (activeMushrooms.Add(mushroom))
+            mushroom.BindPool(this);
+
+        RefreshPoolLock();
+    }
+
+    public void NotifyMushroomRemoved(FungalMushroomHazard mushroom)
+    {
+        if (mushroom != null)
+            activeMushrooms.Remove(mushroom);
+
+        RefreshPoolLock();
+    }
+
+    public void RemoveFungusPortion(float portion, FungalMushroomHazard source)
+    {
+        portion = Mathf.Clamp01(portion);
+        if (portion <= 0f)
+            return;
+
+        FungalMushroomHazard[] mushrooms = GetActiveMushroomsSnapshot();
+        int removableCount = 0;
+        for (int i = 0; i < mushrooms.Length; i++)
+        {
+            if (mushrooms[i] != null &&
+                mushrooms[i] != source &&
+                !mushrooms[i].IsGoodFungus)
+            {
+                removableCount++;
+            }
+        }
+
+        int amountToRemove = Mathf.CeilToInt(removableCount * portion);
+        for (int i = 0; i < mushrooms.Length && amountToRemove > 0; i++)
+        {
+            if (mushrooms[i] == null ||
+                mushrooms[i] == source ||
+                mushrooms[i].IsGoodFungus)
+            {
+                continue;
+            }
+
+            mushrooms[i].RemoveByHelpfulFungus();
+            amountToRemove--;
+        }
+
+        if (source != null)
+            source.RemoveByHelpfulFungus();
+
+        RefreshPoolLock();
+    }
+
+    private IEnumerator WaitForExistingGeneratedMap()
+    {
+        yield return null;
+
+        RoomGenerator[] generators = FindObjectsByType<RoomGenerator>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < generators.Length; i++)
+        {
+            if (generators[i] != null && generators[i].IsGeneratedMapReady)
+            {
+                HandleGeneratedMapReady(generators[i]);
+                break;
+            }
+        }
+
+        waitForMapRoutine = null;
+    }
+
+    private void HandleGeneratedMapReady(RoomGenerator generator)
+    {
+        if (spawnedMapContent || generator == null || !CanSpawnAuthoritatively())
+            return;
+
+        RoomDefinition ownRoom = GetComponentInParent<RoomDefinition>();
+        if (ownRoom != null && !generator.ContainsGeneratedRoom(ownRoom.gameObject))
+            return;
+
+        spawnedMapContent = true;
+        SpawnPoolMushrooms(ownRoom);
+        SpawnMapMushrooms(generator, ownRoom);
+        RefreshPoolLock();
+    }
+
+    private void SpawnPoolMushrooms(RoomDefinition ownRoom)
+    {
+        if (mushroomPrefab == null || mushroomsAroundPool <= 0)
+            return;
+
+        System.Random random = new System.Random(CreateSpawnSeed(17));
+        Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
+
+        for (int i = 0; i < mushroomsAroundPool; i++)
+        {
+            float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+            float distance = Mathf.Lerp(
+                poolMushroomRadius * 0.35f,
+                poolMushroomRadius,
+                (float)random.NextDouble());
+            Vector3 offset = new Vector3(
+                Mathf.Cos(angle) * distance,
+                0f,
+                Mathf.Sin(angle) * distance);
+            Vector3 origin = transform.position + offset + up * 3f;
+
+            Vector3 point;
+            if (TryFindFloor(origin, -up, 8f, out point))
+                SpawnMushroom(point, up, false);
+        }
+
+        FungalMushroomHazard helperPrefab = goodMushroomPrefab != null
+            ? goodMushroomPrefab
+            : mushroomPrefab;
+        if (helperPrefab == null || goodMushroomsAroundPool <= 0)
+            return;
+
+        for (int i = 0; i < goodMushroomsAroundPool; i++)
+        {
+            float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+            float distance = Mathf.Lerp(
+                poolMushroomRadius * 0.2f,
+                poolMushroomRadius * 0.8f,
+                (float)random.NextDouble());
+            Vector3 offset = new Vector3(
+                Mathf.Cos(angle) * distance,
+                0f,
+                Mathf.Sin(angle) * distance);
+            Vector3 origin = transform.position + offset + up * 3f;
+
+            Vector3 point;
+            if (TryFindFloor(origin, -up, 8f, out point))
+                SpawnMushroom(point, up, true, helperPrefab);
+        }
+    }
+
+    private void SpawnMapMushrooms(RoomGenerator generator, RoomDefinition ownRoom)
+    {
+        if (mushroomPrefab == null || mushroomsAroundMap <= 0)
+            return;
+
+        List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
+        if (rooms.Count == 0)
+            return;
+
+        System.Random random = new System.Random(CreateSpawnSeed(31));
+        int spawned = 0;
+        int guard = mushroomsAroundMap * Mathf.Max(1, spawnAttemptsPerMushroom);
+
+        while (spawned < mushroomsAroundMap && guard-- > 0)
+        {
+            GameObject room = rooms[random.Next(rooms.Count)];
+            if (room == null)
+                continue;
+            if (ownRoom != null && room == ownRoom.gameObject)
+                continue;
+
+            RoomDefinition definition = room.GetComponent<RoomDefinition>();
+            Vector3 point;
+            Vector3 up;
+            if (TryGetRandomRoomFloor(definition, random, out point, out up))
+            {
+                SpawnMushroom(point, up, false);
+                spawned++;
+            }
+        }
+    }
+
+    private void SpawnMushroom(
+        Vector3 surfacePoint,
+        Vector3 surfaceUp,
+        bool goodFungus,
+        FungalMushroomHazard prefabOverride = null)
+    {
+        FungalMushroomHazard prefab = prefabOverride != null
+            ? prefabOverride
+            : mushroomPrefab;
+        if (prefab == null)
+            return;
+
+        FungalMushroomHazard mushroom = Instantiate(
+            prefab,
+            surfacePoint + surfaceUp.normalized * spawnFloorOffset,
+            GetSurfaceRotation(surfaceUp));
+
+        mushroom.SetGoodFungus(goodFungus);
+        mushroom.SetGoodFungusCleanPortion(goodMushroomCleanPortion);
+        mushroom.BindPool(this);
+        RegisterMushroom(mushroom);
+
+        NetworkObject networkObject = mushroom.GetComponent<NetworkObject>();
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null &&
+            networkManager.IsListening &&
+            networkManager.IsServer &&
+            networkObject != null &&
+            !networkObject.IsSpawned)
+        {
+            networkObject.Spawn(true);
+        }
+    }
+
+    private bool TryGetRandomRoomFloor(
+        RoomDefinition definition,
+        System.Random random,
+        out Vector3 point,
+        out Vector3 up)
+    {
+        point = Vector3.zero;
+        up = Vector3.up;
+
+        if (definition == null)
+            return false;
+
+        up = definition.transform.up;
+        Vector3 size = definition.size;
+        float localX = Mathf.Lerp(-size.x * 0.35f, size.x * 0.35f, (float)random.NextDouble());
+        float localZ = Mathf.Lerp(-size.z * 0.35f, size.z * 0.35f, (float)random.NextDouble());
+        Vector3 origin = definition.transform.TransformPoint(
+            definition.boundsCenter + new Vector3(localX, size.y * 0.5f + 1f, localZ));
+
+        return TryFindFloor(origin, -up, Mathf.Max(4f, size.y + 4f), out point);
+    }
+
+    private bool TryFindFloor(
+        Vector3 origin,
+        Vector3 direction,
+        float distance,
+        out Vector3 point)
+    {
+        point = Vector3.zero;
+        RaycastHit[] hits = Physics.RaycastAll(
+            origin,
+            direction,
+            distance,
+            groundLayers,
+            QueryTriggerInteraction.Ignore);
+
+        float bestDistance = float.PositiveInfinity;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i].collider == null)
+                continue;
+            if (Vector3.Dot(hits[i].normal, -direction.normalized) < 0.45f)
+                continue;
+            if (hits[i].distance >= bestDistance)
+                continue;
+
+            bestDistance = hits[i].distance;
+            point = hits[i].point;
+        }
+
+        return bestDistance < float.PositiveInfinity;
+    }
+
+    private void RefreshPoolLock()
+    {
+        if (poolObjective == null)
+            return;
+
+        bool hasMushrooms = lockCleaningUntilMushroomsRemoved && HasActiveMushrooms();
+        poolObjective.SetCleaningLocked(hasMushrooms);
+    }
+
+    private bool HasActiveMushrooms()
+    {
+        PruneMushrooms();
+        foreach (FungalMushroomHazard mushroom in activeMushrooms)
+        {
+            if (mushroom != null && !mushroom.IsGoodFungus)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void AutoBindReferences()
+    {
+        if (poolObjective == null)
+            poolObjective = GetComponent<SwimmingPoolObjective>();
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+    }
+
+    private bool CanSpawnAuthoritatively()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager == null || !networkManager.IsListening || networkManager.IsServer;
+    }
+
+    private int CreateSpawnSeed(int salt)
+    {
+        unchecked
+        {
+            int hash = poolObjective != null ? poolObjective.SyncId : transform.position.GetHashCode();
+            hash = hash * 397 ^ salt;
+            return hash;
+        }
+    }
+
+    private Quaternion GetSurfaceRotation(Vector3 surfaceUp)
+    {
+        Vector3 up = surfaceUp.sqrMagnitude > 0.0001f
+            ? surfaceUp.normalized
+            : Vector3.up;
+        Vector3 forward = Vector3.ProjectOnPlane(transform.forward, up);
+        if (forward.sqrMagnitude <= 0.0001f)
+            forward = Vector3.ProjectOnPlane(Vector3.forward, up);
+        if (forward.sqrMagnitude <= 0.0001f)
+            forward = Vector3.ProjectOnPlane(Vector3.right, up);
+
+        return Quaternion.LookRotation(forward.normalized, up);
+    }
+
+    private void PruneMushrooms()
+    {
+        activeMushrooms.RemoveWhere(mushroom => mushroom == null);
+    }
+
+    private FungalMushroomHazard[] GetActiveMushroomsSnapshot()
+    {
+        PruneMushrooms();
+        FungalMushroomHazard[] mushrooms =
+            new FungalMushroomHazard[activeMushrooms.Count];
+        activeMushrooms.CopyTo(mushrooms);
+        return mushrooms;
+    }
+}

@@ -574,6 +574,10 @@ public class JennyMopCleaner : MonoBehaviour
             hit.GetComponentInParent<GoldenMouthBehavior>();
         if (goldenMouth != null) return goldenMouth.gameObject;
 
+        PoolWaterReactive poolReactive =
+            hit.GetComponentInParent<PoolWaterReactive>();
+        if (poolReactive != null) return poolReactive.gameObject;
+
         return null;
     }
 
@@ -594,6 +598,14 @@ public class JennyMopCleaner : MonoBehaviour
             else
                 goldenMouth.ApplyWater(waterQuality, splashCleanAmount);
         }
+
+        PoolWaterReactive poolReactive =
+            target.GetComponentInParent<PoolWaterReactive>();
+        if (poolReactive != null)
+            poolReactive.ApplyPoolWaterHit(
+                waterQuality,
+                splashCleanAmount,
+                sourcePosition);
 
         if (movement != null)
         {

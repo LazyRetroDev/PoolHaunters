@@ -84,6 +84,9 @@ public class LevelObjectiveManager : MonoBehaviour
     public string poolCounterFormat = "Pools {0}/{1}";
     public string levelInfoFormat = "Level {0}";
     public string regionLevelInfoFormat = "Phase {0} - {1}";
+    public string fungalPoolObjectiveFormat = "Remove pool fungi: {0} left";
+    public string electricPoolObjectivePowered = "Disable the electric pool device";
+    public string electricPoolObjectiveSafeFormat = "Electric pool safe: {0}s until power returns";
 
     [Header("Level Info")]
     [Min(1)] public int levelNumber = 1;
@@ -1533,8 +1536,71 @@ public class LevelObjectiveManager : MonoBehaviour
               $" - {Localized("objective.pools", "Pools")} {cleanedRequiredPoolCount}/{requiredPoolCount}"
             : string.Empty;
 
+        string hazardText = BuildDiscoveredPoolHazardObjectiveText();
+
         progressText.text =
-            $"{cleanText}{poolText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount}{finalText}";
+            $"{cleanText}{poolText}{hazardText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount}{finalText}";
+    }
+
+    string BuildDiscoveredPoolHazardObjectiveText()
+    {
+        string text = string.Empty;
+
+        FungalSwimmingPoolMechanic[] fungalPools =
+            FindObjectsByType<FungalSwimmingPoolMechanic>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+        for (int i = 0; i < fungalPools.Length; i++)
+        {
+            FungalSwimmingPoolMechanic fungalPool = fungalPools[i];
+            if (fungalPool == null || !IsPoolRoomDiscovered(fungalPool.transform))
+                continue;
+
+            int count = fungalPool.ActiveHarmfulMushroomCount;
+            if (count <= 0)
+                continue;
+
+            text += " - " + string.Format(
+                Localized("objective.fungalPool", fungalPoolObjectiveFormat),
+                count);
+        }
+
+        ElectricSwimmingPoolMechanic[] electricPools =
+            FindObjectsByType<ElectricSwimmingPoolMechanic>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+        for (int i = 0; i < electricPools.Length; i++)
+        {
+            ElectricSwimmingPoolMechanic electricPool = electricPools[i];
+            if (electricPool == null || !IsPoolRoomDiscovered(electricPool.transform))
+                continue;
+
+            if (electricPool.IsPowered)
+            {
+                text += " - " + Localized(
+                    "objective.electricPoolPowered",
+                    electricPoolObjectivePowered);
+            }
+            else
+            {
+                text += " - " + string.Format(
+                    Localized(
+                        "objective.electricPoolSafe",
+                        electricPoolObjectiveSafeFormat),
+                    Mathf.CeilToInt(electricPool.PowerReturnSeconds));
+            }
+        }
+
+        return text;
+    }
+
+    bool IsPoolRoomDiscovered(Transform poolTransform)
+    {
+        if (poolTransform == null)
+            return false;
+
+        RoomDefinition room = poolTransform.GetComponentInParent<RoomDefinition>();
+        return room != null && discoveredRoomSet.Contains(room);
     }
 
     string Localized(string key, string fallback)
