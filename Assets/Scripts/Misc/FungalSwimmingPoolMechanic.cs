@@ -12,6 +12,12 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     [Header("Mushrooms")]
     [SerializeField] private FungalMushroomHazard mushroomPrefab;
     [SerializeField] private FungalMushroomHazard goodMushroomPrefab;
+    [SerializeField] private Transform[] harmfulMushroomSpawnPoints = new Transform[0];
+    [SerializeField] private Transform[] goodMushroomSpawnPoints = new Transform[0];
+    [SerializeField] private bool autoFindSpawnPointGroups = true;
+    [SerializeField] private string harmfulSpawnPointGroupName = "FungusSpawnPoints";
+    [SerializeField] private string goodSpawnPointGroupName = "GoodFungusSpawnPoints";
+    [SerializeField] private bool useCleanBoxAsGoodSpawnPoint = true;
     [SerializeField, Min(0)] private int mushroomsAroundPool = 6;
     [SerializeField, Min(0)] private int mushroomsAroundMap = 8;
     [SerializeField, Min(0)] private int goodMushroomsAroundPool = 2;
@@ -172,28 +178,41 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
     private void SpawnPoolMushrooms(RoomDefinition ownRoom)
     {
-        if (mushroomPrefab == null || mushroomsAroundPool <= 0)
+        if (mushroomPrefab == null &&
+            (goodMushroomPrefab == null || goodMushroomsAroundPool <= 0))
+        {
             return;
+        }
 
         System.Random random = new System.Random(CreateSpawnSeed(17));
         Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
 
-        for (int i = 0; i < mushroomsAroundPool; i++)
+        if (mushroomPrefab != null && mushroomsAroundPool > 0)
         {
-            float angle = (float)random.NextDouble() * Mathf.PI * 2f;
-            float distance = Mathf.Lerp(
-                poolMushroomRadius * 0.35f,
-                poolMushroomRadius,
-                (float)random.NextDouble());
-            Vector3 offset = new Vector3(
-                Mathf.Cos(angle) * distance,
-                0f,
-                Mathf.Sin(angle) * distance);
-            Vector3 origin = transform.position + offset + up * 3f;
+            int spawnedHarmfulFromPoints = SpawnFromPoints(
+                harmfulMushroomSpawnPoints,
+                false,
+                mushroomPrefab);
+            int harmfulToRandomlySpawn =
+                Mathf.Max(0, mushroomsAroundPool - spawnedHarmfulFromPoints);
 
-            Vector3 point;
-            if (TryFindFloor(origin, -up, 8f, out point))
-                SpawnMushroom(point, up, false);
+            for (int i = 0; i < harmfulToRandomlySpawn; i++)
+            {
+                float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+                float distance = Mathf.Lerp(
+                    poolMushroomRadius * 0.35f,
+                    poolMushroomRadius,
+                    (float)random.NextDouble());
+                Vector3 offset = new Vector3(
+                    Mathf.Cos(angle) * distance,
+                    0f,
+                    Mathf.Sin(angle) * distance);
+                Vector3 origin = transform.position + offset + up * 3f;
+
+                Vector3 point;
+                if (TryFindFloor(origin, -up, 8f, out point))
+                    SpawnMushroom(point, up, false);
+            }
         }
 
         FungalMushroomHazard helperPrefab = goodMushroomPrefab != null
@@ -202,7 +221,14 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         if (helperPrefab == null || goodMushroomsAroundPool <= 0)
             return;
 
-        for (int i = 0; i < goodMushroomsAroundPool; i++)
+        int spawnedGoodFromPoints = SpawnFromPoints(
+            goodMushroomSpawnPoints,
+            true,
+            helperPrefab);
+        int goodToRandomlySpawn =
+            Mathf.Max(0, goodMushroomsAroundPool - spawnedGoodFromPoints);
+
+        for (int i = 0; i < goodToRandomlySpawn; i++)
         {
             float angle = (float)random.NextDouble() * Mathf.PI * 2f;
             float distance = Mathf.Lerp(
@@ -367,6 +393,32 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             poolObjective = GetComponent<SwimmingPoolObjective>();
         if (poolObjective == null)
             poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+
+        if (autoFindSpawnPointGroups)
+        {
+            if (harmfulMushroomSpawnPoints == null ||
+                harmfulMushroomSpawnPoints.Length == 0)
+            {
+                harmfulMushroomSpawnPoints =
+                    FindSpawnPointsInGroup(harmfulSpawnPointGroupName);
+            }
+
+            if (goodMushroomSpawnPoints == null ||
+                goodMushroomSpawnPoints.Length == 0)
+            {
+                goodMushroomSpawnPoints =
+                    FindSpawnPointsInGroup(goodSpawnPointGroupName);
+            }
+        }
+
+        if (useCleanBoxAsGoodSpawnPoint &&
+            (goodMushroomSpawnPoints == null ||
+             goodMushroomSpawnPoints.Length == 0))
+        {
+            Transform cleanBox = FindChildRecursive(transform, "CleanBox");
+            if (cleanBox != null)
+                goodMushroomSpawnPoints = new[] { cleanBox };
+        }
     }
 
     private bool CanSpawnAuthoritatively()
@@ -411,5 +463,58 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             new FungalMushroomHazard[activeMushrooms.Count];
         activeMushrooms.CopyTo(mushrooms);
         return mushrooms;
+    }
+
+    private int SpawnFromPoints(
+        Transform[] spawnPoints,
+        bool goodFungus,
+        FungalMushroomHazard prefab)
+    {
+        if (spawnPoints == null || prefab == null)
+            return 0;
+
+        int spawned = 0;
+        for (int i = 0; i < spawnPoints.Length; i++)
+        {
+            Transform point = spawnPoints[i];
+            if (point == null)
+                continue;
+
+            SpawnMushroom(point.position, point.up, goodFungus, prefab);
+            spawned++;
+        }
+
+        return spawned;
+    }
+
+    private Transform[] FindSpawnPointsInGroup(string groupName)
+    {
+        Transform group = FindChildRecursive(transform, groupName);
+        if (group == null)
+            return new Transform[0];
+
+        Transform[] points = new Transform[group.childCount];
+        for (int i = 0; i < group.childCount; i++)
+            points[i] = group.GetChild(i);
+
+        return points;
+    }
+
+    private Transform FindChildRecursive(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(childName))
+            return null;
+
+        if (root.name == childName)
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindChildRecursive(root.GetChild(i), childName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 }
