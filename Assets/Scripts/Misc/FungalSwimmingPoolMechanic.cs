@@ -26,6 +26,10 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     [SerializeField, Min(0.2f)] private float poolMushroomRadius = 4f;
     [SerializeField] private bool avoidPoolInteriorForPoolMushrooms = true;
     [SerializeField, Min(0f)] private float poolInteriorAvoidRadius = 2.5f;
+    [SerializeField] private bool liftPoolMushroomsWhenFilled = true;
+    [SerializeField] private Transform waterSurfaceReference;
+    [SerializeField, Min(0f)] private float mushroomFloatAboveWater = 0.08f;
+    [SerializeField, Min(1f)] private float mushroomFloatPoolRadiusMultiplier = 1.2f;
     [SerializeField, Min(0f)] private float spawnFloorOffset = 0.04f;
     [SerializeField, Range(0.45f, 1f)] private float minimumFloorNormalDot = 0.75f;
     [SerializeField, Min(0.1f)] private float spawnPointFloorSnapHeight = 2f;
@@ -74,6 +78,12 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     {
         AutoBindReferences();
 
+        if (poolObjective != null)
+        {
+            poolObjective.OnPoolStateChanged -= HandlePoolStateChanged;
+            poolObjective.OnPoolStateChanged += HandlePoolStateChanged;
+        }
+
         RoomGenerator.OnGeneratedMapReady += HandleGeneratedMapReady;
         waitForMapRoutine = StartCoroutine(WaitForExistingGeneratedMap());
         RefreshPoolLock();
@@ -81,6 +91,9 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
     private void OnDisable()
     {
+        if (poolObjective != null)
+            poolObjective.OnPoolStateChanged -= HandlePoolStateChanged;
+
         RoomGenerator.OnGeneratedMapReady -= HandleGeneratedMapReady;
 
         if (waitForMapRoutine != null)
@@ -179,6 +192,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         SpawnPoolMushrooms(ownRoom);
         SpawnMapMushrooms(generator, ownRoom);
         SpawnGoodMushrooms(generator, ownRoom);
+        if (poolObjective != null && poolObjective.IsFilled)
+            FloatPoolMushroomsToWaterSurface();
         RefreshPoolLock();
     }
 
@@ -552,6 +567,125 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         return Vector3.Dot(surfaceNormal.normalized, up) >= minimumFloorNormalDot;
     }
 
+    private void HandlePoolStateChanged(SwimmingPoolObjective pool)
+    {
+        if (pool != poolObjective || !liftPoolMushroomsWhenFilled || !poolObjective.IsFilled)
+            return;
+
+        FloatPoolMushroomsToWaterSurface();
+    }
+
+    private void FloatPoolMushroomsToWaterSurface()
+    {
+        if (!TryGetWaterSurfaceHeight(out float waterSurfaceHeight, out Vector3 up))
+            return;
+
+        FungalMushroomHazard[] mushrooms = GetActiveMushroomsSnapshot();
+        for (int i = 0; i < mushrooms.Length; i++)
+        {
+            FungalMushroomHazard mushroom = mushrooms[i];
+            if (mushroom == null || !IsInsideMushroomFloatArea(mushroom.transform.position))
+                continue;
+
+            Vector3 position = mushroom.transform.position;
+            float currentHeight = Vector3.Dot(position, up);
+            float targetHeight = waterSurfaceHeight + mushroomFloatAboveWater;
+            if (currentHeight >= targetHeight)
+                continue;
+
+            mushroom.transform.position = position + up * (targetHeight - currentHeight);
+        }
+    }
+
+    private bool TryGetWaterSurfaceHeight(out float surfaceHeight, out Vector3 up)
+    {
+        up = transform.up.sqrMagnitude > 0.0001f
+            ? transform.up.normalized
+            : Vector3.up;
+        surfaceHeight = 0f;
+
+        Transform surface = waterSurfaceReference != null
+            ? waterSurfaceReference
+            : FindWaterSurfaceReference();
+        if (surface == null)
+            return false;
+
+        Renderer[] renderers = surface.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0)
+        {
+            surfaceHeight = Vector3.Dot(surface.position, up);
+            return true;
+        }
+
+        float highest = float.NegativeInfinity;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+                continue;
+
+            Bounds bounds = renderers[i].bounds;
+            Vector3 center = bounds.center;
+            Vector3 extents = bounds.extents;
+            for (int x = -1; x <= 1; x += 2)
+            {
+                for (int y = -1; y <= 1; y += 2)
+                {
+                    for (int z = -1; z <= 1; z += 2)
+                    {
+                        Vector3 corner = center + Vector3.Scale(
+                            extents,
+                            new Vector3(x, y, z));
+                        highest = Mathf.Max(highest, Vector3.Dot(corner, up));
+                    }
+                }
+            }
+        }
+
+        if (highest <= float.NegativeInfinity)
+            return false;
+
+        surfaceHeight = highest;
+        return true;
+    }
+
+    private Transform FindWaterSurfaceReference()
+    {
+        string[] names =
+        {
+            "WaterVisual",
+            "ContaminatedWater",
+            "DirtyWater",
+            "CleanWater",
+            "Water"
+        };
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            Transform found = FindChildRecursive(transform, names[i]);
+            if (found != null)
+            {
+                waterSurfaceReference = found;
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsInsideMushroomFloatArea(Vector3 point)
+    {
+        float radius = Mathf.Max(0f, poolInteriorAvoidRadius) *
+            Mathf.Max(1f, mushroomFloatPoolRadiusMultiplier);
+        if (radius <= 0f)
+            radius = Mathf.Max(0.5f, poolMushroomRadius * 0.65f);
+
+        Vector3 up = transform.up.sqrMagnitude > 0.0001f
+            ? transform.up.normalized
+            : Vector3.up;
+        Vector3 offset = Vector3.ProjectOnPlane(point - transform.position, up);
+        return offset.magnitude <= radius;
+    }
+
     private bool IsInsideAvoidedPoolInterior(Vector3 point)
     {
         if (!avoidPoolInteriorForPoolMushrooms || poolInteriorAvoidRadius <= 0f)
@@ -591,6 +725,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             poolObjective = GetComponent<SwimmingPoolObjective>();
         if (poolObjective == null)
             poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (waterSurfaceReference == null)
+            waterSurfaceReference = FindWaterSurfaceReference();
 
         if (autoFindSpawnPointGroups)
         {
