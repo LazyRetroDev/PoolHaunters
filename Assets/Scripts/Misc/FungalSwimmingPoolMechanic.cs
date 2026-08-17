@@ -21,9 +21,13 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     [SerializeField, Min(0)] private int mushroomsAroundPool = 6;
     [SerializeField, Min(0)] private int mushroomsAroundMap = 8;
     [SerializeField, Min(0)] private int goodMushroomsAroundPool = 2;
+    [SerializeField] private bool spawnGoodMushroomsOutsidePoolRoom = true;
     [SerializeField, Range(0.05f, 1f)] private float goodMushroomCleanPortion = 0.35f;
     [SerializeField, Min(0.2f)] private float poolMushroomRadius = 4f;
     [SerializeField, Min(0f)] private float spawnFloorOffset = 0.04f;
+    [SerializeField, Range(0.45f, 1f)] private float minimumFloorNormalDot = 0.75f;
+    [SerializeField, Min(0.1f)] private float spawnPointFloorSnapHeight = 2f;
+    [SerializeField, Min(0.1f)] private float spawnPointFloorSnapDistance = 5f;
     [SerializeField, Min(1)] private int spawnAttemptsPerMushroom = 12;
     [SerializeField] private LayerMask groundLayers = ~0;
     [SerializeField] private bool lockCleaningUntilMushroomsRemoved = true;
@@ -135,8 +139,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             amountToRemove--;
         }
 
-        if (source != null)
-            source.RemoveByHelpfulFungus();
+        RemoveAllGoodMushrooms();
 
         RefreshPoolLock();
     }
@@ -173,16 +176,14 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         spawnedMapContent = true;
         SpawnPoolMushrooms(ownRoom);
         SpawnMapMushrooms(generator, ownRoom);
+        SpawnGoodMushrooms(generator, ownRoom);
         RefreshPoolLock();
     }
 
     private void SpawnPoolMushrooms(RoomDefinition ownRoom)
     {
-        if (mushroomPrefab == null &&
-            (goodMushroomPrefab == null || goodMushroomsAroundPool <= 0))
-        {
+        if (mushroomPrefab == null)
             return;
-        }
 
         System.Random random = new System.Random(CreateSpawnSeed(17));
         Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
@@ -192,7 +193,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             int spawnedHarmfulFromPoints = SpawnFromPoints(
                 harmfulMushroomSpawnPoints,
                 false,
-                mushroomPrefab);
+                mushroomPrefab,
+                ownRoom);
             int harmfulToRandomlySpawn =
                 Mathf.Max(0, mushroomsAroundPool - spawnedHarmfulFromPoints);
 
@@ -210,21 +212,36 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
                 Vector3 origin = transform.position + offset + up * 3f;
 
                 Vector3 point;
-                if (TryFindFloor(origin, -up, 8f, out point))
-                    SpawnMushroom(point, up, false);
+                Vector3 surfaceUp;
+                if (TryFindFloor(origin, -up, 8f, up, out point, out surfaceUp))
+                {
+                    SpawnMushroom(point, surfaceUp, false);
+                }
             }
         }
+    }
 
+    private void SpawnGoodMushrooms(RoomGenerator generator, RoomDefinition ownRoom)
+    {
         FungalMushroomHazard helperPrefab = goodMushroomPrefab != null
             ? goodMushroomPrefab
             : mushroomPrefab;
         if (helperPrefab == null || goodMushroomsAroundPool <= 0)
             return;
 
+        if (spawnGoodMushroomsOutsidePoolRoom)
+        {
+            SpawnGoodMushroomsOutsideRoom(generator, ownRoom, helperPrefab);
+            return;
+        }
+
+        System.Random random = new System.Random(CreateSpawnSeed(23));
+        Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
         int spawnedGoodFromPoints = SpawnFromPoints(
             goodMushroomSpawnPoints,
             true,
-            helperPrefab);
+            helperPrefab,
+            ownRoom);
         int goodToRandomlySpawn =
             Mathf.Max(0, goodMushroomsAroundPool - spawnedGoodFromPoints);
 
@@ -242,8 +259,46 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             Vector3 origin = transform.position + offset + up * 3f;
 
             Vector3 point;
-            if (TryFindFloor(origin, -up, 8f, out point))
+            Vector3 surfaceUp;
+            if (TryFindFloor(origin, -up, 8f, up, out point, out surfaceUp))
+            {
+                SpawnMushroom(point, surfaceUp, true, helperPrefab);
+            }
+        }
+    }
+
+    private void SpawnGoodMushroomsOutsideRoom(
+        RoomGenerator generator,
+        RoomDefinition ownRoom,
+        FungalMushroomHazard helperPrefab)
+    {
+        if (generator == null || helperPrefab == null || goodMushroomsAroundPool <= 0)
+            return;
+
+        List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
+        if (rooms.Count == 0)
+            return;
+
+        System.Random random = new System.Random(CreateSpawnSeed(23));
+        int spawned = 0;
+        int guard = goodMushroomsAroundPool * Mathf.Max(1, spawnAttemptsPerMushroom);
+
+        while (spawned < goodMushroomsAroundPool && guard-- > 0)
+        {
+            GameObject room = rooms[random.Next(rooms.Count)];
+            if (room == null)
+                continue;
+            if (ownRoom != null && room == ownRoom.gameObject)
+                continue;
+
+            RoomDefinition definition = room.GetComponent<RoomDefinition>();
+            Vector3 point;
+            Vector3 up;
+            if (TryGetRandomRoomFloor(definition, random, out point, out up))
+            {
                 SpawnMushroom(point, up, true, helperPrefab);
+                spawned++;
+            }
         }
     }
 
@@ -332,16 +387,28 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         Vector3 origin = definition.transform.TransformPoint(
             definition.boundsCenter + new Vector3(localX, size.y * 0.5f + 1f, localZ));
 
-        return TryFindFloor(origin, -up, Mathf.Max(4f, size.y + 4f), out point);
+        return TryFindFloor(
+            origin,
+            -up,
+            Mathf.Max(4f, size.y + 4f),
+            up,
+            out point,
+            out up);
     }
 
     private bool TryFindFloor(
         Vector3 origin,
         Vector3 direction,
         float distance,
-        out Vector3 point)
+        Vector3 expectedUp,
+        out Vector3 point,
+        out Vector3 surfaceUp)
     {
         point = Vector3.zero;
+        surfaceUp = expectedUp.sqrMagnitude > 0.0001f
+            ? expectedUp.normalized
+            : Vector3.up;
+        Vector3 floorUp = surfaceUp;
         RaycastHit[] hits = Physics.RaycastAll(
             origin,
             direction,
@@ -354,16 +421,55 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         {
             if (hits[i].collider == null)
                 continue;
-            if (Vector3.Dot(hits[i].normal, -direction.normalized) < 0.45f)
+            if (!IsFloorNormal(hits[i].normal, floorUp))
                 continue;
             if (hits[i].distance >= bestDistance)
                 continue;
 
             bestDistance = hits[i].distance;
             point = hits[i].point;
+            surfaceUp = hits[i].normal.normalized;
         }
 
         return bestDistance < float.PositiveInfinity;
+    }
+
+    private bool TrySnapSpawnPointToFloor(
+        Transform spawnPoint,
+        RoomDefinition fallbackRoom,
+        out Vector3 point,
+        out Vector3 surfaceUp)
+    {
+        point = Vector3.zero;
+        surfaceUp = Vector3.up;
+
+        if (spawnPoint == null)
+            return false;
+
+        RoomDefinition room = spawnPoint.GetComponentInParent<RoomDefinition>();
+        if (room == null)
+            room = fallbackRoom;
+
+        Vector3 expectedUp = room != null ? room.transform.up : Vector3.up;
+        Vector3 origin = spawnPoint.position + expectedUp.normalized * spawnPointFloorSnapHeight;
+        return TryFindFloor(
+            origin,
+            -expectedUp,
+            spawnPointFloorSnapHeight + spawnPointFloorSnapDistance,
+            expectedUp,
+            out point,
+            out surfaceUp);
+    }
+
+    private bool IsFloorNormal(Vector3 surfaceNormal, Vector3 expectedUp)
+    {
+        if (surfaceNormal.sqrMagnitude <= 0.0001f)
+            return false;
+
+        Vector3 up = expectedUp.sqrMagnitude > 0.0001f
+            ? expectedUp.normalized
+            : Vector3.up;
+        return Vector3.Dot(surfaceNormal.normalized, up) >= minimumFloorNormalDot;
     }
 
     private void RefreshPoolLock()
@@ -465,10 +571,21 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         return mushrooms;
     }
 
+    private void RemoveAllGoodMushrooms()
+    {
+        FungalMushroomHazard[] mushrooms = GetActiveMushroomsSnapshot();
+        for (int i = 0; i < mushrooms.Length; i++)
+        {
+            if (mushrooms[i] != null && mushrooms[i].IsGoodFungus)
+                mushrooms[i].RemoveByHelpfulFungus();
+        }
+    }
+
     private int SpawnFromPoints(
         Transform[] spawnPoints,
         bool goodFungus,
-        FungalMushroomHazard prefab)
+        FungalMushroomHazard prefab,
+        RoomDefinition fallbackRoom)
     {
         if (spawnPoints == null || prefab == null)
             return 0;
@@ -480,7 +597,12 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             if (point == null)
                 continue;
 
-            SpawnMushroom(point.position, point.up, goodFungus, prefab);
+            Vector3 surfacePoint;
+            Vector3 surfaceUp;
+            if (!TrySnapSpawnPointToFloor(point, fallbackRoom, out surfacePoint, out surfaceUp))
+                continue;
+
+            SpawnMushroom(surfacePoint, surfaceUp, goodFungus, prefab);
             spawned++;
         }
 
