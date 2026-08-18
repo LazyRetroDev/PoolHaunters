@@ -56,6 +56,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     public float loseInterestDistance = 18f;
     public float searchDurationAfterLost = 6f;
     public float searchWanderRadius = 3f;
+    public float postWispAggressionDuration = 10f;
 
     [Header("After Kill")]
     public GameObject willOWispPrefab;
@@ -100,6 +101,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     private float searchTimer;
     private float pacifiedTimer;
     private float pacifiedElapsed;
+    private float forcedAggressiveUntil;
     private bool dealtCombustionDamage;
     private bool hasLastKnownPlayerPosition;
     private Vector3 lastKnownPlayerPosition;
@@ -279,6 +281,12 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (player == null || playerStatus == null)
         {
             ClearCameraEffect();
+            if (IsAggressionExtended())
+            {
+                ContinueExtendedAggression();
+                return;
+            }
+
             BeginSearch();
             return;
         }
@@ -300,6 +308,12 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (distanceToPlayer >= loseInterestDistance)
         {
             ClearCameraEffect();
+            if (IsAggressionExtended())
+            {
+                ContinueExtendedAggression();
+                return;
+            }
+
             BeginSearch();
         }
         else
@@ -377,6 +391,13 @@ public class GoldenMouthBehavior : MonoBehaviour
             HasEnemyLineOfSightToPlayer(playerStatus))
         {
             BecomeAggressive();
+            return;
+        }
+
+        if (IsAggressionExtended())
+        {
+            state = GoldenMouthState.Aggressive;
+            ContinueExtendedAggression();
             return;
         }
 
@@ -469,9 +490,40 @@ public class GoldenMouthBehavior : MonoBehaviour
         if (!killedPlayer.ForceTransformDeath()) return;
 
         transformedPlayers.Add(killedPlayer);
+        ExtendAggressionAfterWisp(killedPlayer);
 
         if (willOWispPrefab != null)
             Instantiate(willOWispPrefab, killedPlayer.transform.position + willOWispSpawnOffset, Quaternion.identity);
+    }
+
+    void ExtendAggressionAfterWisp(PlayerStatus transformedPlayer)
+    {
+        state = GoldenMouthState.Aggressive;
+        forcedAggressiveUntil = Time.time + Mathf.Max(0f, postWispAggressionDuration);
+        searchTimer = Mathf.Max(searchTimer, searchDurationAfterLost);
+        fireHazardTimer = 0f;
+
+        if (transformedPlayer != null)
+        {
+            lastKnownPlayerPosition = transformedPlayer.transform.position;
+            hasLastKnownPlayerPosition = true;
+        }
+
+        ClearCameraEffect();
+        UpdateVisuals();
+    }
+
+    bool IsAggressionExtended()
+    {
+        return Time.time < forcedAggressiveUntil;
+    }
+
+    void ContinueExtendedAggression()
+    {
+        if (hasLastKnownPlayerPosition)
+            MoveTo(lastKnownPlayerPosition, wanderSpeed);
+        else
+            Wander(wanderSpeed);
     }
 
     bool TryFindObservingPlayer(out PlayerStatus observer)
