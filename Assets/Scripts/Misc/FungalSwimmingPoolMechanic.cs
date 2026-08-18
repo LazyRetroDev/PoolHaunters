@@ -20,6 +20,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     [SerializeField] private bool useCleanBoxAsGoodSpawnPoint = true;
     [SerializeField, Min(0)] private int mushroomsAroundPool = 6;
     [SerializeField, Min(0)] private int mushroomsAroundMap = 8;
+    [SerializeField, Min(0)] private int maxHarmfulMushroomsAcrossLevel = 20;
     [SerializeField, Min(0)] private int goodMushroomsAroundPool = 2;
     [SerializeField] private bool spawnGoodMushroomsOutsidePoolRoom = true;
     [SerializeField, Range(0.05f, 1f)] private float goodMushroomCleanPortion = 0.35f;
@@ -189,21 +190,23 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             return;
 
         spawnedMapContent = true;
-        SpawnPoolMushrooms(ownRoom);
-        SpawnMapMushrooms(generator, ownRoom);
+        int harmfulBudget = GetRemainingLevelHarmfulMushroomBudget();
+        harmfulBudget -= SpawnPoolMushrooms(ownRoom, harmfulBudget);
+        SpawnMapMushrooms(generator, ownRoom, harmfulBudget);
         SpawnGoodMushrooms(generator, ownRoom);
         if (poolObjective != null && poolObjective.IsFilled)
             FloatPoolMushroomsToWaterSurface();
         RefreshPoolLock();
     }
 
-    private void SpawnPoolMushrooms(RoomDefinition ownRoom)
+    private int SpawnPoolMushrooms(RoomDefinition ownRoom, int harmfulBudget)
     {
-        if (mushroomPrefab == null)
-            return;
+        if (mushroomPrefab == null || harmfulBudget <= 0)
+            return 0;
 
         System.Random random = new System.Random(CreateSpawnSeed(17));
         Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
+        int spawned = 0;
 
         if (mushroomPrefab != null && mushroomsAroundPool > 0)
         {
@@ -212,9 +215,13 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
                 false,
                 mushroomPrefab,
                 ownRoom,
-                true);
+                true,
+                harmfulBudget);
+            spawned += spawnedHarmfulFromPoints;
             int harmfulToRandomlySpawn =
-                Mathf.Max(0, mushroomsAroundPool - spawnedHarmfulFromPoints);
+                Mathf.Min(
+                    Mathf.Max(0, mushroomsAroundPool - spawnedHarmfulFromPoints),
+                    Mathf.Max(0, harmfulBudget - spawned));
 
             for (int i = 0; i < harmfulToRandomlySpawn; i++)
             {
@@ -237,10 +244,13 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
                 if (TryFindFloorInRoom(ownRoom, origin, -up, 8f, up, out point, out surfaceUp) &&
                     !IsInsideAvoidedPoolInterior(point))
                 {
-                    SpawnMushroom(point, surfaceUp, false);
+                    if (SpawnMushroom(point, surfaceUp, false))
+                        spawned++;
                 }
             }
         }
+
+        return spawned;
     }
 
     private void SpawnGoodMushrooms(RoomGenerator generator, RoomDefinition ownRoom)
@@ -325,9 +335,12 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         }
     }
 
-    private void SpawnMapMushrooms(RoomGenerator generator, RoomDefinition ownRoom)
+    private void SpawnMapMushrooms(
+        RoomGenerator generator,
+        RoomDefinition ownRoom,
+        int harmfulBudget)
     {
-        if (mushroomPrefab == null || mushroomsAroundMap <= 0)
+        if (mushroomPrefab == null || mushroomsAroundMap <= 0 || harmfulBudget <= 0)
             return;
 
         List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
@@ -336,9 +349,10 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
         System.Random random = new System.Random(CreateSpawnSeed(31));
         int spawned = 0;
-        int guard = mushroomsAroundMap * Mathf.Max(1, spawnAttemptsPerMushroom);
+        int targetCount = Mathf.Min(mushroomsAroundMap, harmfulBudget);
+        int guard = targetCount * Mathf.Max(1, spawnAttemptsPerMushroom);
 
-        while (spawned < mushroomsAroundMap && guard-- > 0)
+        while (spawned < targetCount && guard-- > 0)
         {
             GameObject room = rooms[random.Next(rooms.Count)];
             if (room == null)
@@ -351,13 +365,13 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             Vector3 up;
             if (TryGetRandomRoomFloor(definition, random, out point, out up))
             {
-                SpawnMushroom(point, up, false);
-                spawned++;
+                if (SpawnMushroom(point, up, false))
+                    spawned++;
             }
         }
     }
 
-    private void SpawnMushroom(
+    private bool SpawnMushroom(
         Vector3 surfacePoint,
         Vector3 surfaceUp,
         bool goodFungus,
@@ -367,7 +381,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             ? prefabOverride
             : mushroomPrefab;
         if (prefab == null)
-            return;
+            return false;
 
         FungalMushroomHazard mushroom = Instantiate(
             prefab,
@@ -389,6 +403,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         {
             networkObject.Spawn(true);
         }
+
+        return true;
     }
 
     private bool TryGetRandomRoomFloor(
@@ -799,6 +815,27 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         return mushrooms;
     }
 
+    private int GetRemainingLevelHarmfulMushroomBudget()
+    {
+        int cap = Mathf.Max(0, maxHarmfulMushroomsAcrossLevel);
+        if (cap <= 0)
+            return 0;
+
+        FungalSwimmingPoolMechanic[] pools =
+            FindObjectsByType<FungalSwimmingPoolMechanic>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+
+        int activeHarmfulMushrooms = 0;
+        for (int i = 0; i < pools.Length; i++)
+        {
+            if (pools[i] != null)
+                activeHarmfulMushrooms += pools[i].ActiveHarmfulMushroomCount;
+        }
+
+        return Mathf.Max(0, cap - activeHarmfulMushrooms);
+    }
+
     private void RemoveAllGoodMushrooms()
     {
         FungalMushroomHazard[] mushrooms = GetActiveMushroomsSnapshot();
@@ -814,7 +851,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         bool goodFungus,
         FungalMushroomHazard prefab,
         RoomDefinition fallbackRoom,
-        bool avoidPoolInterior)
+        bool avoidPoolInterior,
+        int maxSpawnCount = int.MaxValue)
     {
         if (spawnPoints == null || prefab == null)
             return 0;
@@ -822,6 +860,9 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         int spawned = 0;
         for (int i = 0; i < spawnPoints.Length; i++)
         {
+            if (spawned >= maxSpawnCount)
+                break;
+
             Transform point = spawnPoints[i];
             if (point == null)
                 continue;
@@ -833,8 +874,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             if (avoidPoolInterior && IsInsideAvoidedPoolInterior(surfacePoint))
                 continue;
 
-            SpawnMushroom(surfacePoint, surfaceUp, goodFungus, prefab);
-            spawned++;
+            if (SpawnMushroom(surfacePoint, surfaceUp, goodFungus, prefab))
+                spawned++;
         }
 
         return spawned;

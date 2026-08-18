@@ -1550,19 +1550,20 @@ public class LevelObjectiveManager : MonoBehaviour
             FindObjectsByType<FungalSwimmingPoolMechanic>(
                 FindObjectsInactive.Exclude,
                 FindObjectsSortMode.None);
+        int discoveredFungalMushrooms = 0;
         for (int i = 0; i < fungalPools.Length; i++)
         {
             FungalSwimmingPoolMechanic fungalPool = fungalPools[i];
             if (fungalPool == null || !IsPoolRoomDiscovered(fungalPool.transform))
                 continue;
 
-            int count = fungalPool.ActiveHarmfulMushroomCount;
-            if (count <= 0)
-                continue;
-
+            discoveredFungalMushrooms += fungalPool.ActiveHarmfulMushroomCount;
+        }
+        if (discoveredFungalMushrooms > 0)
+        {
             text += " - " + string.Format(
                 Localized("objective.fungalPool", fungalPoolObjectiveFormat),
-                count);
+                discoveredFungalMushrooms);
         }
 
         ElectricSwimmingPoolMechanic[] electricPools =
