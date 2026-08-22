@@ -22,9 +22,16 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     [SerializeField, Min(0f)] private float floorOffset = 0.08f;
     [SerializeField] private LayerMask groundLayers = ~0;
 
+    [Header("Cursed Fog")]
+    [SerializeField] private GameObject cursedFogPrefab;
+    [SerializeField, Range(0f, 1f)] private float fogSpawnChance = 0.4f;
+    [SerializeField] private Vector3 fogRoomOffset = Vector3.zero;
+    [SerializeField] private bool snapFogToFloor = true;
+
     private bool blessed;
     private bool holyWaterSpawned;
     private Coroutine waitForMapRoutine;
+    private List<GameObject> activeFogs = new List<GameObject>();
 
     private void Awake()
     {
@@ -40,6 +47,9 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             cleanBox.OnItemConsumed += HandleCleanBoxItemConsumed;
 
         RoomGenerator.OnGeneratedMapReady += HandleGeneratedMapReady;
+        if (LevelObjectiveManager.Instance != null)
+            LevelObjectiveManager.Instance.OnRoomDiscovered += HandleRoomDiscovered;
+
         waitForMapRoutine = StartCoroutine(WaitForExistingGeneratedMap());
         SetPoolLocked();
     }
@@ -50,12 +60,16 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             cleanBox.OnItemConsumed -= HandleCleanBoxItemConsumed;
 
         RoomGenerator.OnGeneratedMapReady -= HandleGeneratedMapReady;
+        if (LevelObjectiveManager.Instance != null)
+            LevelObjectiveManager.Instance.OnRoomDiscovered -= HandleRoomDiscovered;
 
         if (waitForMapRoutine != null)
         {
             StopCoroutine(waitForMapRoutine);
             waitForMapRoutine = null;
         }
+        
+        ClearCursedFogs();
     }
 
     private void HandleCleanBoxItemConsumed(Item item)
@@ -66,6 +80,8 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         blessed = true;
         if (poolObjective != null)
             poolObjective.SetCleaningLocked(false);
+
+        ClearCursedFogs();
     }
 
     private void HandleGeneratedMapReady(RoomGenerator generator)
@@ -432,6 +448,98 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     {
         if (poolObjective != null)
             poolObjective.SetCleaningLocked(!blessed);
+    }
+
+    private void HandleRoomDiscovered(RoomDefinition room, int index)
+    {
+        if (blessed || cursedFogPrefab == null || room == null)
+            return;
+
+        // Skip submarine/start room and pool room itself
+        if (room.category == RoomCategory.SubmarineSpawn)
+            return;
+            
+        RoomDefinition ownRoom = GetComponentInParent<RoomDefinition>();
+        if (avoidCurrentPoolRoom && ownRoom != null && room == ownRoom)
+            return;
+            
+        if (avoidPoolRooms && room.category == RoomCategory.Pool)
+            return;
+
+        // Determine if it should spawn authoritatively or locally
+        bool isNetworked = cursedFogPrefab.GetComponent<NetworkObject>() != null;
+        if (isNetworked && !CanSpawnAuthoritatively())
+            return; // Server will spawn it and netcode will sync it
+
+        // Get seed from RoomGenerator if possible, otherwise use syncId
+        RoomGenerator generator = FindAnyObjectByType<RoomGenerator>();
+        int seed = CreateSpawnSeed(generator);
+        unchecked { seed = seed * 397 ^ index; }
+        System.Random random = new System.Random(seed);
+
+        // Chance to spawn
+        if (random.NextDouble() > fogSpawnChance)
+            return;
+
+        Vector3 localSpawnPos = room.boundsCenter + fogRoomOffset;
+        Vector3 spawnPosition = room.transform.TransformPoint(localSpawnPos);
+        
+        if (snapFogToFloor)
+        {
+            // Try to snap it to floor so it's not floating in the middle
+            Vector3 rayStart = room.transform.TransformPoint(localSpawnPos + Vector3.up * (room.size.y * 0.5f));
+            RaycastHit[] hits = Physics.RaycastAll(
+                rayStart,
+                -room.transform.up,
+                room.size.y + 2f,
+                groundLayers,
+                QueryTriggerInteraction.Ignore);
+                
+            float lowestHeight = float.PositiveInfinity;
+            bool foundFloor = false;
+            RaycastHit floorHit = new RaycastHit();
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i].collider == null || !hits[i].collider.transform.IsChildOf(room.transform)) continue;
+                float height = Vector3.Dot(hits[i].point, room.transform.up);
+                if (height < lowestHeight)
+                {
+                    lowestHeight = height;
+                    floorHit = hits[i];
+                    foundFloor = true;
+                }
+            }
+            
+            if (foundFloor)
+                spawnPosition = floorHit.point + room.transform.up * floorOffset;
+        }
+
+        GameObject fog = Instantiate(cursedFogPrefab, spawnPosition, Quaternion.identity);
+        activeFogs.Add(fog);
+
+        if (isNetworked && CanSpawnAuthoritatively())
+        {
+            NetworkObject netObj = fog.GetComponent<NetworkObject>();
+            if (netObj != null)
+                netObj.Spawn(true);
+        }
+    }
+
+    private void ClearCursedFogs()
+    {
+        for (int i = 0; i < activeFogs.Count; i++)
+        {
+            GameObject fog = activeFogs[i];
+            if (fog != null)
+            {
+                NetworkObject netObj = fog.GetComponent<NetworkObject>();
+                if (netObj != null && netObj.IsSpawned && CanSpawnAuthoritatively())
+                    netObj.Despawn(true);
+                else
+                    Destroy(fog);
+            }
+        }
+        activeFogs.Clear();
     }
 
     private void AutoBindReferences()

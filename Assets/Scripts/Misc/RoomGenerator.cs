@@ -817,6 +817,7 @@ public class RoomGenerator : MonoBehaviour
         TrackGeneratedPrefab(roomPrefab, roomIndex);
         generatedRoomCount++;
         RecordGeneratedRoom(room, roomPrefab, placement, roomIndex);
+        SelectPoolRoomVariant(room, roomIndex);
 
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
@@ -3351,6 +3352,8 @@ public class RoomGenerator : MonoBehaviour
         {
             RecordRoomDebugInfo(replacementRoom, replacementPlacement, roomIndex);
         }
+
+        SelectPoolRoomVariant(replacementRoom, roomIndex);
 
         for (int i = 0; i < connections.Count; i++)
         {
@@ -6198,8 +6201,20 @@ public class RoomGenerator : MonoBehaviour
         generatedPrefabIndicesByRoom[room] = roomSnapshot.prefabIndex;
         TrackGeneratedPrefab(roomPrefab, roomSnapshot.roomIndex);
         RecordRoomDebugInfo(room, placement, roomSnapshot.roomIndex);
+        SelectPoolRoomVariant(room, roomSnapshot.roomIndex);
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
+    }
+
+    void SelectPoolRoomVariant(GameObject room, int roomIndex)
+    {
+        if (room == null)
+            return;
+
+        PoolRoomPoolSelector selector =
+            room.GetComponentInChildren<PoolRoomPoolSelector>(true);
+        if (selector != null)
+            selector.SelectPool(seed, roomIndex);
     }
 
     void ApplySynchronizedConnectorStates(
