@@ -44,6 +44,21 @@ public class PauseMenuController : MonoBehaviour
     private GameObject audioPage;
     private GameObject playerPage;
     private GameObject accessibilityPage;
+    private GameObject voicePage;
+
+    // Voice & Mic Settings
+    private AudioSource micTestSource;
+    private bool isMicTesting;
+    private string selectedMicName;
+    private Button micTestButton;
+    private TMP_Text micTestButtonText;
+    private KeyCode pttKey = KeyCode.V;
+    private bool isListeningForPttKey;
+    private Button pttKeyButton;
+    private TMP_Text pttKeyButtonText;
+    private bool pttEnabled;
+    private bool micDisabled;
+
     private TMP_Text fpsText;
     private Image brightnessOverlay;
 
@@ -101,9 +116,50 @@ public class PauseMenuController : MonoBehaviour
             TogglePause();
 
         UpdateFpsCounter();
+        UpdateVoiceInput();
 
         if (paused)
             KeepCursorUnlocked();
+    }
+
+    void UpdateVoiceInput()
+    {
+        if (isListeningForPttKey)
+        {
+            if (Keyboard.current != null && Keyboard.current.anyKey.wasPressedThisFrame)
+            {
+                foreach (Key key in System.Enum.GetValues(typeof(Key)))
+                {
+                    if (key != Key.None && Keyboard.current[key].wasPressedThisFrame)
+                    {
+                        if (System.Enum.TryParse(key.ToString(), true, out KeyCode parsedKey))
+                        {
+                            pttKey = parsedKey;
+                            PlayerPrefs.SetString(PrefPrefix + "PTTKey", pttKey.ToString());
+                            if (pttKeyButtonText != null) pttKeyButtonText.text = "PTT BIND: " + pttKey.ToString();
+                        }
+                        isListeningForPttKey = false;
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            if (micDisabled)
+            {
+                VivoxVoiceChatManager.SetInputMuted(true);
+            }
+            else if (pttEnabled)
+            {
+                bool isPressed = Input.GetKey(pttKey);
+                VivoxVoiceChatManager.SetInputMuted(!isPressed);
+            }
+            else
+            {
+                VivoxVoiceChatManager.SetInputMuted(false);
+            }
+        }
     }
 
     void OnDisable()
@@ -156,6 +212,9 @@ public class PauseMenuController : MonoBehaviour
     {
         if (!paused)
             return;
+
+        if (isMicTesting)
+            StopMicTest();
 
         paused = false;
         Time.timeScale = previousTimeScale;
@@ -402,18 +461,21 @@ public class PauseMenuController : MonoBehaviour
         CreateButton(tabs.transform, "VIDEO", () => ShowSettingsPage(videoPage));
         CreateButton(tabs.transform, "INPUT", () => ShowSettingsPage(inputPage));
         CreateButton(tabs.transform, "AUDIO", () => ShowSettingsPage(audioPage));
+        CreateButton(tabs.transform, "VOICE", () => ShowSettingsPage(voicePage));
         CreateButton(tabs.transform, "PLAYER", () => ShowSettingsPage(playerPage));
         CreateButton(tabs.transform, "ACCESS", () => ShowSettingsPage(accessibilityPage));
 
         videoPage = CreateSettingsPage(pageRoot.transform, "Video Page");
         inputPage = CreateSettingsPage(pageRoot.transform, "Input Page");
         audioPage = CreateSettingsPage(pageRoot.transform, "Audio Page");
+        voicePage = CreateSettingsPage(pageRoot.transform, "Voice Page");
         playerPage = CreateSettingsPage(pageRoot.transform, "Player Page");
         accessibilityPage = CreateSettingsPage(pageRoot.transform, "Accessibility Page");
 
         BuildVideoPage(videoPage.transform);
         BuildInputPage(inputPage.transform);
         BuildAudioPage(audioPage.transform);
+        BuildVoicePage(voicePage.transform);
         BuildPlayerPage(playerPage.transform);
         BuildAccessibilityPage(accessibilityPage.transform);
 
@@ -481,7 +543,125 @@ public class PauseMenuController : MonoBehaviour
         {
             PlayerPrefs.SetInt(PrefPrefix + "OutputMode", index);
         });
-        CreateText(root, "Microphone/headphone device selection can be wired later when voice chat is added.");
+    }
+
+    void BuildVoicePage(Transform root)
+    {
+        List<string> devices = new List<string>(Microphone.devices);
+        if (devices.Count == 0) devices.Add("No Microphone Found");
+        
+        selectedMicName = PlayerPrefs.GetString(PrefPrefix + "MicDevice", devices[0]);
+        int selectedIndex = devices.IndexOf(selectedMicName);
+        if (selectedIndex < 0) selectedIndex = 0;
+
+        CreateCycleControl(root, "MICROPHONE DEVICE", devices, selectedIndex, index =>
+        {
+            if (devices.Count > 0 && devices[0] != "No Microphone Found")
+            {
+                selectedMicName = devices[index];
+                PlayerPrefs.SetString(PrefPrefix + "MicDevice", selectedMicName);
+                if (isMicTesting)
+                {
+                    StopMicTest();
+                    StartMicTest();
+                }
+            }
+        });
+
+        micTestButton = CreateButton(root, "TEST MICROPHONE: OFF", () => ToggleMicTest());
+        micTestButtonText = micTestButton.GetComponentInChildren<TMP_Text>();
+
+        CreateSlider(root, "MIC VOLUME", PrefPrefix + "MicVolume", 1f, 0f, 1f, value =>
+        {
+            PlayerPrefs.SetFloat(PrefPrefix + "MicVolume", value);
+        });
+
+        micDisabled = PlayerPrefs.GetInt(PrefPrefix + "DisableMic", 0) == 1;
+        CreateToggle(root, "DISABLE MICROPHONE", PrefPrefix + "DisableMic", micDisabled, value =>
+        {
+            micDisabled = value;
+            PlayerPrefs.SetInt(PrefPrefix + "DisableMic", value ? 1 : 0);
+        });
+
+        pttEnabled = PlayerPrefs.GetInt(PrefPrefix + "PTTEnabled", 0) == 1;
+        CreateToggle(root, "PUSH TO TALK", PrefPrefix + "PTTEnabled", pttEnabled, value =>
+        {
+            pttEnabled = value;
+            PlayerPrefs.SetInt(PrefPrefix + "PTTEnabled", value ? 1 : 0);
+        });
+
+        string savedPttKey = PlayerPrefs.GetString(PrefPrefix + "PTTKey", "V");
+        if (System.Enum.TryParse(savedPttKey, out KeyCode parsedKey))
+            pttKey = parsedKey;
+
+        pttKeyButton = CreateButton(root, "PTT BIND: " + pttKey.ToString(), () => 
+        {
+            isListeningForPttKey = true;
+            pttKeyButtonText.text = "PRESS ANY KEY...";
+        });
+        pttKeyButtonText = pttKeyButton.GetComponentInChildren<TMP_Text>();
+    }
+
+    void ToggleMicTest()
+    {
+        if (isMicTesting) StopMicTest();
+        else StartMicTest();
+    }
+
+    void StartMicTest()
+    {
+        if (Microphone.devices.Length == 0) return;
+
+        isMicTesting = true;
+        if (micTestButtonText != null) micTestButtonText.text = "TEST MICROPHONE: ON";
+
+        if (micTestSource == null)
+        {
+            micTestSource = gameObject.AddComponent<AudioSource>();
+            micTestSource.bypassEffects = true;
+            micTestSource.bypassListenerEffects = true;
+            micTestSource.bypassReverbZones = true;
+        }
+
+        string device = selectedMicName;
+        if (string.IsNullOrEmpty(device) || System.Array.IndexOf(Microphone.devices, device) < 0)
+            device = Microphone.devices[0];
+
+        StartCoroutine(StartMicTestRoutine(device));
+    }
+
+    System.Collections.IEnumerator StartMicTestRoutine(string device)
+    {
+        micTestSource.clip = Microphone.Start(device, true, 10, 44100);
+        micTestSource.loop = true;
+        
+        float timeout = Time.unscaledTime + 2f;
+        while (Microphone.GetPosition(device) <= 0)
+        {
+            if (Time.unscaledTime > timeout) yield break;
+            yield return null;
+        }
+        micTestSource.Play();
+    }
+
+    void StopMicTest()
+    {
+        isMicTesting = false;
+        if (micTestButtonText != null) micTestButtonText.text = "TEST MICROPHONE: OFF";
+
+        if (micTestSource != null && micTestSource.isPlaying)
+        {
+            micTestSource.Stop();
+        }
+
+        string device = selectedMicName;
+        if (string.IsNullOrEmpty(device) || System.Array.IndexOf(Microphone.devices, device) < 0)
+        {
+            if (Microphone.devices.Length > 0) device = Microphone.devices[0];
+            else return;
+        }
+        
+        Microphone.End(device);
     }
 
     void BuildPlayerPage(Transform root)
@@ -752,6 +932,9 @@ public class PauseMenuController : MonoBehaviour
         SetActive(mainPanel, true);
         SetActive(selfDestructConfirmPanel, false);
         SetActive(settingsPanel, false);
+        
+        if (isMicTesting)
+            StopMicTest();
     }
 
     void ShowSelfDestructConfirm()
@@ -774,8 +957,14 @@ public class PauseMenuController : MonoBehaviour
         SetActive(videoPage, page == videoPage);
         SetActive(inputPage, page == inputPage);
         SetActive(audioPage, page == audioPage);
+        SetActive(voicePage, page == voicePage);
         SetActive(playerPage, page == playerPage);
         SetActive(accessibilityPage, page == accessibilityPage);
+
+        if (page != voicePage && isMicTesting)
+        {
+            StopMicTest();
+        }
     }
 
     void SetActive(GameObject target, bool active)

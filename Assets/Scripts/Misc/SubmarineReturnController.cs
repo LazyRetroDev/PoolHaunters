@@ -204,6 +204,7 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
             return;
         }
 
+        PlayerRunStateTracker.SaveAllPlayersState();
         SceneManager.LoadScene(selectedDestinationScene);
     }
 
@@ -587,6 +588,8 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
     {
         yield return null;
         yield return null;
+        
+        PlayerRunStateTracker.SaveAllPlayersState();
 
         if (networkManager == null ||
             !networkManager.IsListening ||

@@ -45,6 +45,8 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
     {
         yield return null;
 
+        PlayerRunStateTracker.SaveAllPlayersState();
+
         NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager != null &&
             networkManager.IsListening &&

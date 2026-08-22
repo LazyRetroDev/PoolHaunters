@@ -43,6 +43,53 @@ public class PlayerInventory : NetworkBehaviour
 
         if (interactionCamera == null)
             interactionCamera = Camera.main;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        bool isOffline = networkManager == null || !networkManager.IsListening;
+        if (isOffline)
+        {
+            RestoreSavedItems();
+        }
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (!IsServer)
+            return;
+
+        RestoreSavedItems();
+    }
+
+    void RestoreSavedItems()
+    {
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null && netObj.IsSpawned)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        if (savedState != null && savedState.ItemPrefabNames != null)
+        {
+            Debug.Log($"[PlayerInventory] Client {clientId} restoring {savedState.ItemPrefabNames.Count} items.");
+            foreach (string prefabName in savedState.ItemPrefabNames)
+            {
+                if (string.IsNullOrEmpty(prefabName))
+                    continue;
+
+                GameObject prefab = PlayerRunStateTracker.GetNetworkPrefabByName(prefabName);
+                if (prefab != null)
+                {
+                    bool success = TryReceiveShopItem(prefab, transform.position, transform.rotation);
+                    Debug.Log($"[PlayerInventory] Restoring '{prefab.name}': Success = {success}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[PlayerInventory] Could not find prefab '{prefabName}' in NetworkManager!");
+                }
+            }
+        }
     }
 
     public void OnInteract(InputValue value)

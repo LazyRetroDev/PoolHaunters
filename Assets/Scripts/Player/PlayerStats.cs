@@ -185,6 +185,18 @@ public class PlayerStatus : NetworkBehaviour
         externalControlLocks = 0;
         localStateInitialized = true;
 
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        if (savedState != null)
+        {
+            currentWater = savedState.Water;
+            currentWaterQuality = (WaterQuality)savedState.WaterQuality;
+        }
+
         if (currentHealth <= 0f)
             ApplyEnterKnockout();
     }
