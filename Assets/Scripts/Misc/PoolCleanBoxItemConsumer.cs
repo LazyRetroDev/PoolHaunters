@@ -22,10 +22,14 @@ public class PoolCleanBoxItemConsumer : MonoBehaviour
         TryConsumeItem(other);
     }
 
+    public Func<Item, bool> CanConsume;
+
     private void TryConsumeItem(Collider other)
     {
         Item item = FindConsumableItem(other);
         if (item == null)
+            return;
+        if (CanConsume != null && !CanConsume(item))
             return;
         if (!consumedItems.Add(item))
             return;

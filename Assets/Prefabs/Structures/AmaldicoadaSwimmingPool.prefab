@@ -1730,6 +1730,7 @@ MonoBehaviour:
   fogSpawnChance: 0.706
   fogRoomOffset: {x: 0, y: 0, z: 0}
   snapFogToFloor: 0
+  onlyInDiscoveredRooms: 0
 --- !u!1 &4500586883525018112
 GameObject:
   m_ObjectHideFlags: 0

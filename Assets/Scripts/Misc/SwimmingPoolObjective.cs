@@ -442,7 +442,7 @@ public class SwimmingPoolObjective : MonoBehaviour
             LevelObjectiveManager.Instance.NotifyPoolObjectiveStateChanged(this);
     }
 
-    SwimmingPoolObjectiveState GetState()
+    public SwimmingPoolObjectiveState GetState()
     {
         if (cleaned)
             return SwimmingPoolObjectiveState.Clean;

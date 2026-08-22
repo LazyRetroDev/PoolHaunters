@@ -415,7 +415,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Item
   ShowTopMostFoldoutHeaderGroup: 1
   itemName: AguaBenta
-  itemIcon: {fileID: 0}
+  itemIcon: {fileID: 21300000, guid: ba0325798a6f2d6449cf3c3d4c023e65, type: 3}
 --- !u!1 &7919406468868387661
 GameObject:
   m_ObjectHideFlags: 0

@@ -12,6 +12,8 @@ GameObject:
   - component: {fileID: 5323089379424952356}
   - component: {fileID: 7547130644023746375}
   - component: {fileID: 4217907277222057978}
+  - component: {fileID: 7934617943890096822}
+  - component: {fileID: 5860009897787062533}
   m_Layer: 0
   m_Name: CursedFogEffect
   m_TagString: Untagged
@@ -117,8 +119,8 @@ ParticleSystem:
     startLifetime:
       serializedVersion: 2
       minMaxState: 3
-      scalar: 36
-      minScalar: 36
+      scalar: 25
+      minScalar: 25
       maxCurve:
         serializedVersion: 2
         m_Curve:
@@ -170,8 +172,8 @@ ParticleSystem:
     startSpeed:
       serializedVersion: 2
       minMaxState: 3
-      scalar: 0.8
-      minScalar: 0.4
+      scalar: 1.2
+      minScalar: 0.8
       maxCurve:
         serializedVersion: 2
         m_Curve:
@@ -223,7 +225,7 @@ ParticleSystem:
     startColor:
       serializedVersion: 2
       minMaxState: 2
-      minColor: {r: 0.2855939, g: 0.01078669, b: 0.381132, a: 1}
+      minColor: {r: 0.2855939, g: 0.01078669, b: 0.381132, a: 0.5176471}
       maxColor: {r: 0.07126116, g: 0, b: 0.08679241, a: 0.56078434}
       maxGradient:
         serializedVersion: 2
@@ -605,14 +607,14 @@ ParticleSystem:
         m_RotationOrder: 4
     randomizeRotationDirection: 0
     gravitySource: 0
-    maxNumParticles: 1000
+    maxNumParticles: 1500
     customEmitterVelocity: {x: 0, y: 0, z: 0}
     size3D: 0
     rotation3D: 0
     gravityModifier:
       serializedVersion: 2
       minMaxState: 3
-      scalar: 0.001
+      scalar: 0.002
       minScalar: 0
       maxCurve:
         serializedVersion: 2
@@ -752,7 +754,7 @@ ParticleSystem:
     sphericalDirectionAmount: 0
     randomPositionAmount: 1
     radius:
-      value: 1
+      value: 5
       mode: 0
       spread: 0
       speed:
@@ -871,7 +873,7 @@ ParticleSystem:
     rateOverTime:
       serializedVersion: 2
       minMaxState: 0
-      scalar: 100
+      scalar: 50
       minScalar: 10
       maxCurve:
         serializedVersion: 2
@@ -4862,3 +4864,36 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!135 &7934617943890096822
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7161925553384659905}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Radius: 20
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &5860009897787062533
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7161925553384659905}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8756fe564c492134aa2540873b97364e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CursedFogVolume

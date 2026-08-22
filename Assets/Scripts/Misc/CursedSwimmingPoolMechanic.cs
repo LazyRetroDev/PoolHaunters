@@ -27,9 +27,14 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float fogSpawnChance = 0.4f;
     [SerializeField] private Vector3 fogRoomOffset = Vector3.zero;
     [SerializeField] private bool snapFogToFloor = true;
+    [SerializeField] private bool onlyInDiscoveredRooms = true;
 
     private bool blessed;
     private bool holyWaterSpawned;
+    private GameObject activeHolyWaterInstance;
+    private Vector3 cachedHolyWaterPos;
+    private Vector3 cachedHolyWaterUp;
+    private Quaternion cachedHolyWaterRot;
     private Coroutine waitForMapRoutine;
     private List<GameObject> activeFogs = new List<GameObject>();
 
@@ -39,12 +44,27 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         SetPoolLocked();
     }
 
+    private void Update()
+    {
+        // Failsafe: if the holy water was spawned but no longer exists (e.g. player disconnected holding it or it fell out of the world)
+        // and the pool is still not blessed, we respawn it at the original location.
+        if (CanSpawnAuthoritatively() && !blessed && holyWaterSpawned && activeHolyWaterInstance == null)
+        {
+            Debug.LogWarning($"[CursedPool] Holy Water was lost! Respawning at last known location.");
+            holyWaterSpawned = false; // Reset to allow spawning logic
+            SpawnHolyWater(cachedHolyWaterPos, cachedHolyWaterUp, cachedHolyWaterRot);
+        }
+    }
+
     private void OnEnable()
     {
         AutoBindReferences();
 
         if (cleanBox != null)
+        {
+            cleanBox.CanConsume = CheckCanConsume;
             cleanBox.OnItemConsumed += HandleCleanBoxItemConsumed;
+        }
 
         RoomGenerator.OnGeneratedMapReady += HandleGeneratedMapReady;
         if (LevelObjectiveManager.Instance != null)
@@ -57,7 +77,10 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     private void OnDisable()
     {
         if (cleanBox != null)
+        {
+            cleanBox.CanConsume = null;
             cleanBox.OnItemConsumed -= HandleCleanBoxItemConsumed;
+        }
 
         RoomGenerator.OnGeneratedMapReady -= HandleGeneratedMapReady;
         if (LevelObjectiveManager.Instance != null)
@@ -70,6 +93,20 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         }
         
         ClearCursedFogs();
+    }
+
+    private bool CheckCanConsume(Item item)
+    {
+        if (IsRequiredItem(item))
+        {
+            // Only allow consuming the Holy Water if the pool has been filled by the valve
+            if (poolObjective != null && poolObjective.GetState() == SwimmingPoolObjectiveState.Empty)
+            {
+                Debug.LogWarning("[CursedPool] Tried to consume Holy Water, but the pool is not filled yet! Valve must be opened first.");
+                return false;
+            }
+        }
+        return true;
     }
 
     private void HandleCleanBoxItemConsumed(Item item)
@@ -87,6 +124,20 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     private void HandleGeneratedMapReady(RoomGenerator generator)
     {
         TrySpawnHolyWater(generator);
+
+        if (!onlyInDiscoveredRooms)
+        {
+            List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                if (rooms[i] == null) continue;
+                RoomDefinition roomDef = rooms[i].GetComponent<RoomDefinition>();
+                if (roomDef != null)
+                {
+                    TrySpawnFogInRoom(roomDef, i);
+                }
+            }
+        }
     }
 
     private IEnumerator WaitForExistingGeneratedMap()
@@ -280,12 +331,17 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         Vector3 surfaceUp,
         Quaternion rotation)
     {
+        cachedHolyWaterPos = surfacePoint;
+        cachedHolyWaterUp = surfaceUp;
+        cachedHolyWaterRot = rotation;
+
         GameObject instance = Instantiate(
             holyWaterPrefab,
             surfacePoint + surfaceUp.normalized * floorOffset,
             rotation);
         SnapInstanceBaseToSurface(instance, surfacePoint, surfaceUp);
         holyWaterSpawned = true;
+        activeHolyWaterInstance = instance;
 
         NetworkManager networkManager = NetworkManager.Singleton;
         bool online = networkManager != null && networkManager.IsListening;
@@ -452,6 +508,14 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
 
     private void HandleRoomDiscovered(RoomDefinition room, int index)
     {
+        if (!onlyInDiscoveredRooms)
+            return;
+            
+        TrySpawnFogInRoom(room, index);
+    }
+    
+    private void TrySpawnFogInRoom(RoomDefinition room, int index)
+    {
         if (blessed || cursedFogPrefab == null || room == null)
             return;
 
@@ -532,14 +596,45 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             GameObject fog = activeFogs[i];
             if (fog != null)
             {
+                ParticleSystem[] particles = fog.GetComponentsInChildren<ParticleSystem>();
+                bool hasParticles = particles.Length > 0;
+                float maxLifetime = 2f; // Fallback
+
+                if (hasParticles)
+                {
+                    for (int p = 0; p < particles.Length; p++)
+                    {
+                        particles[p].Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                        float life = particles[p].main.startLifetime.constantMax;
+                        if (life > maxLifetime) maxLifetime = life;
+                    }
+                }
+
                 NetworkObject netObj = fog.GetComponent<NetworkObject>();
                 if (netObj != null && netObj.IsSpawned && CanSpawnAuthoritatively())
-                    netObj.Despawn(true);
-                else
-                    Destroy(fog);
+                {
+                    if (hasParticles)
+                        StartCoroutine(DelayedDespawn(netObj, maxLifetime));
+                    else
+                        netObj.Despawn(true);
+                }
+                else if (netObj == null || !netObj.IsSpawned)
+                {
+                    if (hasParticles)
+                        Destroy(fog, maxLifetime);
+                    else
+                        Destroy(fog);
+                }
             }
         }
         activeFogs.Clear();
+    }
+
+    private IEnumerator DelayedDespawn(NetworkObject netObj, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (netObj != null && netObj.IsSpawned && CanSpawnAuthoritatively())
+            netObj.Despawn(true);
     }
 
     private void AutoBindReferences()
