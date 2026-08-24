@@ -31,6 +31,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     [SerializeField] private string availableFormat = "{0}\n{1} germs";
     [SerializeField] private string boughtText = "SOLD";
     [SerializeField] private string insufficientFundsText = "Not enough germs";
+    [SerializeField] private string waterFullText = "Water full";
     [SerializeField] private float feedbackSeconds = 1.25f;
 
     [Header("Info Panel")]
@@ -101,7 +102,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
         if (!CanGrantPurchase(inventory, ignoreInventoryLock))
         {
-            ShowTemporaryText(cannotReceiveText);
+            ShowTemporaryText(GetCannotReceiveReason(inventory));
             return false;
         }
 
@@ -114,7 +115,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         if (!GrantPurchase(inventory, ignoreInventoryLock))
         {
             PlayerCurrencyState.AddGerms(germCost);
-            ShowTemporaryText(cannotReceiveText);
+            ShowTemporaryText(GetCannotReceiveReason(inventory));
             return false;
         }
 
@@ -137,7 +138,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
         if (!CanGrantPurchase(inventory, ignoreInventoryLock))
         {
-            blockedReason = cannotReceiveText;
+            blockedReason = GetCannotReceiveReason(inventory);
             return false;
         }
 
@@ -171,6 +172,25 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
             default:
                 return true;
         }
+    }
+
+    string GetCannotReceiveReason(PlayerInventory inventory)
+    {
+        if (inventory == null || itemPrefab == null)
+            return cannotReceiveText;
+
+        WaterItem waterItem = itemPrefab.GetComponentInChildren<WaterItem>(true);
+        PlayerStatus playerStatus = inventory.GetComponent<PlayerStatus>();
+        if (waterItem != null &&
+            waterItem.useImmediatelyOnPickup &&
+            playerStatus != null &&
+            waterItem.waterAmount > 0f &&
+            playerStatus.GetWaterSpace() <= 0f)
+        {
+            return waterFullText;
+        }
+
+        return cannotReceiveText;
     }
 
     bool GrantPurchase(

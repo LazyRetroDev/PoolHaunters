@@ -611,7 +611,7 @@ public class PlayerInventory : NetworkBehaviour
         if (waterItem != null && waterItem.useImmediatelyOnPickup)
         {
             return playerStatus != null &&
-                playerStatus.CanAct() &&
+                (ignoreInventoryLock || playerStatus.CanAct()) &&
                 waterItem.waterAmount > 0f &&
                 playerStatus.GetWaterSpace() > 0f;
         }
