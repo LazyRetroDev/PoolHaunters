@@ -534,6 +534,31 @@ public class PlayerStatus : NetworkBehaviour
         return true;
     }
 
+    public bool AddWaterIgnoringControlLock(
+        float amount,
+        WaterQuality quality,
+        bool replaceExistingQuality = false)
+    {
+        if (isKnockedOut || isDead || deathTransformationApplied)
+            return false;
+        if (amount <= 0f || currentWater >= maxWater)
+            return false;
+
+        if (IsClientReplica())
+        {
+            PredictAddWater(amount, quality, replaceExistingQuality);
+            AddWaterIgnoringControlLockServerRpc(
+                amount,
+                (int)quality,
+                replaceExistingQuality);
+            return true;
+        }
+
+        ApplyAddWater(amount, quality, replaceExistingQuality);
+        SyncWaterState();
+        return true;
+    }
+
     public void ContaminateWater()
     {
         if (!CanAct()) return;
@@ -1407,6 +1432,21 @@ public class PlayerStatus : NetworkBehaviour
         bool replaceExistingQuality)
     {
         if (!CanAct() || amount <= 0f || currentWater >= maxWater)
+            return;
+
+        ApplyAddWater(amount, (WaterQuality)quality, replaceExistingQuality);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void AddWaterIgnoringControlLockServerRpc(
+        float amount,
+        int quality,
+        bool replaceExistingQuality)
+    {
+        if (isKnockedOut || isDead || deathTransformationApplied)
+            return;
+        if (amount <= 0f || currentWater >= maxWater)
             return;
 
         ApplyAddWater(amount, (WaterQuality)quality, replaceExistingQuality);

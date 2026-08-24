@@ -308,7 +308,7 @@ public class PlayerInventory : NetworkBehaviour
         WaterItem waterItem = item.GetComponent<WaterItem>();
         if (waterItem != null && waterItem.useImmediatelyOnPickup)
         {
-            if (!waterItem.TryApply(playerStatus))
+            if (!waterItem.TryApply(playerStatus, ignoreInventoryLock))
             {
                 Debug.Log($"Could not use {item.itemName}; the player's water may already be full.");
                 return false;

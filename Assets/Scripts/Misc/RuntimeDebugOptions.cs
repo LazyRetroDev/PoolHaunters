@@ -1,10 +1,21 @@
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
 [DisallowMultipleComponent]
 public class RuntimeDebugOptions : MonoBehaviour
 {
+    [System.Serializable]
+    public class DebugEnemySpawnOption
+    {
+        public string label = "Enemy";
+        public GameObject prefab;
+        public Color previewColor = new Color(1f, 0.9f, 0.2f, 0.35f);
+        public Vector3 rotationOffset;
+    }
+
     [Header("Availability")]
     public bool enableInReleaseBuild = false;
     public Key toggleKey = Key.F1;
@@ -22,6 +33,12 @@ public class RuntimeDebugOptions : MonoBehaviour
     public float enemyTrackingMaxDistance = 120f;
     public float enemyCompassWidth = 520f;
     public float enemyCompassTopOffset = 64f;
+    public DebugEnemySpawnOption[] enemySpawnOptions =
+        new DebugEnemySpawnOption[0];
+    public LayerMask enemyPlacementMask = ~0;
+    public float enemyPlacementMaxDistance = 80f;
+    public float enemyPlacementNavMeshSampleRadius = 2f;
+    public float enemyPreviewVerticalOffset = 0.03f;
 
     [Header("Movement Debug")]
     public float debugSpeedMultiplier = 1f;
@@ -39,6 +56,13 @@ public class RuntimeDebugOptions : MonoBehaviour
     private GUIStyle enemyCompassStyle;
     private GUIStyle enemyCompassCenterStyle;
     private GUIStyle gmodTextStyle;
+    private GUIStyle sectionHeaderStyle;
+    private GUIStyle placementHintStyle;
+    private GameObject enemyPreviewInstance;
+    private DebugEnemySpawnOption selectedEnemySpawnOption;
+    private Vector3 enemyPlacementPosition;
+    private Quaternion enemyPlacementRotation = Quaternion.identity;
+    private bool enemyPlacementValid;
 
     private static readonly string[] EnemyTypeNames =
     {
@@ -62,19 +86,28 @@ public class RuntimeDebugOptions : MonoBehaviour
             Keyboard.current != null &&
             Keyboard.current[toggleKey].wasPressedThisFrame)
         {
+            if (selectedEnemySpawnOption != null)
+            {
+                CancelEnemyPlacement();
+                return;
+            }
+
             SetVisible(!visible);
         }
 
+        UpdateEnemyPlacementMode();
         ApplyDebugToggles();
     }
 
     void OnDisable()
     {
+        CancelEnemyPlacement();
         ReleaseDebugCursor();
     }
 
     void OnDestroy()
     {
+        CancelEnemyPlacement();
         ReleaseDebugCursor();
     }
 
@@ -85,6 +118,9 @@ public class RuntimeDebugOptions : MonoBehaviour
 
         if (enemyTracking)
             DrawEnemyTrackingOverlay();
+
+        if (selectedEnemySpawnOption != null)
+            DrawEnemyPlacementHint();
 
         if (visible)
         {
@@ -100,7 +136,7 @@ public class RuntimeDebugOptions : MonoBehaviour
     {
         scrollPosition = GUILayout.BeginScrollView(scrollPosition);
 
-        GUILayout.Label("Resources");
+        DrawSectionHeader("Player Resources");
         bool nextInfiniteHealth = GUILayout.Toggle(infiniteHealth, "Infinite Health");
         if (nextInfiniteHealth != infiniteHealth)
         {
@@ -156,8 +192,7 @@ public class RuntimeDebugOptions : MonoBehaviour
             PlayerCurrencyState.ResetGerms();
         GUILayout.EndHorizontal();
 
-        GUILayout.Space(12f);
-        GUILayout.Label("Objectives");
+        DrawSectionHeader("Objectives");
 
         if (GUILayout.Button("Activate Water Valve"))
             ActivateWaterValve();
@@ -188,17 +223,16 @@ public class RuntimeDebugOptions : MonoBehaviour
 
         DrawObjectiveSummary();
 
-        GUILayout.Space(12f);
-        GUILayout.Label("Enemy Debug");
+        DrawSectionHeader("Enemies");
         enemyTracking = GUILayout.Toggle(enemyTracking, "Enemy Tracking");
         GUILayout.Label($"Tracking range: {Mathf.RoundToInt(enemyTrackingMaxDistance)}m");
         enemyTrackingMaxDistance = GUILayout.HorizontalSlider(
             enemyTrackingMaxDistance,
             10f,
             250f);
+        DrawEnemySpawnerControls();
 
-        GUILayout.Space(12f);
-        GUILayout.Label("Movement Debug");
+        DrawSectionHeader("Movement");
         GUILayout.Label($"Speed: {debugSpeedMultiplier:0.0}x");
         float nextSpeedMultiplier = GUILayout.HorizontalSlider(
             debugSpeedMultiplier,
@@ -217,8 +251,7 @@ public class RuntimeDebugOptions : MonoBehaviour
             ApplyDebugToggles();
         }
 
-        GUILayout.Space(12f);
-        GUILayout.Label("Character");
+        DrawSectionHeader("Character");
         DrawCharacterButton(PlayerAgentType.JennyPie);
         DrawCharacterButton(PlayerAgentType.Sylvian);
         DrawCharacterButton(PlayerAgentType.SecretAgent);
@@ -275,6 +308,296 @@ public class RuntimeDebugOptions : MonoBehaviour
                 return;
             }
         }
+    }
+
+    void DrawSectionHeader(string label)
+    {
+        GUILayout.Space(12f);
+        EnsureDebugStyles();
+        GUILayout.Label(label, sectionHeaderStyle);
+    }
+
+    void DrawEnemySpawnerControls()
+    {
+        GUILayout.Space(6f);
+        GUILayout.Label("Spawn Enemy At Look Point");
+
+        if (enemySpawnOptions == null || enemySpawnOptions.Length == 0)
+        {
+            GUILayout.Label("Assign enemy prefabs on RuntimeDebugOptions.");
+            return;
+        }
+
+        for (int i = 0; i < enemySpawnOptions.Length; i++)
+        {
+            DebugEnemySpawnOption option = enemySpawnOptions[i];
+            if (option == null)
+                continue;
+
+            string label = string.IsNullOrWhiteSpace(option.label)
+                ? option.prefab != null ? option.prefab.name : $"Enemy {i + 1}"
+                : option.label;
+
+            if (option.prefab == null)
+            {
+                GUILayout.Label($"{label}: missing prefab");
+                continue;
+            }
+
+            if (GUILayout.Button($"Place {label}"))
+                BeginEnemyPlacement(option);
+        }
+
+        if (selectedEnemySpawnOption != null &&
+            GUILayout.Button("Cancel Enemy Placement"))
+        {
+            CancelEnemyPlacement();
+        }
+    }
+
+    void BeginEnemyPlacement(DebugEnemySpawnOption option)
+    {
+        if (option == null || option.prefab == null)
+            return;
+
+        CancelEnemyPlacement();
+        selectedEnemySpawnOption = option;
+        SetVisible(false);
+        ForceLockAnyLocalCursor();
+        CreateEnemyPreview(option);
+    }
+
+    void UpdateEnemyPlacementMode()
+    {
+        if (selectedEnemySpawnOption == null)
+            return;
+
+        UpdateEnemyPlacementPose();
+        UpdateEnemyPreviewPose();
+
+        if (Keyboard.current != null &&
+            Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
+            CancelEnemyPlacement();
+            return;
+        }
+
+        if (Mouse.current != null &&
+            Mouse.current.leftButton.wasPressedThisFrame &&
+            enemyPlacementValid)
+        {
+            SpawnSelectedEnemy();
+        }
+    }
+
+    void UpdateEnemyPlacementPose()
+    {
+        enemyPlacementValid = false;
+
+        Camera camera = Camera.main;
+        if (camera == null)
+            return;
+
+        Ray ray = new Ray(camera.transform.position, camera.transform.forward);
+        if (!Physics.Raycast(
+            ray,
+            out RaycastHit hit,
+            enemyPlacementMaxDistance,
+            enemyPlacementMask,
+            QueryTriggerInteraction.Ignore))
+        {
+            return;
+        }
+
+        Vector3 position = hit.point;
+        NavMeshHit navHit;
+        if (NavMesh.SamplePosition(
+            position,
+            out navHit,
+            enemyPlacementNavMeshSampleRadius,
+            NavMesh.AllAreas))
+        {
+            position = navHit.position;
+        }
+
+        enemyPlacementPosition =
+            position + Vector3.up * Mathf.Max(0f, enemyPreviewVerticalOffset);
+        enemyPlacementRotation = Quaternion.Euler(selectedEnemySpawnOption.rotationOffset);
+        enemyPlacementValid = true;
+    }
+
+    void CreateEnemyPreview(DebugEnemySpawnOption option)
+    {
+        if (option == null || option.prefab == null)
+            return;
+
+        enemyPreviewInstance = Instantiate(option.prefab);
+        enemyPreviewInstance.name = $"{option.prefab.name}_DebugPreview";
+        ConfigureEnemyPreview(enemyPreviewInstance, option.previewColor);
+        UpdateEnemyPlacementPose();
+        UpdateEnemyPreviewPose();
+    }
+
+    void ConfigureEnemyPreview(GameObject preview, Color previewColor)
+    {
+        if (preview == null)
+            return;
+
+        NetworkObject[] networkObjects =
+            preview.GetComponentsInChildren<NetworkObject>(true);
+        for (int i = 0; i < networkObjects.Length; i++)
+        {
+            if (networkObjects[i] != null)
+                networkObjects[i].enabled = false;
+        }
+
+        MonoBehaviour[] behaviours = preview.GetComponentsInChildren<MonoBehaviour>(true);
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            if (behaviours[i] != null)
+                behaviours[i].enabled = false;
+        }
+
+        Collider[] colliders = preview.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = false;
+        }
+
+        Rigidbody[] bodies = preview.GetComponentsInChildren<Rigidbody>(true);
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            if (bodies[i] == null)
+                continue;
+
+            bodies[i].isKinematic = true;
+            bodies[i].useGravity = false;
+        }
+
+        Renderer[] renderers = preview.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+                shader = Shader.Find("Standard");
+            if (shader == null)
+                continue;
+
+            Material material = new Material(shader);
+
+            if (material.HasProperty("_BaseColor"))
+                material.SetColor("_BaseColor", previewColor);
+            if (material.HasProperty("_Color"))
+                material.SetColor("_Color", previewColor);
+
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (material.HasProperty("_Surface"))
+                material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_SrcBlend"))
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend"))
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite"))
+                material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+
+            renderer.material = material;
+        }
+    }
+
+    void UpdateEnemyPreviewPose()
+    {
+        if (enemyPreviewInstance == null)
+            return;
+
+        enemyPreviewInstance.SetActive(enemyPlacementValid);
+        if (!enemyPlacementValid)
+            return;
+
+        enemyPreviewInstance.transform.SetPositionAndRotation(
+            enemyPlacementPosition,
+            enemyPlacementRotation);
+    }
+
+    void SpawnSelectedEnemy()
+    {
+        if (selectedEnemySpawnOption == null ||
+            selectedEnemySpawnOption.prefab == null)
+        {
+            CancelEnemyPlacement();
+            return;
+        }
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        bool online = networkManager != null && networkManager.IsListening;
+        if (online && !networkManager.IsServer)
+        {
+            Debug.LogWarning("Debug enemy spawning must be used from the host/server in multiplayer.");
+            CancelEnemyPlacement();
+            return;
+        }
+
+        GameObject enemy = Instantiate(
+            selectedEnemySpawnOption.prefab,
+            enemyPlacementPosition,
+            enemyPlacementRotation);
+        enemy.name = selectedEnemySpawnOption.prefab.name;
+
+        NetworkObject networkObject = enemy.GetComponent<NetworkObject>();
+        if (online && networkObject != null && !networkObject.IsSpawned)
+            networkObject.Spawn(true);
+
+        TimeCamper timeCamper = enemy.GetComponentInChildren<TimeCamper>();
+        if (timeCamper != null && TimeCamperManager.Instance != null)
+            TimeCamperManager.Instance.Register(timeCamper);
+
+        CancelEnemyPlacement();
+    }
+
+    void CancelEnemyPlacement()
+    {
+        selectedEnemySpawnOption = null;
+        enemyPlacementValid = false;
+
+        if (enemyPreviewInstance != null)
+        {
+            Destroy(enemyPreviewInstance);
+            enemyPreviewInstance = null;
+        }
+    }
+
+    void DrawEnemyPlacementHint()
+    {
+        EnsureDebugStyles();
+
+        string enemyName =
+            selectedEnemySpawnOption != null &&
+            !string.IsNullOrWhiteSpace(selectedEnemySpawnOption.label)
+                ? selectedEnemySpawnOption.label
+                : selectedEnemySpawnOption != null &&
+                  selectedEnemySpawnOption.prefab != null
+                    ? selectedEnemySpawnOption.prefab.name
+                    : "Enemy";
+
+        string validity = enemyPlacementValid
+            ? "Mouse 1: spawn"
+            : "No valid surface";
+        Rect hintRect = new Rect(
+            Screen.width * 0.5f - 210f,
+            Screen.height - 86f,
+            420f,
+            56f);
+
+        GUI.Box(hintRect, GUIContent.none);
+        GUI.Label(
+            hintRect,
+            $"Placing {enemyName}\n{validity}    Esc/F1: cancel",
+            placementHintStyle);
     }
 
     void ApplyDebugToggles()
@@ -761,6 +1084,11 @@ public class RuntimeDebugOptions : MonoBehaviour
 
     void EnsureEnemyTrackingStyles()
     {
+        EnsureDebugStyles();
+    }
+
+    void EnsureDebugStyles()
+    {
         if (enemyCompassStyle == null)
         {
             enemyCompassStyle = new GUIStyle(GUI.skin.label)
@@ -787,6 +1115,29 @@ public class RuntimeDebugOptions : MonoBehaviour
                 fontStyle = FontStyle.Bold,
                 fontSize = 18
             };
+        }
+
+        if (sectionHeaderStyle == null)
+        {
+            sectionHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                fontSize = 14
+            };
+            sectionHeaderStyle.normal.textColor =
+                new Color(0.75f, 1f, 0.9f, 1f);
+        }
+
+        if (placementHintStyle == null)
+        {
+            placementHintStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 15,
+                wordWrap = true
+            };
+            placementHintStyle.normal.textColor = Color.white;
         }
     }
 

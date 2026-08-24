@@ -2193,6 +2193,49 @@ MonoBehaviour:
   enemyTrackingMaxDistance: 120
   enemyCompassWidth: 520
   enemyCompassTopOffset: 64
+  enemySpawnOptions:
+  - label: Golden Mouth
+    prefab: {fileID: 1982542807340058056, guid: b6f55c75915fafd489a612548b543150, type: 3}
+    previewColor: {r: 1, g: 0.85, b: 0.15, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Photographer
+    prefab: {fileID: 3403067134488307632, guid: b8796a2cefbcbb94cb229512adb4c827, type: 3}
+    previewColor: {r: 1, g: 0.1, b: 0.1, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Raccoon
+    prefab: {fileID: 6578610292248419955, guid: 3e0967ec30134044aa9298c2997aed81, type: 3}
+    previewColor: {r: 0.55, g: 0.35, b: 0.15, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Shark
+    prefab: {fileID: 7165801827447823788, guid: 3c361d9872c54c2498c33f0872a3e172, type: 3}
+    previewColor: {r: 0.2, g: 0.65, b: 1, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Time Camper
+    prefab: {fileID: 4415159143221438221, guid: e4802a6f0b95fe24ea27489eba5c4ec9, type: 3}
+    previewColor: {r: 1, g: 0.45, b: 0.1, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Ghost Water
+    prefab: {fileID: 4103257720144595741, guid: 22fdbf8cea812db45b8ba2a0909816f6, type: 3}
+    previewColor: {r: 0.45, g: 0.9, b: 1, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Victoria Regia
+    prefab: {fileID: 8990498194811344281, guid: a7e1d67b4e758a64eb625937d7580ad8, type: 3}
+    previewColor: {r: 1, g: 0.25, b: 0.75, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Bathroom Blonde
+    prefab: {fileID: 3216355496251078317, guid: a1f316efd507f8541bb19f80d1636421, type: 3}
+    previewColor: {r: 1, g: 0.85, b: 0.25, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  - label: Will O Wisp
+    prefab: {fileID: 5391840916023673374, guid: e788bd971b457ab4b8b475b131044221, type: 3}
+    previewColor: {r: 0.65, g: 0.45, b: 1, a: 0.35}
+    rotationOffset: {x: 0, y: 0, z: 0}
+  enemyPlacementMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  enemyPlacementMaxDistance: 80
+  enemyPlacementNavMeshSampleRadius: 2
+  enemyPreviewVerticalOffset: 0.03
   debugSpeedMultiplier: 1
   debugNoclip: 0
   persistDebugCharacterSelection: 1
