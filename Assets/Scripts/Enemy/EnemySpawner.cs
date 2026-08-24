@@ -15,6 +15,13 @@ public class EnemySpawner : MonoBehaviour
     public int spawnAttempts = 30;
     public float sampleRadius = 10f;
 
+    [Header("Time Camper Encounter Spawn")]
+    public bool spawnTimeCamperNearPlayers = true;
+    public float timeCamperMinDistanceFromPlayer = 0f;
+    public float timeCamperMaxDistanceFromPlayer = 8f;
+    public float timeCamperPreferredViewAvoidAngle = 55f;
+    public int timeCamperNearPlayerAttempts = 24;
+
     [Header("Multiplayer")]
     public bool requireNetworkObjectOnline = true;
     public bool logInvalidNetworkPrefabs = true;
@@ -80,7 +87,11 @@ public class EnemySpawner : MonoBehaviour
         if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
 
         Vector3 spawnPos;
-        if (!TryGetValidSpawnPosition(out spawnPos)) return;
+        if (!TryGetTimeCamperEncounterPosition(out spawnPos) &&
+            !TryGetValidSpawnPosition(out spawnPos))
+        {
+            return;
+        }
 
         CreateTimeCamper(spawnPos, isClone);
     }
@@ -154,6 +165,100 @@ public class EnemySpawner : MonoBehaviour
 
         result = Vector3.zero;
         return false;
+    }
+
+    public bool TryGetTimeCamperEncounterPosition(out Vector3 result)
+    {
+        result = Vector3.zero;
+        if (!spawnTimeCamperNearPlayers)
+            return false;
+
+        surfaces.RemoveAll(surface => surface == null);
+        if (surfaces.Count == 0)
+            return false;
+
+        PlayerStatus[] players =
+            FindObjectsByType<PlayerStatus>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+        if (players.Length == 0)
+            return false;
+
+        int attempts = Mathf.Max(1, timeCamperNearPlayerAttempts);
+        for (int i = 0; i < attempts; i++)
+        {
+            PlayerStatus target = players[Random.Range(0, players.Length)];
+            if (!EnemyTargeting.IsValidTarget(target))
+                continue;
+
+            Vector3 candidate = GetTimeCamperPointNearPlayer(target, i);
+            NavMeshHit hit;
+            if (!NavMesh.SamplePosition(candidate, out hit, sampleRadius, NavMesh.AllAreas))
+                continue;
+
+            if (!IsFarEnoughFromOtherTimeCampers(hit.position))
+                continue;
+
+            result = hit.position;
+            return true;
+        }
+
+        return false;
+    }
+
+    Vector3 GetTimeCamperPointNearPlayer(PlayerStatus target, int attempt)
+    {
+        Transform targetTransform = target.transform;
+        Transform viewTransform = ResolvePlayerViewTransform(targetTransform);
+        float minDistance = Mathf.Max(0f, timeCamperMinDistanceFromPlayer);
+        float maxDistance = Mathf.Max(minDistance, timeCamperMaxDistanceFromPlayer);
+        float distance = Random.Range(minDistance, maxDistance);
+
+        Vector3 direction;
+        if (attempt < Mathf.Max(1, timeCamperNearPlayerAttempts / 2))
+        {
+            direction = GetDirectionOutsidePlayerView(viewTransform);
+        }
+        else
+        {
+            direction = Random.insideUnitSphere;
+            direction.y = 0f;
+            if (direction.sqrMagnitude <= 0.001f)
+                direction = -targetTransform.forward;
+            direction.Normalize();
+        }
+
+        return targetTransform.position + direction * distance;
+    }
+
+    Vector3 GetDirectionOutsidePlayerView(Transform viewTransform)
+    {
+        Vector3 forward = viewTransform != null
+            ? viewTransform.forward
+            : Vector3.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude <= 0.001f)
+            forward = Vector3.forward;
+        forward.Normalize();
+
+        float sideAngle = Random.value < 0.5f
+            ? timeCamperPreferredViewAvoidAngle
+            : -timeCamperPreferredViewAvoidAngle;
+        float behindAngle = 180f + Random.Range(-35f, 35f);
+        float angle = Random.value < 0.7f ? behindAngle : sideAngle;
+        return Quaternion.Euler(0f, angle, 0f) * forward;
+    }
+
+    Transform ResolvePlayerViewTransform(Transform playerTransform)
+    {
+        if (playerTransform == null)
+            return null;
+
+        Camera camera = playerTransform.GetComponentInChildren<Camera>(true);
+        if (camera != null && camera.isActiveAndEnabled)
+            return camera.transform;
+
+        return playerTransform;
     }
 
     bool IsFarEnoughFromPlayer(Vector3 position)

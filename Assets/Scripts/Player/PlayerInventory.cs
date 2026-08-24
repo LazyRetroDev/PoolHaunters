@@ -298,10 +298,11 @@ public class PlayerInventory : NetworkBehaviour
     bool TryPickupAuthoritative(
         Item item,
         Vector3 pickupOrigin,
-        float extraRange)
+        float extraRange,
+        bool ignoreInventoryLock = false)
     {
         EnsureSlots();
-        if (item == null || IsInventoryLocked()) return false;
+        if (item == null || (!ignoreInventoryLock && IsInventoryLocked())) return false;
         if (!CanServerPickUp(item, pickupOrigin, extraRange)) return false;
 
         WaterItem waterItem = item.GetComponent<WaterItem>();
@@ -592,12 +593,14 @@ public class PlayerInventory : NetworkBehaviour
         return false;
     }
 
-    public bool CanReceiveShopItem(GameObject itemPrefab)
+    public bool CanReceiveShopItem(
+        GameObject itemPrefab,
+        bool ignoreInventoryLock = false)
     {
         CacheReferences();
         EnsureSlots();
 
-        if (itemPrefab == null || IsInventoryLocked())
+        if (itemPrefab == null || (!ignoreInventoryLock && IsInventoryLocked()))
             return false;
 
         Item item = itemPrefab.GetComponentInChildren<Item>(true);
@@ -619,12 +622,13 @@ public class PlayerInventory : NetworkBehaviour
     public bool TryReceiveShopItem(
         GameObject itemPrefab,
         Vector3 spawnPosition,
-        Quaternion spawnRotation)
+        Quaternion spawnRotation,
+        bool ignoreInventoryLock = false)
     {
         CacheReferences();
         EnsureSlots();
 
-        if (!CanReceiveShopItem(itemPrefab))
+        if (!CanReceiveShopItem(itemPrefab, ignoreInventoryLock))
             return false;
 
         if (IsNetworkSessionRunning() && !IsServer)
@@ -645,8 +649,14 @@ public class PlayerInventory : NetworkBehaviour
         if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
             networkObject.Spawn(true);
 
-        if (TryPickupAuthoritative(item, transform.position, pickupRange))
+        if (TryPickupAuthoritative(
+            item,
+            transform.position,
+            pickupRange,
+            ignoreInventoryLock))
+        {
             return true;
+        }
 
         DestroyOrDespawnItem(item);
         return false;

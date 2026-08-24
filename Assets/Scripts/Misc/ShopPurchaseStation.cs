@@ -14,6 +14,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     [Header("Purchase")]
     [SerializeField] private string itemName = "Upgrade";
+    [SerializeField, TextArea(2, 5)] private string itemDescription = "Purchase this upgrade.";
     [SerializeField, Min(0)] private int germCost = 25;
     [SerializeField] private bool canBuyMultipleTimes = false;
     [SerializeField] private UnityEvent onPurchased;
@@ -32,10 +33,26 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     [SerializeField] private string insufficientFundsText = "Not enough germs";
     [SerializeField] private float feedbackSeconds = 1.25f;
 
+    [Header("Info Panel")]
+    [SerializeField] private bool useConfirmationPanel = true;
+    [SerializeField] private string confirmButtonText = "BUY";
+    [SerializeField] private string cancelButtonText = "CANCEL";
+    [SerializeField] private GameObject highlightRoot;
+    [SerializeField] private bool highlightStationWhilePanelOpen = true;
+
     [Header("Debug")]
     [SerializeField] private bool purchased;
 
     private float feedbackTimer;
+
+    public string ItemName => itemName;
+    public string ItemDescription => itemDescription;
+    public int GermCost => germCost;
+    public string CannotReceiveText => cannotReceiveText;
+    public string ConfirmButtonText => confirmButtonText;
+    public string CancelButtonText => cancelButtonText;
+    public bool IsPurchased => purchased;
+    public bool CanBuyMultipleTimes => canBuyMultipleTimes;
 
     void Awake()
     {
@@ -66,39 +83,89 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     public void Interact(PlayerInventory inventory)
     {
-        if (purchased && !canBuyMultipleTimes)
+        if (useConfirmationPanel)
+        {
+            ShopPurchasePanel.Show(this, inventory);
             return;
+        }
 
-        if (!CanGrantPurchase(inventory))
+        TryPurchase(inventory);
+    }
+
+    public bool TryPurchase(
+        PlayerInventory inventory,
+        bool ignoreInventoryLock = false)
+    {
+        if (purchased && !canBuyMultipleTimes)
+            return false;
+
+        if (!CanGrantPurchase(inventory, ignoreInventoryLock))
         {
             ShowTemporaryText(cannotReceiveText);
-            return;
+            return false;
         }
 
         if (!PlayerCurrencyState.SpendGerms(germCost))
         {
             ShowTemporaryText(insufficientFundsText);
-            return;
+            return false;
         }
 
-        if (!GrantPurchase(inventory))
+        if (!GrantPurchase(inventory, ignoreInventoryLock))
         {
             PlayerCurrencyState.AddGerms(germCost);
             ShowTemporaryText(cannotReceiveText);
-            return;
+            return false;
         }
 
         purchased = true;
         onPurchased?.Invoke();
         RefreshLabel();
+        return true;
     }
 
-    bool CanGrantPurchase(PlayerInventory inventory)
+    public bool CanPurchase(
+        PlayerInventory inventory,
+        out string blockedReason,
+        bool ignoreInventoryLock = false)
+    {
+        if (purchased && !canBuyMultipleTimes)
+        {
+            blockedReason = boughtText;
+            return false;
+        }
+
+        if (!CanGrantPurchase(inventory, ignoreInventoryLock))
+        {
+            blockedReason = cannotReceiveText;
+            return false;
+        }
+
+        if (PlayerCurrencyState.Germs < germCost)
+        {
+            blockedReason = insufficientFundsText;
+            return false;
+        }
+
+        blockedReason = string.Empty;
+        return true;
+    }
+
+    public void SetHighlighted(bool active)
+    {
+        if (highlightRoot != null)
+            highlightRoot.SetActive(active && highlightStationWhilePanelOpen);
+    }
+
+    bool CanGrantPurchase(
+        PlayerInventory inventory,
+        bool ignoreInventoryLock = false)
     {
         switch (grantMode)
         {
             case PurchaseGrantMode.GiveToInventoryOrUseImmediately:
-                return inventory != null && inventory.CanReceiveShopItem(itemPrefab);
+                return inventory != null &&
+                    inventory.CanReceiveShopItem(itemPrefab, ignoreInventoryLock);
             case PurchaseGrantMode.SpawnInWorld:
                 return itemPrefab != null;
             default:
@@ -106,7 +173,9 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         }
     }
 
-    bool GrantPurchase(PlayerInventory inventory)
+    bool GrantPurchase(
+        PlayerInventory inventory,
+        bool ignoreInventoryLock = false)
     {
         switch (grantMode)
         {
@@ -115,7 +184,11 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
                     return false;
 
                 GetItemSpawnPose(inventory.transform, out Vector3 givePosition, out Quaternion giveRotation);
-                return inventory.TryReceiveShopItem(itemPrefab, givePosition, giveRotation);
+                return inventory.TryReceiveShopItem(
+                    itemPrefab,
+                    givePosition,
+                    giveRotation,
+                    ignoreInventoryLock);
 
             case PurchaseGrantMode.SpawnInWorld:
                 if (inventory == null)
@@ -170,5 +243,10 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         }
 
         label.text = string.Format(availableFormat, itemName, germCost);
+    }
+
+    void OnDisable()
+    {
+        SetHighlighted(false);
     }
 }
