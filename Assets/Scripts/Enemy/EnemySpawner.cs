@@ -96,11 +96,18 @@ public class EnemySpawner : MonoBehaviour
         CreateTimeCamper(spawnPos, isClone);
     }
 
-    public TimeCamper SpawnTimeCamperAt(Vector3 position, bool isClone = true)
+    public TimeCamper SpawnTimeCamperAt(
+        Vector3 position,
+        bool isClone = true,
+        bool ignoreEntityLimit = false)
     {
         if (!CanSpawnAuthoritatively()) return null;
         if (timeCamperPrefab == null) return null;
-        if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return null;
+        if (!ignoreEntityLimit &&
+            (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()))
+        {
+            return null;
+        }
 
         Vector3 spawnPos = position;
         NavMeshHit hit;
@@ -129,7 +136,9 @@ public class EnemySpawner : MonoBehaviour
             return null;
         }
 
-        TimeCamperManager.Instance.Register(timeCamper);
+        if (TimeCamperManager.Instance != null)
+            TimeCamperManager.Instance.Register(timeCamper);
+
         return timeCamper;
     }
 

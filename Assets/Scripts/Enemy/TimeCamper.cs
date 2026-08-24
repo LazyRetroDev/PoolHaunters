@@ -411,13 +411,14 @@ public class TimeCamper : MonoBehaviour
     {
         if (spawnedCloneForDeath) return;
         if (EnemySpawner.Instance == null || killedPlayer == null) return;
-        if (TimeCamperManager.Instance == null || !TimeCamperManager.Instance.CanSpawn()) return;
-
         Vector3 clonePosition = killedPlayer.transform.position;
         if (!killedPlayer.ForceTransformDeath()) return;
 
         spawnedCloneForDeath = true;
-        EnemySpawner.Instance.SpawnTimeCamperAt(clonePosition, isClone: true);
+        EnemySpawner.Instance.SpawnTimeCamperAt(
+            clonePosition,
+            isClone: true,
+            ignoreEntityLimit: true);
     }
 
     void StartLeaving()
