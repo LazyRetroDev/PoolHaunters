@@ -34,11 +34,11 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _BrushSoftness: 0.01
+    - _BrushSoftness: 0.579
     - _DissolveAmount: 0.31
-    - _EdgeGlow: 0
-    - _EdgeWidth: 0.001
-    - _NoiseScale: 6.7
+    - _EdgeGlow: 2.3
+    - _EdgeWidth: 0.145
+    - _NoiseScale: 18
     m_Colors:
     - _BaseColor: {r: 0.2304169, g: 0.3301886, b: 0.110582, a: 1}
     - _EdgeColor: {r: 0.108735286, g: 0.25471696, b: 0.09251509, a: 0}

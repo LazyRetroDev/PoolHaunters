@@ -145,6 +145,12 @@
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
+    "com.unity.playworks.upp": {
+      "version": "file:../../../../Downloads/Programas/7.2.0/scripts",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.profiling.core": {
       "version": "1.0.3",
       "depth": 2,
