@@ -6,6 +6,9 @@ public class PlayerRunState
 {
     public float Water;
     public int WaterQuality;
+    public float HealthUpgradeBonus;
+    public float WaterUpgradeBonus;
+    public float StaminaUpgradeBonus;
     public List<string> ItemPrefabNames = new List<string>();
 }
 
@@ -23,6 +26,12 @@ public static class PlayerRunStateTracker
             var state = new PlayerRunState();
             state.Water = playerStatus.GetCurrentWater();
             state.WaterQuality = (int)playerStatus.GetWaterQuality();
+            state.HealthUpgradeBonus = playerStatus.GetSessionMaxHealthBonus();
+            state.WaterUpgradeBonus = playerStatus.GetSessionMaxWaterBonus();
+
+            PlayerMovement movement = playerStatus.GetComponent<PlayerMovement>();
+            if (movement != null)
+                state.StaminaUpgradeBonus = movement.GetSessionMaxStaminaBonus();
             
             PlayerInventory inventory = playerStatus.GetComponent<PlayerInventory>();
             if (inventory != null)

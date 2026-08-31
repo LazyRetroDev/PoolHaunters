@@ -49,6 +49,10 @@ public class PlayerStatus : NetworkBehaviour
         new NetworkVariable<float>();
     private NetworkVariable<float> syncedWater =
         new NetworkVariable<float>();
+    private NetworkVariable<float> syncedMaxHealth =
+        new NetworkVariable<float>();
+    private NetworkVariable<float> syncedMaxWater =
+        new NetworkVariable<float>();
     private NetworkVariable<float> syncedKnockoutTimer =
         new NetworkVariable<float>();
     private NetworkVariable<int> syncedWaterQuality =
@@ -76,6 +80,9 @@ public class PlayerStatus : NetworkBehaviour
     private WaterZone activeWaterZone;
     private bool debugInfiniteHealth;
     private bool debugInfiniteWater;
+    private bool baseCapacityCaptured;
+    private float baseMaxHealth;
+    private float baseMaxWater;
 
     private PlayerMovement movement;
     private PlayerInventory inventory;
@@ -86,6 +93,7 @@ public class PlayerStatus : NetworkBehaviour
 
     void Awake()
     {
+        CaptureBaseCapacity();
         CacheReferences();
         EnsureReviveInteractable();
     }
@@ -175,6 +183,14 @@ public class PlayerStatus : NetworkBehaviour
         if (localStateInitialized)
             return;
 
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        ApplySavedSessionCapacity(savedState);
+
         currentHealth = Mathf.Clamp(maxHealth, 0f, maxHealth);
         currentWater = 0f;
         knockoutTimer = 0f;
@@ -185,12 +201,6 @@ public class PlayerStatus : NetworkBehaviour
         externalControlLocks = 0;
         localStateInitialized = true;
 
-        ulong clientId = 0;
-        NetworkObject netObj = GetComponent<NetworkObject>();
-        if (netObj != null)
-            clientId = netObj.OwnerClientId;
-
-        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
         if (savedState != null)
         {
             currentWater = savedState.Water;
@@ -247,6 +257,10 @@ public class PlayerStatus : NetworkBehaviour
     public float GetMaxHealth() => maxHealth;
     public float GetCurrentWater() => currentWater;
     public float GetWaterSpace() => Mathf.Max(0f, maxWater - currentWater);
+    public float GetSessionMaxHealthBonus() =>
+        Mathf.Max(0f, maxHealth - GetBaseMaxHealth());
+    public float GetSessionMaxWaterBonus() =>
+        Mathf.Max(0f, maxWater - GetBaseMaxWater());
     public WaterQuality GetWaterQuality() => currentWaterQuality;
     public float GetHealthPercent() =>
         maxHealth > 0f ? currentHealth / maxHealth : 0f;
@@ -283,6 +297,62 @@ public class PlayerStatus : NetworkBehaviour
         }
 
         AddWater(amount, waterFillQuality);
+    }
+
+    public bool AddSessionMaxHealth(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsClientReplica())
+        {
+            ApplySessionMaxHealth(amount, fillAddedCapacity);
+            AddSessionMaxHealthServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxHealth(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncCoreState();
+        return true;
+    }
+
+    public bool AddSessionMaxWater(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsClientReplica())
+        {
+            ApplySessionMaxWater(amount, fillAddedCapacity);
+            AddSessionMaxWaterServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxWater(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncWaterState();
+        return true;
+    }
+
+    void ApplySessionMaxHealth(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseCapacity();
+        maxHealth = Mathf.Max(1f, maxHealth + amount);
+        if (fillAddedCapacity)
+            currentHealth = Mathf.Clamp(currentHealth + amount, 0f, maxHealth);
+        else
+            currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
+
+    void ApplySessionMaxWater(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseCapacity();
+        maxWater = Mathf.Max(1f, maxWater + amount);
+        if (fillAddedCapacity)
+            currentWater = Mathf.Clamp(currentWater + amount, 0f, maxWater);
+        else
+            currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
     }
 
     public bool TakeDamage(float damage)
@@ -1176,6 +1246,8 @@ public class PlayerStatus : NetworkBehaviour
     {
         syncedHealth.OnValueChanged += HandleHealthChanged;
         syncedWater.OnValueChanged += HandleWaterChanged;
+        syncedMaxHealth.OnValueChanged += HandleMaxHealthChanged;
+        syncedMaxWater.OnValueChanged += HandleMaxWaterChanged;
         syncedKnockoutTimer.OnValueChanged += HandleKnockoutTimerChanged;
         syncedWaterQuality.OnValueChanged += HandleWaterQualityChanged;
         syncedKnockedOut.OnValueChanged += HandleKnockoutChanged;
@@ -1188,6 +1260,8 @@ public class PlayerStatus : NetworkBehaviour
     {
         syncedHealth.OnValueChanged -= HandleHealthChanged;
         syncedWater.OnValueChanged -= HandleWaterChanged;
+        syncedMaxHealth.OnValueChanged -= HandleMaxHealthChanged;
+        syncedMaxWater.OnValueChanged -= HandleMaxWaterChanged;
         syncedKnockoutTimer.OnValueChanged -= HandleKnockoutTimerChanged;
         syncedWaterQuality.OnValueChanged -= HandleWaterQualityChanged;
         syncedKnockedOut.OnValueChanged -= HandleKnockoutChanged;
@@ -1198,6 +1272,11 @@ public class PlayerStatus : NetworkBehaviour
 
     void ApplySyncedState(bool invokeEvents)
     {
+        if (syncedMaxHealth.Value > 0f)
+            maxHealth = syncedMaxHealth.Value;
+        if (syncedMaxWater.Value > 0f)
+            maxWater = syncedMaxWater.Value;
+
         currentHealth = syncedHealth.Value;
         currentWater = syncedWater.Value;
         knockoutTimer = syncedKnockoutTimer.Value;
@@ -1219,6 +1298,24 @@ public class PlayerStatus : NetworkBehaviour
     void HandleWaterChanged(float previous, float next)
     {
         currentWater = next;
+    }
+
+    void HandleMaxHealthChanged(float previous, float next)
+    {
+        if (next <= 0f)
+            return;
+
+        maxHealth = next;
+        currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
+
+    void HandleMaxWaterChanged(float previous, float next)
+    {
+        if (next <= 0f)
+            return;
+
+        maxWater = next;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
     }
 
     void HandleKnockoutTimerChanged(float previous, float next)
@@ -1324,6 +1421,15 @@ public class PlayerStatus : NetworkBehaviour
         syncedTransformed.Value = deathTransformationApplied;
     }
 
+    void SyncCapacityState()
+    {
+        if (!IsSpawned || !IsServer)
+            return;
+
+        syncedMaxHealth.Value = maxHealth;
+        syncedMaxWater.Value = maxWater;
+    }
+
     void SyncWaterState()
     {
         if (!IsSpawned || !IsServer)
@@ -1343,9 +1449,47 @@ public class PlayerStatus : NetworkBehaviour
 
     void SyncAllState()
     {
+        SyncCapacityState();
         SyncCoreState();
         SyncWaterState();
         SyncControlLockState();
+    }
+
+    void CaptureBaseCapacity()
+    {
+        if (baseCapacityCaptured)
+            return;
+
+        baseMaxHealth = maxHealth;
+        baseMaxWater = maxWater;
+        baseCapacityCaptured = true;
+    }
+
+    float GetBaseMaxHealth()
+    {
+        CaptureBaseCapacity();
+        return baseMaxHealth;
+    }
+
+    float GetBaseMaxWater()
+    {
+        CaptureBaseCapacity();
+        return baseMaxWater;
+    }
+
+    void ApplySavedSessionCapacity(PlayerRunState savedState)
+    {
+        CaptureBaseCapacity();
+
+        float healthBonus = savedState != null
+            ? Mathf.Max(0f, savedState.HealthUpgradeBonus)
+            : 0f;
+        float waterBonus = savedState != null
+            ? Mathf.Max(0f, savedState.WaterUpgradeBonus)
+            : 0f;
+
+        maxHealth = Mathf.Max(1f, baseMaxHealth + healthBonus);
+        maxWater = Mathf.Max(1f, baseMaxWater + waterBonus);
     }
 
     bool TryGetNetworkObjectReference(
@@ -1413,6 +1557,28 @@ public class PlayerStatus : NetworkBehaviour
             return;
 
         ApplyReviveFrom(reviver);
+    }
+
+    [ServerRpc]
+    void AddSessionMaxHealthServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxHealth(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncCoreState();
+    }
+
+    [ServerRpc]
+    void AddSessionMaxWaterServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxWater(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncWaterState();
     }
 
     [ServerRpc]

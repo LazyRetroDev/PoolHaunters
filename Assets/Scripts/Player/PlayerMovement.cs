@@ -74,6 +74,8 @@ public class PlayerMovement : NetworkBehaviour
     private bool acceptsInput = true;
     private bool debugInfiniteStamina;
     private bool debugNoclip;
+    private bool baseStaminaCaptured;
+    private float baseMaxStamina;
     private bool debugSavedGravity;
     private bool debugSavedKinematic;
     private bool debugSavedColliderEnabled;
@@ -123,11 +125,13 @@ public class PlayerMovement : NetworkBehaviour
 
     void Start()
     {
+        CaptureBaseStamina();
         rb = GetComponent<Rigidbody>();
         bodyCollider = GetComponent<CapsuleCollider>();
         playerInput = GetComponent<PlayerInput>();
         playerStatus = GetComponent<PlayerStatus>();
         jennyMopCleaner = GetComponent<JennyMopCleaner>();
+        ApplySavedSessionStamina();
         currentStamina = maxStamina;
 
         if (bodyCollider != null)
@@ -696,6 +700,15 @@ public class PlayerMovement : NetworkBehaviour
     void UpdateLocomotionStateServerRpc(byte flags)
     {
         syncedLocomotionFlags.Value = SanitizeLocomotionFlags(flags);
+    }
+
+    [ServerRpc]
+    void AddSessionMaxStaminaServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxStamina(amount, fillAddedCapacity);
     }
 
     bool ShouldUseSyncedLocomotionState()
@@ -1410,6 +1423,35 @@ public class PlayerMovement : NetworkBehaviour
         currentStamina = maxStamina;
     }
 
+    public bool AddSessionMaxStamina(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsNetworkSessionRunning() && IsSpawned && !IsServer)
+        {
+            ApplySessionMaxStamina(amount, fillAddedCapacity);
+            AddSessionMaxStaminaServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxStamina(amount, fillAddedCapacity);
+        return true;
+    }
+
+    void ApplySessionMaxStamina(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseStamina();
+        maxStamina = Mathf.Max(1f, maxStamina + amount);
+        if (fillAddedCapacity)
+            currentStamina = Mathf.Clamp(currentStamina + amount, 0f, maxStamina);
+        else
+            currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+    }
+
+    public float GetSessionMaxStaminaBonus() =>
+        Mathf.Max(0f, maxStamina - GetBaseMaxStamina());
+
     public void SetDebugSpeedMultiplier(float multiplier)
     {
         debugSpeedMultiplier = Mathf.Clamp(multiplier, 0.1f, 10f);
@@ -1500,4 +1542,34 @@ public class PlayerMovement : NetworkBehaviour
 
     public float GetStaminaPercent() =>
         maxStamina > 0f ? currentStamina / maxStamina : 0f;
+
+    void CaptureBaseStamina()
+    {
+        if (baseStaminaCaptured)
+            return;
+
+        baseMaxStamina = maxStamina;
+        baseStaminaCaptured = true;
+    }
+
+    float GetBaseMaxStamina()
+    {
+        CaptureBaseStamina();
+        return baseMaxStamina;
+    }
+
+    void ApplySavedSessionStamina()
+    {
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        float staminaBonus = savedState != null
+            ? Mathf.Max(0f, savedState.StaminaUpgradeBonus)
+            : 0f;
+
+        maxStamina = Mathf.Max(1f, GetBaseMaxStamina() + staminaBonus);
+    }
 }

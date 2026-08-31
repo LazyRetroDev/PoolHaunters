@@ -1,6 +1,8 @@
 using TMPro;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.SceneManagement;
 
 [DisallowMultipleComponent]
 public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
@@ -9,7 +11,15 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     {
         None,
         GiveToInventoryOrUseImmediately,
-        SpawnInWorld
+        SpawnInWorld,
+        ApplySessionUpgrade
+    }
+
+    public enum SessionUpgradeType
+    {
+        MaxHealth,
+        MaxStamina,
+        MaxWater
     }
 
     [Header("Purchase")]
@@ -25,6 +35,12 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     [SerializeField] private Transform itemSpawnPoint;
     [SerializeField] private float spawnInFrontDistance = 1f;
     [SerializeField] private string cannotReceiveText = "No room";
+
+    [Header("Session Upgrade")]
+    [SerializeField] private SessionUpgradeType sessionUpgradeType =
+        SessionUpgradeType.MaxHealth;
+    [SerializeField, Min(0f)] private float sessionUpgradeAmount = 25f;
+    [SerializeField] private string upgradeUnavailableText = "Upgrade unavailable";
 
     [Header("Label")]
     [SerializeField] private TMP_Text label;
@@ -44,6 +60,10 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     [Header("Debug")]
     [SerializeField] private bool purchased;
 
+    private static readonly HashSet<SessionUpgradeType> boughtUpgradesThisVisit =
+        new HashSet<SessionUpgradeType>();
+    private static int activeShopVisitSceneHandle = -1;
+
     private float feedbackTimer;
 
     public string ItemName => itemName;
@@ -57,6 +77,8 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     void Awake()
     {
+        RefreshShopVisitState();
+
         if (label == null)
             label = GetComponentInChildren<TMP_Text>(true);
 
@@ -79,6 +101,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
             label = GetComponentInChildren<TMP_Text>(true);
 
         germCost = Mathf.Max(0, germCost);
+        sessionUpgradeAmount = Mathf.Max(0f, sessionUpgradeAmount);
         RefreshLabel();
     }
 
@@ -97,8 +120,16 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         PlayerInventory inventory,
         bool ignoreInventoryLock = false)
     {
+        RefreshShopVisitState();
+
         if (purchased && !canBuyMultipleTimes)
             return false;
+
+        if (IsSessionUpgradeBoughtThisVisit())
+        {
+            ShowTemporaryText(boughtText);
+            return false;
+        }
 
         if (!CanGrantPurchase(inventory, ignoreInventoryLock))
         {
@@ -120,6 +151,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         }
 
         purchased = true;
+        MarkSessionUpgradeBoughtThisVisit();
         onPurchased?.Invoke();
         RefreshLabel();
         return true;
@@ -130,7 +162,15 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         out string blockedReason,
         bool ignoreInventoryLock = false)
     {
+        RefreshShopVisitState();
+
         if (purchased && !canBuyMultipleTimes)
+        {
+            blockedReason = boughtText;
+            return false;
+        }
+
+        if (IsSessionUpgradeBoughtThisVisit())
         {
             blockedReason = boughtText;
             return false;
@@ -169,6 +209,8 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
                     inventory.CanReceiveShopItem(itemPrefab, ignoreInventoryLock);
             case PurchaseGrantMode.SpawnInWorld:
                 return itemPrefab != null;
+            case PurchaseGrantMode.ApplySessionUpgrade:
+                return CanApplySessionUpgrade(inventory);
             default:
                 return true;
         }
@@ -176,6 +218,9 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     string GetCannotReceiveReason(PlayerInventory inventory)
     {
+        if (grantMode == PurchaseGrantMode.ApplySessionUpgrade)
+            return upgradeUnavailableText;
+
         if (inventory == null || itemPrefab == null)
             return cannotReceiveText;
 
@@ -191,6 +236,23 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         }
 
         return cannotReceiveText;
+    }
+
+    bool CanApplySessionUpgrade(PlayerInventory inventory)
+    {
+        if (inventory == null || sessionUpgradeAmount <= 0f)
+            return false;
+
+        switch (sessionUpgradeType)
+        {
+            case SessionUpgradeType.MaxHealth:
+            case SessionUpgradeType.MaxWater:
+                return inventory.GetComponent<PlayerStatus>() != null;
+            case SessionUpgradeType.MaxStamina:
+                return inventory.GetComponent<PlayerMovement>() != null;
+            default:
+                return false;
+        }
     }
 
     bool GrantPurchase(
@@ -217,8 +279,38 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
                 GetItemSpawnPose(inventory.transform, out Vector3 spawnPosition, out Quaternion spawnRotation);
                 return inventory.TrySpawnShopItemInWorld(itemPrefab, spawnPosition, spawnRotation);
 
+            case PurchaseGrantMode.ApplySessionUpgrade:
+                return ApplySessionUpgrade(inventory);
+
             default:
                 return true;
+        }
+    }
+
+    bool ApplySessionUpgrade(PlayerInventory inventory)
+    {
+        if (inventory == null || sessionUpgradeAmount <= 0f)
+            return false;
+
+        switch (sessionUpgradeType)
+        {
+            case SessionUpgradeType.MaxHealth:
+                PlayerStatus healthStatus = inventory.GetComponent<PlayerStatus>();
+                return healthStatus != null &&
+                    healthStatus.AddSessionMaxHealth(sessionUpgradeAmount);
+
+            case SessionUpgradeType.MaxWater:
+                PlayerStatus waterStatus = inventory.GetComponent<PlayerStatus>();
+                return waterStatus != null &&
+                    waterStatus.AddSessionMaxWater(sessionUpgradeAmount);
+
+            case SessionUpgradeType.MaxStamina:
+                PlayerMovement movement = inventory.GetComponent<PlayerMovement>();
+                return movement != null &&
+                    movement.AddSessionMaxStamina(sessionUpgradeAmount);
+
+            default:
+                return false;
         }
     }
 
@@ -256,13 +348,41 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         if (label == null)
             return;
 
-        if (purchased && !canBuyMultipleTimes)
+        RefreshShopVisitState();
+
+        if ((purchased && !canBuyMultipleTimes) ||
+            IsSessionUpgradeBoughtThisVisit())
         {
             label.text = boughtText;
             return;
         }
 
         label.text = string.Format(availableFormat, itemName, germCost);
+    }
+
+    static void RefreshShopVisitState()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        int sceneHandle = activeScene.handle;
+        if (sceneHandle == activeShopVisitSceneHandle)
+            return;
+
+        activeShopVisitSceneHandle = sceneHandle;
+        boughtUpgradesThisVisit.Clear();
+    }
+
+    bool IsSessionUpgradeBoughtThisVisit()
+    {
+        return grantMode == PurchaseGrantMode.ApplySessionUpgrade &&
+            boughtUpgradesThisVisit.Contains(sessionUpgradeType);
+    }
+
+    void MarkSessionUpgradeBoughtThisVisit()
+    {
+        if (grantMode != PurchaseGrantMode.ApplySessionUpgrade)
+            return;
+
+        boughtUpgradesThisVisit.Add(sessionUpgradeType);
     }
 
     void OnDisable()

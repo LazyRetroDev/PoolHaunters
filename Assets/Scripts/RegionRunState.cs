@@ -288,6 +288,9 @@ public static class RegionRunState
         DifficultyMode = difficulty;
         Difficulty = ResolveEffectiveDifficulty(difficulty, PhaseNumber);
 
+        if (PhaseNumber <= 1 && string.IsNullOrWhiteSpace(PreviousSceneName))
+            PlayerRunStateTracker.Clear();
+
         Debug.Log(
             $"Selected phase {PhaseNumber} region '{RegionName}' in scene '{SceneName}' with seed {RunSeed}. Launch mode: {LaunchMode}. Network mode: {NetworkMode}. Difficulty mode: {DifficultyMode}. Effective difficulty: {Difficulty}.");
     }
