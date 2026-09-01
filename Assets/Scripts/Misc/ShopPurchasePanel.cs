@@ -28,6 +28,7 @@ public class ShopPurchasePanel : MonoBehaviour
     private ShopPurchaseStation activeStation;
     private PlayerInventory activeInventory;
     private PlayerStatus lockedPlayer;
+    private CursorLockController lockedCursorController;
     private bool controlsLocked;
     private float feedbackTimer;
 
@@ -101,6 +102,9 @@ public class ShopPurchasePanel : MonoBehaviour
 
         lockedPlayer = inventory != null
             ? inventory.GetComponent<PlayerStatus>()
+            : null;
+        lockedCursorController = lockedPlayer != null
+            ? lockedPlayer.GetComponent<CursorLockController>()
             : null;
         if (lockedPlayer != null)
         {
@@ -183,6 +187,8 @@ public class ShopPurchasePanel : MonoBehaviour
 
     void ReleaseLocks()
     {
+        bool shouldRelockCursor = controlsLocked && lockedPlayer != null;
+
         if (activeStation != null)
             activeStation.SetHighlighted(false);
 
@@ -192,9 +198,29 @@ public class ShopPurchasePanel : MonoBehaviour
         if (controlsLocked && lockedPlayer != null)
             lockedPlayer.RemoveExternalControlLock();
 
-        lockedPlayer = null;
         controlsLocked = false;
         CursorLockController.ReleaseCursorUnlocked();
+
+        if (shouldRelockCursor)
+            ForceGameplayCursorLock();
+
+        lockedPlayer = null;
+        lockedCursorController = null;
+    }
+
+    void ForceGameplayCursorLock()
+    {
+        if (CursorLockController.HasUnlockRequest())
+            return;
+
+        if (lockedCursorController != null)
+        {
+            lockedCursorController.ForceLockCursor();
+            return;
+        }
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 
     void EnsureCanvas()
