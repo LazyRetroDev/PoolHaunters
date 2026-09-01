@@ -1675,11 +1675,13 @@ public class LevelObjectiveManager : MonoBehaviour
             TMP_Text text = texts[i];
             if (text == null) continue;
 
-            string objectName = text.gameObject.name;
+            string objectName = text.gameObject != null
+                ? text.gameObject.name
+                : string.Empty;
             string parentName = text.transform.parent != null
                 ? text.transform.parent.name
                 : string.Empty;
-            string textValue = text.text;
+            string textValue = text.text ?? string.Empty;
 
             if (cleaningProgressText == null &&
                 (objectName.Contains("Cleaning") ||
