@@ -10,12 +10,22 @@ public class CharacterSelectMenu : MonoBehaviour
     public GameObject panelRoot;
     public TMP_Text titleText;
     public TMP_Text selectedAgentText;
+    public TMP_Text roleText;
+    public TMP_Text descriptionText;
+    public TMP_Text loadoutText;
+    public Image portraitImage;
     public Button jennyPieButton;
     public Button sylvianButton;
     public Button secretAgentButton;
     public Button louiseButton;
     public Button confirmButton;
     public Button backButton;
+
+    [Header("Portraits")]
+    public Sprite jennyPiePortrait;
+    public Sprite sylvianPortrait;
+    public Sprite secretAgentPortrait;
+    public Sprite louisePortrait;
 
     [Header("Generated UI")]
     public bool createGeneratedPanelIfMissing = true;
@@ -156,7 +166,10 @@ public class CharacterSelectMenu : MonoBehaviour
         generatedCanvas.gameObject.SetActive(true);
         panelRoot = CreatePanel(generatedCanvas.transform);
         titleText = CreateText(panelRoot.transform, "Choose Agent", 34, TextAnchor.MiddleLeft);
-        selectedAgentText = CreateText(panelRoot.transform, string.Empty, 22, TextAnchor.MiddleLeft);
+        selectedAgentText = CreateText(panelRoot.transform, string.Empty, 26, TextAnchor.MiddleLeft);
+        roleText = CreateText(panelRoot.transform, string.Empty, 18, TextAnchor.MiddleLeft);
+        descriptionText = CreateText(panelRoot.transform, string.Empty, 18, TextAnchor.MiddleLeft);
+        loadoutText = CreateText(panelRoot.transform, string.Empty, 16, TextAnchor.MiddleLeft);
         jennyPieButton = CreateButton(panelRoot.transform, "Jenny Pie");
         sylvianButton = CreateButton(panelRoot.transform, "Sylvian");
         secretAgentButton = CreateButton(panelRoot.transform, "Secret Agent");
@@ -176,6 +189,15 @@ public class CharacterSelectMenu : MonoBehaviour
 
         LayoutElement selectedLayout = selectedAgentText.gameObject.AddComponent<LayoutElement>();
         selectedLayout.preferredHeight = 40f;
+
+        LayoutElement roleLayout = roleText.gameObject.AddComponent<LayoutElement>();
+        roleLayout.preferredHeight = 30f;
+
+        LayoutElement descriptionLayout = descriptionText.gameObject.AddComponent<LayoutElement>();
+        descriptionLayout.preferredHeight = 84f;
+
+        LayoutElement loadoutLayout = loadoutText.gameObject.AddComponent<LayoutElement>();
+        loadoutLayout.preferredHeight = 52f;
     }
 
     GameObject CreatePanel(Transform parent)
@@ -268,9 +290,21 @@ public class CharacterSelectMenu : MonoBehaviour
     void Refresh()
     {
         if (selectedAgentText != null)
+            selectedAgentText.text = AgentSelectionState.GetDisplayName(selectedAgent);
+
+        if (roleText != null)
+            roleText.text = AgentSelectionState.GetRoleName(selectedAgent);
+
+        if (descriptionText != null)
+            descriptionText.text = AgentSelectionState.GetDescription(selectedAgent);
+
+        if (loadoutText != null)
+            loadoutText.text = AgentSelectionState.GetLoadoutSummary(selectedAgent);
+
+        if (portraitImage != null)
         {
-            selectedAgentText.text =
-                $"Selected: {AgentSelectionState.GetDisplayName(selectedAgent)}";
+            portraitImage.sprite = GetPortrait(selectedAgent);
+            portraitImage.enabled = portraitImage.sprite != null;
         }
 
         SetButtonSelected(jennyPieButton, selectedAgent == PlayerAgentType.JennyPie);
@@ -299,6 +333,23 @@ public class CharacterSelectMenu : MonoBehaviour
                 return TextAlignmentOptions.Right;
             default:
                 return TextAlignmentOptions.Left;
+        }
+    }
+
+    Sprite GetPortrait(PlayerAgentType agent)
+    {
+        switch (agent)
+        {
+            case PlayerAgentType.JennyPie:
+                return jennyPiePortrait;
+            case PlayerAgentType.Sylvian:
+                return sylvianPortrait;
+            case PlayerAgentType.SecretAgent:
+                return secretAgentPortrait;
+            case PlayerAgentType.Louise:
+                return louisePortrait;
+            default:
+                return null;
         }
     }
 }

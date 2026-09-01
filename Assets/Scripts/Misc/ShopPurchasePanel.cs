@@ -9,15 +9,22 @@ public class ShopPurchasePanel : MonoBehaviour
 {
     private static ShopPurchasePanel instance;
 
+    [Header("Assigned UI")]
+    [SerializeField] private Canvas assignedCanvas;
+    [SerializeField] private GameObject panelRoot;
+    [SerializeField] private TMP_Text titleText;
+    [SerializeField] private TMP_Text descriptionText;
+    [SerializeField] private TMP_Text costText;
+    [SerializeField] private TMP_Text feedbackText;
+    [SerializeField] private TMP_Text confirmButtonText;
+    [SerializeField] private TMP_Text cancelButtonText;
+    [SerializeField] private Button confirmButton;
+    [SerializeField] private Button cancelButton;
+
+    [Header("Generated UI")]
+    [SerializeField] private bool createGeneratedPanelIfMissing = true;
+
     private Canvas canvas;
-    private TMP_Text titleText;
-    private TMP_Text descriptionText;
-    private TMP_Text costText;
-    private TMP_Text feedbackText;
-    private TMP_Text confirmButtonText;
-    private TMP_Text cancelButtonText;
-    private Button confirmButton;
-    private Button cancelButton;
     private ShopPurchaseStation activeStation;
     private PlayerInventory activeInventory;
     private PlayerStatus lockedPlayer;
@@ -55,12 +62,12 @@ public class ShopPurchasePanel : MonoBehaviour
 
         instance = this;
         EnsureCanvas();
-        canvas.gameObject.SetActive(false);
+        SetPanelActive(false);
     }
 
     void Update()
     {
-        if (canvas == null || !canvas.gameObject.activeSelf)
+        if (!IsPanelOpen())
             return;
 
         Cursor.lockState = CursorLockMode.None;
@@ -106,7 +113,7 @@ public class ShopPurchasePanel : MonoBehaviour
         Cursor.visible = true;
 
         EnsureCanvas();
-        canvas.gameObject.SetActive(true);
+        SetPanelActive(true);
         RefreshText();
     }
 
@@ -169,8 +176,7 @@ public class ShopPurchasePanel : MonoBehaviour
 
     public void Close()
     {
-        if (canvas != null)
-            canvas.gameObject.SetActive(false);
+        SetPanelActive(false);
 
         ReleaseLocks();
     }
@@ -193,14 +199,16 @@ public class ShopPurchasePanel : MonoBehaviour
 
     void EnsureCanvas()
     {
-        if (canvas != null)
-            return;
-
+        BindAssignedUi();
         EnsureEventSystem();
+
+        if (canvas != null || panelRoot != null || !createGeneratedPanelIfMissing)
+            return;
 
         GameObject canvasObject = new GameObject("Shop Purchase Canvas");
         canvasObject.transform.SetParent(transform, false);
         canvas = canvasObject.AddComponent<Canvas>();
+        panelRoot = canvasObject;
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 230;
 
@@ -257,6 +265,44 @@ public class ShopPurchasePanel : MonoBehaviour
         confirmButtonText = confirmButton.GetComponentInChildren<TMP_Text>();
         cancelButton = CreateButton(buttonRow.transform, "CANCEL", Close);
         cancelButtonText = cancelButton.GetComponentInChildren<TMP_Text>();
+    }
+
+    void BindAssignedUi()
+    {
+        if (assignedCanvas != null)
+            canvas = assignedCanvas;
+
+        if (canvas == null)
+            canvas = GetComponentInChildren<Canvas>(true);
+
+        if (canvas == null && panelRoot != null)
+            canvas = panelRoot.GetComponentInParent<Canvas>(true);
+
+        if (confirmButtonText == null && confirmButton != null)
+            confirmButtonText = confirmButton.GetComponentInChildren<TMP_Text>(true);
+
+        if (cancelButtonText == null && cancelButton != null)
+            cancelButtonText = cancelButton.GetComponentInChildren<TMP_Text>(true);
+    }
+
+    bool IsPanelOpen()
+    {
+        if (panelRoot != null)
+            return panelRoot.activeInHierarchy;
+
+        return canvas != null && canvas.gameObject.activeInHierarchy;
+    }
+
+    void SetPanelActive(bool active)
+    {
+        if (panelRoot != null)
+        {
+            panelRoot.SetActive(active);
+            return;
+        }
+
+        if (canvas != null)
+            canvas.gameObject.SetActive(active);
     }
 
     GameObject CreateRect(

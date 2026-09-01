@@ -1,5 +1,7 @@
 using Unity.Netcode;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 [DisallowMultipleComponent]
 public class LevelFloodController : MonoBehaviour
@@ -33,6 +35,25 @@ public class LevelFloodController : MonoBehaviour
     public float deathDepthPadding = 0.05f;
     public float playerCheckInterval = 0.1f;
 
+    [Header("Warning UI")]
+    public bool showWarningUi = true;
+    public Canvas warningCanvas;
+    public GameObject warningRoot;
+    public TMP_Text warningText;
+    public Image warningFillImage;
+    public bool autoCreateWarningUi = true;
+    public string activeWarningFormat = "FLOOD {0:0}%";
+    public string dangerWarningFormat = "FLOOD {0:0}% - GET BACK";
+    [Range(0f, 1f)] public float dangerProgressThreshold = 0.7f;
+    public Color warningFillColor = new Color(0.15f, 0.75f, 1f, 0.85f);
+    public Color dangerFillColor = new Color(1f, 0.25f, 0.12f, 0.9f);
+
+    [Header("Warning Audio")]
+    public AudioSource warningAudioSource;
+    public AudioClip floodStartedClip;
+    public AudioClip dangerLoopClip;
+    public bool playDangerLoop = true;
+
     [Header("Debug")]
     [SerializeField] private bool flooding;
     [SerializeField] private float currentFloodHeight;
@@ -42,6 +63,7 @@ public class LevelFloodController : MonoBehaviour
     private LevelObjectiveManager objectiveManager;
     private Vector3 floodCenter;
     private float playerCheckTimer;
+    private bool dangerLoopPlaying;
 
     public bool IsFlooding => flooding;
     public float CurrentFloodHeight => currentFloodHeight;
@@ -63,6 +85,8 @@ public class LevelFloodController : MonoBehaviour
             floodVisual = CreateFloodVisual();
 
         ApplyFloodVisualPosition();
+        EnsureWarningUi();
+        ApplyWarningUi();
         RegisterObjectiveEvents();
 
         if (startWhenLevelCompleted &&
@@ -76,10 +100,13 @@ public class LevelFloodController : MonoBehaviour
     void OnDisable()
     {
         UnregisterObjectiveEvents();
+        StopDangerLoop();
     }
 
     void Update()
     {
+        ApplyWarningUi();
+
         if (!flooding)
             return;
 
@@ -90,6 +117,8 @@ public class LevelFloodController : MonoBehaviour
             maxHeight,
             currentFloodHeight + GetEffectiveRiseSpeed() * Time.deltaTime);
         ApplyFloodVisualPosition();
+        ApplyWarningUi();
+        UpdateWarningAudio();
         CheckPlayers();
     }
 
@@ -102,11 +131,15 @@ public class LevelFloodController : MonoBehaviour
         flooding = true;
         currentFloodHeight = Mathf.Max(currentFloodHeight, startHeight);
         ApplyFloodVisualPosition();
+        ApplyWarningUi();
+        PlayFloodStartedAudio();
     }
 
     public void StopFlood()
     {
         flooding = false;
+        ApplyWarningUi();
+        StopDangerLoop();
     }
 
     public void ResetFlood()
@@ -115,6 +148,8 @@ public class LevelFloodController : MonoBehaviour
         flooding = false;
         currentFloodHeight = startHeight;
         ApplyFloodVisualPosition();
+        ApplyWarningUi();
+        StopDangerLoop();
     }
 
     void RegisterObjectiveEvents()
@@ -255,6 +290,186 @@ public class LevelFloodController : MonoBehaviour
             visualSize.x,
             0.08f,
             visualSize.y);
+    }
+
+    void EnsureWarningUi()
+    {
+        if (!showWarningUi)
+            return;
+
+        if (warningCanvas == null && warningRoot != null)
+            warningCanvas = warningRoot.GetComponentInParent<Canvas>(true);
+
+        if (warningCanvas != null || warningRoot != null || !autoCreateWarningUi)
+            return;
+
+        GameObject canvasObject = new GameObject(
+            "Flood Warning Canvas",
+            typeof(RectTransform),
+            typeof(Canvas),
+            typeof(CanvasScaler));
+        canvasObject.transform.SetParent(transform, false);
+
+        warningCanvas = canvasObject.GetComponent<Canvas>();
+        warningCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        warningCanvas.sortingOrder = 130;
+
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        warningRoot = CreateWarningRect(
+            "Flood Warning",
+            canvasObject.transform,
+            new Color(0.02f, 0.05f, 0.07f, 0.82f));
+        RectTransform rootRect = warningRoot.GetComponent<RectTransform>();
+        rootRect.anchorMin = new Vector2(0.5f, 1f);
+        rootRect.anchorMax = new Vector2(0.5f, 1f);
+        rootRect.pivot = new Vector2(0.5f, 1f);
+        rootRect.anchoredPosition = new Vector2(0f, -92f);
+        rootRect.sizeDelta = new Vector2(360f, 72f);
+
+        VerticalLayoutGroup layout = warningRoot.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(14, 14, 10, 10);
+        layout.spacing = 8f;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        warningText = CreateWarningText(warningRoot.transform);
+
+        GameObject fillTrack = CreateWarningRect(
+            "Flood Fill Track",
+            warningRoot.transform,
+            new Color(0f, 0f, 0f, 0.5f));
+        LayoutElement trackLayout = fillTrack.AddComponent<LayoutElement>();
+        trackLayout.preferredHeight = 12f;
+
+        GameObject fillObject = CreateWarningRect(
+            "Flood Fill",
+            fillTrack.transform,
+            warningFillColor);
+        warningFillImage = fillObject.GetComponent<Image>();
+        RectTransform fillRect = fillObject.GetComponent<RectTransform>();
+        fillRect.anchorMin = new Vector2(0f, 0f);
+        fillRect.anchorMax = new Vector2(0f, 1f);
+        fillRect.pivot = new Vector2(0f, 0.5f);
+        fillRect.offsetMin = Vector2.zero;
+        fillRect.offsetMax = Vector2.zero;
+    }
+
+    GameObject CreateWarningRect(
+        string objectName,
+        Transform parent,
+        Color color)
+    {
+        GameObject obj = new GameObject(
+            objectName,
+            typeof(RectTransform),
+            typeof(Image));
+        obj.transform.SetParent(parent, false);
+        Image image = obj.GetComponent<Image>();
+        image.color = color;
+        return obj;
+    }
+
+    TMP_Text CreateWarningText(Transform parent)
+    {
+        GameObject textObject = new GameObject(
+            "Flood Warning Text",
+            typeof(RectTransform),
+            typeof(TextMeshProUGUI),
+            typeof(LayoutElement));
+        textObject.transform.SetParent(parent, false);
+
+        TMP_Text label = textObject.GetComponent<TMP_Text>();
+        label.color = Color.white;
+        label.fontSize = 22f;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 12f;
+        label.fontSizeMax = 22f;
+
+        LayoutElement layout = textObject.GetComponent<LayoutElement>();
+        layout.preferredHeight = 30f;
+        return label;
+    }
+
+    void ApplyWarningUi()
+    {
+        EnsureWarningUi();
+
+        bool show = showWarningUi && flooding;
+        if (warningRoot != null)
+            warningRoot.SetActive(show);
+        else if (warningCanvas != null)
+            warningCanvas.gameObject.SetActive(show);
+
+        if (!show)
+            return;
+
+        float progress = Mathf.Clamp01(FloodProgress);
+        bool danger = progress >= dangerProgressThreshold;
+        float percent = progress * 100f;
+        string format = danger ? dangerWarningFormat : activeWarningFormat;
+
+        if (warningText != null)
+            warningText.text = string.Format(format, percent);
+
+        if (warningFillImage != null)
+        {
+            warningFillImage.color = danger ? dangerFillColor : warningFillColor;
+            RectTransform fillRect = warningFillImage.GetComponent<RectTransform>();
+            if (fillRect != null)
+            {
+                fillRect.anchorMax = new Vector2(progress, 1f);
+                fillRect.offsetMax = Vector2.zero;
+            }
+        }
+    }
+
+    void PlayFloodStartedAudio()
+    {
+        if (warningAudioSource == null || floodStartedClip == null)
+            return;
+
+        warningAudioSource.PlayOneShot(floodStartedClip);
+    }
+
+    void UpdateWarningAudio()
+    {
+        if (!playDangerLoop || warningAudioSource == null || dangerLoopClip == null)
+            return;
+
+        if (FloodProgress < dangerProgressThreshold)
+        {
+            StopDangerLoop();
+            return;
+        }
+
+        if (dangerLoopPlaying)
+            return;
+
+        warningAudioSource.clip = dangerLoopClip;
+        warningAudioSource.loop = true;
+        warningAudioSource.Play();
+        dangerLoopPlaying = true;
+    }
+
+    void StopDangerLoop()
+    {
+        if (!dangerLoopPlaying)
+            return;
+
+        if (warningAudioSource != null)
+        {
+            warningAudioSource.Stop();
+            warningAudioSource.loop = false;
+            warningAudioSource.clip = null;
+        }
+
+        dangerLoopPlaying = false;
     }
 
     void CheckPlayers()
