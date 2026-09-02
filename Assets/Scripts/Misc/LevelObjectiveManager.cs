@@ -58,6 +58,7 @@ public class LevelObjectiveManager : MonoBehaviour
     public string poolCounterFormat = "Pools {0}/{1}";
     public string levelInfoFormat = "Level {0}";
     public string regionLevelInfoFormat = "Phase {0} - {1}";
+    public string fungalPoolObjectiveFormat = "Remove pool fungi: {0} left";
 
     [Header("Level Info")]
     [Min(1)] public int levelNumber = 1;
@@ -1346,9 +1347,45 @@ public class LevelObjectiveManager : MonoBehaviour
               $" - {Localized("objective.pools", "Pools")} {cleanedRequiredPoolCount}/{requiredPoolCount}"
             : string.Empty;
 
+        string hazardText = BuildDiscoveredPoolHazardObjectiveText();
+
         progressText.text =
             $"{Localized("objective.cleaning", "Cleaning")} {cleanPercent}% / {requiredPercent}%" +
-            $"{poolText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount} - {finalText}";
+            $"{poolText}{hazardText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount} - {finalText}";
+    }
+
+    string BuildDiscoveredPoolHazardObjectiveText()
+    {
+        FungalSwimmingPoolMechanic[] fungalPools =
+            FindObjectsByType<FungalSwimmingPoolMechanic>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+
+        int discoveredFungalMushrooms = 0;
+        for (int i = 0; i < fungalPools.Length; i++)
+        {
+            FungalSwimmingPoolMechanic fungalPool = fungalPools[i];
+            if (fungalPool == null || !IsPoolRoomDiscovered(fungalPool.transform))
+                continue;
+
+            discoveredFungalMushrooms += fungalPool.ActiveHarmfulMushroomCount;
+        }
+
+        if (discoveredFungalMushrooms <= 0)
+            return string.Empty;
+
+        return " - " + string.Format(
+            Localized("objective.fungalPool", fungalPoolObjectiveFormat),
+            discoveredFungalMushrooms);
+    }
+
+    bool IsPoolRoomDiscovered(Transform poolTransform)
+    {
+        if (poolTransform == null)
+            return false;
+
+        RoomDefinition room = poolTransform.GetComponentInParent<RoomDefinition>();
+        return room != null && IsRoomDiscovered(room);
     }
 
     string Localized(string key, string fallback)

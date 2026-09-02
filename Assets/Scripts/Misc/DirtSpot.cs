@@ -55,6 +55,8 @@ public class DirtSpot : NetworkBehaviour
     [Header("Pool Dirt Stability")]
     public bool disableAdhesionWhenInPoolObjective = true;
     public bool ignorePoolAndWaterVolumesForAdhesion = true;
+    public bool allowPoolDirtFallbackCleanWhenAreaMisses = true;
+    [Range(0.05f, 1f)] public float poolDirtAreaMissCleanMultiplier = 0.35f;
 
     [Header("Contamination Growth")]
     public bool createdByContaminatedWater = false;
@@ -444,6 +446,7 @@ public class DirtSpot : NetworkBehaviour
     void CleanAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float amount)
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
+        if (poolObjective != null && poolObjective.IsCleaningLocked) return;
 
         bool areaCleaned = false;
 
@@ -468,8 +471,18 @@ public class DirtSpot : NetworkBehaviour
         lastHitPoint = worldPoint;
         lastHitTime = Time.time;
 
-        if (areaCleaned) ApplyCleanLocal(amount);
-        else UpdateVisualState();
+        if (areaCleaned)
+        {
+            ApplyCleanLocal(amount);
+        }
+        else if (allowPoolDirtFallbackCleanWhenAreaMisses && poolObjective != null)
+        {
+            ApplyCleanLocal(amount * poolDirtAreaMissCleanMultiplier);
+        }
+        else
+        {
+            UpdateVisualState();
+        }
     }
 
     public void ApplyContaminatedWaterAtWorldPoint(Vector3 worldPoint, float worldRadius, float waterAmount)
