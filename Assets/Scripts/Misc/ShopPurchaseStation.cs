@@ -122,7 +122,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     {
         RefreshShopVisitState();
 
-        if (purchased && !canBuyMultipleTimes)
+        if (IsStationPurchaseLocked())
             return false;
 
         if (IsSessionUpgradeBoughtThisVisit())
@@ -150,7 +150,9 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
             return false;
         }
 
-        purchased = true;
+        if (grantMode != PurchaseGrantMode.ApplySessionUpgrade)
+            purchased = true;
+
         MarkSessionUpgradeBoughtThisVisit();
         onPurchased?.Invoke();
         RefreshLabel();
@@ -164,7 +166,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     {
         RefreshShopVisitState();
 
-        if (purchased && !canBuyMultipleTimes)
+        if (IsStationPurchaseLocked())
         {
             blockedReason = boughtText;
             return false;
@@ -350,7 +352,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
         RefreshShopVisitState();
 
-        if ((purchased && !canBuyMultipleTimes) ||
+        if (IsStationPurchaseLocked() ||
             IsSessionUpgradeBoughtThisVisit())
         {
             label.text = boughtText;
@@ -375,6 +377,13 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     {
         return grantMode == PurchaseGrantMode.ApplySessionUpgrade &&
             boughtUpgradesThisVisit.Contains(sessionUpgradeType);
+    }
+
+    bool IsStationPurchaseLocked()
+    {
+        return grantMode != PurchaseGrantMode.ApplySessionUpgrade &&
+            purchased &&
+            !canBuyMultipleTimes;
     }
 
     void MarkSessionUpgradeBoughtThisVisit()
