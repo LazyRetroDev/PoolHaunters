@@ -392,20 +392,6 @@ public class RoomGenerator : MonoBehaviour
     private bool generatedMapReadyEventRaised;
     private bool clientPlayerTeleportedAfterInitialMapSync;
     private GameObject spawnedWaterValve;
-    private bool generatedMapReadyEventRaised;
-
-    public int CurrentSeed => seed;
-    public bool IsGeneratedMapReady => generatedMapSnapshotReady;
-
-    public List<GameObject> GetSpawnedRoomsSnapshot()
-    {
-        return new List<GameObject>(spawnedRooms);
-    }
-
-    public bool ContainsGeneratedRoom(GameObject room)
-    {
-        return room != null && spawnedRooms.Contains(room);
-    }
 
     public int CurrentSeed => seed;
     public bool IsGeneratedMapReady => generatedMapSnapshotReady;
@@ -5915,7 +5901,6 @@ public class RoomGenerator : MonoBehaviour
     void NotifyGeneratedMapSnapshotReady()
     {
         generatedMapSnapshotReady = true;
-        RaiseGeneratedMapReadyEventOnce();
 
         if (synchronizeGeneratedMapToClients)
             StartMapSyncRegistration();
@@ -6173,22 +6158,12 @@ public class RoomGenerator : MonoBehaviour
         generatedRoomCount = spawnedRooms.Count;
         generatedMapSnapshotReady = true;
         Physics.SyncTransforms();
-        RaiseGeneratedMapReadyEventOnce();
 
         if (ShouldTeleportClientPlayerAfterMapSync())
             TeleportLocalClientPlayerToSpawn();
 
         Debug.Log($"RoomGenerator synchronized {spawnedRooms.Count} room(s) from host.");
         RaiseGeneratedMapReady();
-    }
-
-    void RaiseGeneratedMapReadyEventOnce()
-    {
-        if (generatedMapReadyEventRaised)
-            return;
-
-        generatedMapReadyEventRaised = true;
-        OnGeneratedMapReady?.Invoke(this);
     }
 
     void InstantiateSynchronizedRoom(GeneratedMapRoomSnapshot roomSnapshot)
