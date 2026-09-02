@@ -1,4 +1,5 @@
 using TMPro;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -60,8 +61,8 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     [Header("Debug")]
     [SerializeField] private bool purchased;
 
-    private static readonly HashSet<SessionUpgradeType> boughtUpgradesThisVisit =
-        new HashSet<SessionUpgradeType>();
+    private static readonly HashSet<string> boughtUpgradesThisVisit =
+        new HashSet<string>();
     private static int activeShopVisitSceneHandle = -1;
 
     private float feedbackTimer;
@@ -245,7 +246,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         if (inventory == null || sessionUpgradeAmount <= 0f)
             return false;
 
-        switch (sessionUpgradeType)
+        switch (GetEffectiveSessionUpgradeType())
         {
             case SessionUpgradeType.MaxHealth:
             case SessionUpgradeType.MaxWater:
@@ -294,7 +295,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         if (inventory == null || sessionUpgradeAmount <= 0f)
             return false;
 
-        switch (sessionUpgradeType)
+        switch (GetEffectiveSessionUpgradeType())
         {
             case SessionUpgradeType.MaxHealth:
                 PlayerStatus healthStatus = inventory.GetComponent<PlayerStatus>();
@@ -376,7 +377,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     bool IsSessionUpgradeBoughtThisVisit()
     {
         return grantMode == PurchaseGrantMode.ApplySessionUpgrade &&
-            boughtUpgradesThisVisit.Contains(sessionUpgradeType);
+            boughtUpgradesThisVisit.Contains(GetSessionUpgradePurchaseKey());
     }
 
     bool IsStationPurchaseLocked()
@@ -391,7 +392,39 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
         if (grantMode != PurchaseGrantMode.ApplySessionUpgrade)
             return;
 
-        boughtUpgradesThisVisit.Add(sessionUpgradeType);
+        boughtUpgradesThisVisit.Add(GetSessionUpgradePurchaseKey());
+    }
+
+    SessionUpgradeType GetEffectiveSessionUpgradeType()
+    {
+        if (!string.IsNullOrWhiteSpace(itemName))
+        {
+            if (itemName.IndexOf("stamina", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                itemName.IndexOf("sprint", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return SessionUpgradeType.MaxStamina;
+            }
+
+            if (itemName.IndexOf("water", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                itemName.IndexOf("agua", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return SessionUpgradeType.MaxWater;
+            }
+
+            if (itemName.IndexOf("health", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                itemName.IndexOf("life", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                itemName.IndexOf("vida", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return SessionUpgradeType.MaxHealth;
+            }
+        }
+
+        return sessionUpgradeType;
+    }
+
+    string GetSessionUpgradePurchaseKey()
+    {
+        return GetEffectiveSessionUpgradeType().ToString();
     }
 
     void OnDisable()
