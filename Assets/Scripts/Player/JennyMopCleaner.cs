@@ -274,12 +274,17 @@ public class JennyMopCleaner : MonoBehaviour
             if (pool != null && !poolHits.Contains(pool))
             {
                 poolHits.Add(pool);
+                float poolContactRadius = Mathf.Max(
+                    cleanContactRadius,
+                    Mathf.Max(halfExtents.x, halfExtents.z));
+
                 pool.ApplyWaterAtWorldPoint(
                     contactPoint,
-                    cleanContactRadius,
+                    poolContactRadius,
                     poolCleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
                     waterThisFrame,
-                    waterQuality);
+                    waterQuality,
+                    playerStatus);
             }
         }
     }
@@ -581,7 +586,8 @@ public class JennyMopCleaner : MonoBehaviour
             hit.GetComponentInParent<GoldenMouthBehavior>();
         if (goldenMouth != null) return goldenMouth.gameObject;
 
-        PoolWaterReactive poolReactive = hit.GetComponentInParent<PoolWaterReactive>();
+        PoolWaterReactive poolReactive =
+            hit.GetComponentInParent<PoolWaterReactive>();
         if (poolReactive != null) return poolReactive.gameObject;
 
         return null;
@@ -605,10 +611,14 @@ public class JennyMopCleaner : MonoBehaviour
                 goldenMouth.ApplyWater(waterQuality, splashCleanAmount);
         }
 
-        PoolWaterReactive poolReactive = target.GetComponentInParent<PoolWaterReactive>();
+        PoolWaterReactive poolReactive =
+            target.GetComponentInParent<PoolWaterReactive>();
         if (poolReactive != null)
         {
-            poolReactive.ApplyPoolWaterHit(waterQuality, splashCleanAmount, sourcePosition);
+            poolReactive.ApplyPoolWaterHit(
+                waterQuality,
+                splashCleanAmount,
+                sourcePosition);
             return;
         }
 

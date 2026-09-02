@@ -13,6 +13,7 @@ public class LevelObjectiveManager : MonoBehaviour
     const string PoolObjectiveStateRequestMessageName = "PoolObjectiveStateRequest";
     const string PoolDirtCleanMessageName = "PoolDirtClean";
     const string PoolDirtCleanRequestMessageName = "PoolDirtCleanRequest";
+    const string PoolMandatoryStateMessageName = "PoolMandatoryState";
 
     public static LevelObjectiveManager Instance { get; private set; }
 
@@ -24,11 +25,30 @@ public class LevelObjectiveManager : MonoBehaviour
 
     [Header("Objectives")]
     [Range(0f, 1f)] public float requiredCleanPercent = 0.8f;
+    public bool requireTotalCleanPercent = false;
     public bool requireWaterValveObjective = true;
     public bool requireFinalRoomDiscovered = true;
     public bool requireAllWaterSourcesClean = false;
     public bool requireAllRequiredPoolsClean = true;
     public bool completeOnlyOnce = true;
+
+    [Header("Flooding")]
+    public bool ensureFloodController = true;
+
+    [Header("Random Mandatory Pools")]
+    public bool randomizeMandatoryPools = false;
+    [HideInInspector]
+    [Min(1)] public int minMandatoryPools = 1;
+    [HideInInspector]
+    [Min(1)] public int maxMandatoryPools = 3;
+    [Min(1)] public int guaranteedMandatoryPools = 1;
+    [Min(0)] public int guaranteedOptionalPools = 1;
+    [Range(0f, 1f)] public float extraPoolMandatoryChance = 0.5f;
+
+    [Header("Phase Profile")]
+    public bool applyPhaseProfileOnStart = true;
+    public RunPhaseProfile fallbackPhaseProfile;
+    public RunPhaseProfile[] phaseProfiles = new RunPhaseProfile[0];
 
     [Header("HUD")]
     public TMP_Text objectiveText;
@@ -43,14 +63,20 @@ public class LevelObjectiveManager : MonoBehaviour
     public TMP_Text levelInfoText;
     public Slider cleanGoalSlider;
     public TMP_Text cleanGoalText;
+    public Slider poolCleanGoalSlider;
+    public TMP_Text poolCleanGoalText;
     public bool autoBindNewHudFields = true;
     public bool autoFindCleanGoalUI = true;
+    public bool autoFindPoolCleanGoalUI = true;
     public bool showCleanGoalOnlyAfterWaterValve = true;
     public string cleanGoalObjectName = "CleanGoal";
     public string cleanGoalTextObjectName = "goaltext";
+    public string poolCleanGoalObjectName = "PoolCleanGoal";
+    public string poolCleanGoalTextObjectName = "PGoalText";
+    public float poolCleanGoalHideDelay = 2.0f;
     public string findWaterValveObjectiveLabel = "Find the water valve";
     public string findWaterValveProgressLabel = "Turn the water valve to start cleaning";
-    public string activeObjectiveLabel = "Clean the pools and find the exit";
+    public string activeObjectiveLabel = "Clean the required pools";
     public string completedObjectiveLabel = "Objectives complete";
     public string returnToSubmarineObjectiveLabel = "Return to the Submarine Room";
     public string cleaningProgressFormat = "Total Cleaning: {0}%";
@@ -59,6 +85,8 @@ public class LevelObjectiveManager : MonoBehaviour
     public string levelInfoFormat = "Level {0}";
     public string regionLevelInfoFormat = "Phase {0} - {1}";
     public string fungalPoolObjectiveFormat = "Remove pool fungi: {0} left";
+    public string electricPoolObjectivePowered = "Disable the electric pool device";
+    public string electricPoolObjectiveSafeFormat = "Electric pool safe: {0}s until power returns";
 
     [Header("Level Info")]
     [Min(1)] public int levelNumber = 1;
@@ -90,6 +118,8 @@ public class LevelObjectiveManager : MonoBehaviour
         new HashSet<SwimmingPoolObjective>();
     private readonly Dictionary<int, byte> pendingPoolNetworkStates =
         new Dictionary<int, byte>();
+    private readonly Dictionary<int, bool> pendingPoolMandatoryStates =
+        new Dictionary<int, bool>();
     private float discoveryTimer;
     private float objectiveTimer;
     private NetworkManager poolSyncNetworkManager;
@@ -118,6 +148,9 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (GetComponent<LevelRewardTracker>() == null)
             gameObject.AddComponent<LevelRewardTracker>();
+
+        if (ensureFloodController && GetComponent<LevelFloodController>() == null)
+            gameObject.AddComponent<LevelFloodController>();
     }
 
     void OnEnable()
@@ -145,13 +178,142 @@ public class LevelObjectiveManager : MonoBehaviour
         UpdateObjectiveHUD();
     }
 
+    void OnValidate()
+    {
+        minMandatoryPools = Mathf.Max(1, minMandatoryPools);
+        maxMandatoryPools = Mathf.Max(minMandatoryPools, maxMandatoryPools);
+        guaranteedMandatoryPools = Mathf.Max(1, guaranteedMandatoryPools);
+        guaranteedOptionalPools = Mathf.Max(0, guaranteedOptionalPools);
+        extraPoolMandatoryChance = Mathf.Clamp01(extraPoolMandatoryChance);
+    }
+
+    public void ApplyPhaseProfile(RunPhaseProfile profile)
+    {
+        if (profile == null)
+            return;
+
+        randomizeMandatoryPools = profile.randomizeMandatoryPools;
+        guaranteedMandatoryPools = profile.guaranteedMandatoryPools;
+        guaranteedOptionalPools = profile.guaranteedOptionalPools;
+        extraPoolMandatoryChance = profile.extraPoolMandatoryChance;
+    }
+
+    RunPhaseProfile ResolvePhaseProfile()
+    {
+        RunPhaseProfile profile = GetPhaseProfileForCurrentRun();
+        if (profile != null)
+            return profile;
+
+        return fallbackPhaseProfile;
+    }
+
+    RunPhaseProfile GetPhaseProfileForCurrentRun()
+    {
+        if (phaseProfiles == null || phaseProfiles.Length == 0)
+            return null;
+
+        int phaseIndex = RegionRunState.HasSelectedRegion
+            ? RegionRunState.PhaseNumber - 1
+            : 0;
+        phaseIndex = Mathf.Clamp(phaseIndex, 0, phaseProfiles.Length - 1);
+
+        return phaseProfiles[phaseIndex];
+    }
+
     void Start()
     {
         AutoBindHudFields();
         BindCleanGoalUI();
+        if (applyPhaseProfileOnStart)
+            ApplyPhaseProfile(ResolvePhaseProfile());
         StartPoolSyncRegistration();
         RefreshObjectiveState();
         UpdateObjectiveHUD();
+
+        if (randomizeMandatoryPools)
+        {
+            StartCoroutine(InitializeMandatoryPoolsRoutine());
+        }
+    }
+
+    IEnumerator InitializeMandatoryPoolsRoutine()
+    {
+        // Wait until at least one pool is spawned by the level generator
+        while (FindObjectsByType<SwimmingPoolObjective>(FindObjectsInactive.Include).Length == 0)
+        {
+            yield return new WaitForSeconds(0.25f);
+        }
+
+        // Wait a bit more to ensure all rooms/pools have finished spawning
+        yield return new WaitForSeconds(1.0f);
+
+        // ONLY SERVER SHOULD DO THIS
+        bool isServer = NetworkManager.Singleton == null ||
+                        !NetworkManager.Singleton.IsListening ||
+                        NetworkManager.Singleton.IsServer;
+
+        if (isServer)
+        {
+            InitializeMandatoryPools();
+        }
+
+        RefreshObjectiveState();
+        UpdateObjectiveHUD();
+    }
+
+    void InitializeMandatoryPools()
+    {
+        if (!randomizeMandatoryPools)
+            return;
+
+        SwimmingPoolObjective[] allPools = FindObjectsByType<SwimmingPoolObjective>(FindObjectsInactive.Include);
+        if (allPools == null || allPools.Length == 0) return;
+
+        // Shuffle allPools array
+        for (int i = 0; i < allPools.Length; i++)
+        {
+            SwimmingPoolObjective temp = allPools[i];
+            int randomIndex = UnityEngine.Random.Range(i, allPools.Length);
+            allPools[i] = allPools[randomIndex];
+            allPools[randomIndex] = temp;
+        }
+
+        for (int i = 0; i < allPools.Length; i++)
+        {
+            if (allPools[i] != null)
+            {
+                allPools[i].RequiredForLevelCompletion =
+                    IsPoolMandatoryByRule(i, allPools.Length);
+                SendPoolMandatoryStateToConnectedClients(allPools[i]);
+            }
+        }
+
+        UpdatePoolDebugCounts();
+    }
+
+    bool IsPoolMandatoryByRule(int shuffledPoolIndex, int totalPoolCount)
+    {
+        if (totalPoolCount <= 1)
+            return true;
+
+        int mandatoryCount = Mathf.Clamp(
+            guaranteedMandatoryPools,
+            1,
+            totalPoolCount);
+        int optionalCount = totalPoolCount > mandatoryCount
+            ? Mathf.Clamp(
+                guaranteedOptionalPools,
+                0,
+                totalPoolCount - mandatoryCount)
+            : 0;
+
+        if (shuffledPoolIndex < mandatoryCount)
+            return true;
+
+        if (shuffledPoolIndex < mandatoryCount + optionalCount)
+            return false;
+
+        return UnityEngine.Random.value <= extraPoolMandatoryChance;
     }
 
     void Update()
@@ -170,6 +332,8 @@ public class LevelObjectiveManager : MonoBehaviour
             objectiveTimer = 0.5f;
             RefreshObjectiveState();
         }
+
+        UpdatePoolCleanGoalUI();
     }
 
     public void RegisterRoomDiscovered(RoomDefinition room)
@@ -212,6 +376,7 @@ public class LevelObjectiveManager : MonoBehaviour
         pool.OnPoolCleaned += HandlePoolCleaned;
         pool.OnPoolStateChanged += HandlePoolStateChanged;
         ApplyPendingPoolNetworkState(pool);
+        ApplyPendingPoolMandatoryState(pool);
         UpdatePoolDebugCounts();
     }
 
@@ -270,7 +435,9 @@ public class LevelObjectiveManager : MonoBehaviour
         bool waterSourcesReady = !requireAllWaterSourcesClean || AreAllWaterSourcesClean();
         bool poolsReady = !requireAllRequiredPoolsClean || AreAllRequiredPoolsClean();
         bool finalReady = !requireFinalRoomDiscovered || finalRoomDiscovered;
-        bool cleanReady = currentCleanPercent >= requiredCleanPercent;
+        bool cleanReady =
+            !requireTotalCleanPercent ||
+            currentCleanPercent >= requiredCleanPercent;
         bool completedNow =
             valveReady &&
             cleanReady &&
@@ -672,6 +839,9 @@ public class LevelObjectiveManager : MonoBehaviour
         poolSyncNetworkManager.CustomMessagingManager.RegisterNamedMessageHandler(
             PoolDirtCleanRequestMessageName,
             HandlePoolDirtCleanRequestMessage);
+        poolSyncNetworkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+            PoolMandatoryStateMessageName,
+            HandlePoolMandatoryStateMessage);
         poolSyncNetworkManager.OnClientConnectedCallback += HandlePoolSyncClientConnected;
         poolMessageHandlersRegistered = true;
 
@@ -702,6 +872,8 @@ public class LevelObjectiveManager : MonoBehaviour
                 PoolDirtCleanMessageName);
             poolSyncNetworkManager.CustomMessagingManager.UnregisterNamedMessageHandler(
                 PoolDirtCleanRequestMessageName);
+            poolSyncNetworkManager.CustomMessagingManager.UnregisterNamedMessageHandler(
+                PoolMandatoryStateMessageName);
         }
 
         poolSyncNetworkManager.OnClientConnectedCallback -= HandlePoolSyncClientConnected;
@@ -954,16 +1126,19 @@ public class LevelObjectiveManager : MonoBehaviour
         if (!IsValidPoolCleanPayload(worldPoint, worldRadius, amount))
             return;
 
-        ApplyPoolDirtCleanNetworkState(
-            poolSyncId,
-            dirtSpotIndex,
-            worldPoint,
-            worldRadius,
-            amount);
-
         SwimmingPoolObjective pool;
         if (TryFindPoolBySyncId(poolSyncId, out pool))
         {
+            if (pool.IsCleaningLocked)
+                return;
+
+            ApplyPoolDirtCleanNetworkState(
+                poolSyncId,
+                dirtSpotIndex,
+                worldPoint,
+                worldRadius,
+                amount);
+
             SendPoolDirtCleanToConnectedClients(
                 pool,
                 dirtSpotIndex,
@@ -1100,6 +1275,7 @@ public class LevelObjectiveManager : MonoBehaviour
                 continue;
 
             SendPoolState(clientId, pool.SyncId, pool.SyncState);
+            SendPoolMandatoryState(clientId, pool.SyncId, pool.RequiredForLevelCompletion);
         }
     }
 
@@ -1329,6 +1505,13 @@ public class LevelObjectiveManager : MonoBehaviour
 
         if (progressText == null) return;
 
+        if (levelCompleted)
+        {
+            progressText.text =
+                Localized("objective.returnToSubmarine", returnToSubmarineObjectiveLabel);
+            return;
+        }
+
         if (!WaterValveActivated)
         {
             progressText.text = Localized("objective.turnValve", findWaterValveProgressLabel);
@@ -1336,11 +1519,17 @@ public class LevelObjectiveManager : MonoBehaviour
         }
 
         int requiredPercent = Mathf.RoundToInt(requiredCleanPercent * 100f);
-        string finalText = requireFinalRoomDiscovered
-            ? finalRoomDiscovered
-                ? Localized("objective.exitFound", "Exit found")
-                : Localized("objective.findExit", "Find the exit")
-            : Localized("objective.exitOptional", "Exit optional");
+        string cleanText = requireTotalCleanPercent
+            ? $"{Localized("objective.cleaning", "Cleaning")} {cleanPercent}% / {requiredPercent}%"
+            : Localized("objective.cleanPools", activeObjectiveLabel);
+
+        string finalText = string.Empty;
+        if (requireFinalRoomDiscovered)
+        {
+            finalText = finalRoomDiscovered
+                ? $" - {Localized("objective.exitFound", "Exit found")}"
+                : $" - {Localized("objective.findExit", "Find the exit")}";
+        }
 
         string poolText = requireAllRequiredPoolsClean && requiredPoolCount > 0
             ? $" - {Localized("objective.poolCleaning", "Pool Cleaning")} {poolCleanPercent}%" +
@@ -1350,17 +1539,17 @@ public class LevelObjectiveManager : MonoBehaviour
         string hazardText = BuildDiscoveredPoolHazardObjectiveText();
 
         progressText.text =
-            $"{Localized("objective.cleaning", "Cleaning")} {cleanPercent}% / {requiredPercent}%" +
-            $"{poolText}{hazardText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount} - {finalText}";
+            $"{cleanText}{poolText}{hazardText} - {Localized("objective.rooms", "Rooms")} {discoveredRoomCount}{finalText}";
     }
 
     string BuildDiscoveredPoolHazardObjectiveText()
     {
+        string text = string.Empty;
+
         FungalSwimmingPoolMechanic[] fungalPools =
             FindObjectsByType<FungalSwimmingPoolMechanic>(
                 FindObjectsInactive.Exclude,
                 FindObjectsSortMode.None);
-
         int discoveredFungalMushrooms = 0;
         for (int i = 0; i < fungalPools.Length; i++)
         {
@@ -1370,13 +1559,40 @@ public class LevelObjectiveManager : MonoBehaviour
 
             discoveredFungalMushrooms += fungalPool.ActiveHarmfulMushroomCount;
         }
+        if (discoveredFungalMushrooms > 0)
+        {
+            text += " - " + string.Format(
+                Localized("objective.fungalPool", fungalPoolObjectiveFormat),
+                discoveredFungalMushrooms);
+        }
 
-        if (discoveredFungalMushrooms <= 0)
-            return string.Empty;
+        ElectricSwimmingPoolMechanic[] electricPools =
+            FindObjectsByType<ElectricSwimmingPoolMechanic>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+        for (int i = 0; i < electricPools.Length; i++)
+        {
+            ElectricSwimmingPoolMechanic electricPool = electricPools[i];
+            if (electricPool == null || !IsPoolRoomDiscovered(electricPool.transform))
+                continue;
 
-        return " - " + string.Format(
-            Localized("objective.fungalPool", fungalPoolObjectiveFormat),
-            discoveredFungalMushrooms);
+            if (electricPool.IsPowered)
+            {
+                text += " - " + Localized(
+                    "objective.electricPoolPowered",
+                    electricPoolObjectivePowered);
+            }
+            else
+            {
+                text += " - " + string.Format(
+                    Localized(
+                        "objective.electricPoolSafe",
+                        electricPoolObjectiveSafeFormat),
+                    Mathf.CeilToInt(electricPool.PowerReturnSeconds));
+            }
+        }
+
+        return text;
     }
 
     bool IsPoolRoomDiscovered(Transform poolTransform)
@@ -1385,7 +1601,7 @@ public class LevelObjectiveManager : MonoBehaviour
             return false;
 
         RoomDefinition room = poolTransform.GetComponentInParent<RoomDefinition>();
-        return room != null && IsRoomDiscovered(room);
+        return room != null && discoveredRoomSet.Contains(room);
     }
 
     string Localized(string key, string fallback)
@@ -1459,11 +1675,13 @@ public class LevelObjectiveManager : MonoBehaviour
             TMP_Text text = texts[i];
             if (text == null) continue;
 
-            string objectName = text.gameObject.name;
+            string objectName = text.gameObject != null
+                ? text.gameObject.name
+                : string.Empty;
             string parentName = text.transform.parent != null
                 ? text.transform.parent.name
                 : string.Empty;
-            string textValue = text.text;
+            string textValue = text.text ?? string.Empty;
 
             if (cleaningProgressText == null &&
                 (objectName.Contains("Cleaning") ||
@@ -1499,14 +1717,23 @@ public class LevelObjectiveManager : MonoBehaviour
 
     void BindCleanGoalUI()
     {
-        if (!autoFindCleanGoalUI)
-            return;
+        if (autoFindCleanGoalUI)
+        {
+            if (cleanGoalSlider == null)
+                cleanGoalSlider = FindSliderByName(cleanGoalObjectName);
 
-        if (cleanGoalSlider == null)
-            cleanGoalSlider = FindSliderByName(cleanGoalObjectName);
+            if (cleanGoalText == null)
+                cleanGoalText = FindCleanGoalText();
+        }
 
-        if (cleanGoalText == null)
-            cleanGoalText = FindCleanGoalText();
+        if (autoFindPoolCleanGoalUI)
+        {
+            if (poolCleanGoalSlider == null)
+                poolCleanGoalSlider = FindSliderByName(poolCleanGoalObjectName);
+
+            if (poolCleanGoalText == null)
+                poolCleanGoalText = FindPoolCleanGoalText();
+        }
     }
 
     Slider FindSliderByName(string objectName)
@@ -1545,6 +1772,37 @@ public class LevelObjectiveManager : MonoBehaviour
 
         TMP_Text[] texts = FindObjectsByType<TMP_Text>(FindObjectsInactive.Include);
         return FindTextByName(texts, cleanGoalTextObjectName);
+    }
+
+    TMP_Text FindPoolCleanGoalText()
+    {
+        if (poolCleanGoalSlider != null)
+        {
+            TMP_Text[] childTexts =
+                poolCleanGoalSlider.GetComponentsInChildren<TMP_Text>(true);
+            TMP_Text childText = FindTextByNameWithFallbacks(childTexts, poolCleanGoalTextObjectName, "PGoalText", "PGoalTect");
+            if (childText != null)
+                return childText;
+
+            if (childTexts != null && childTexts.Length > 0)
+                return childTexts[0];
+        }
+
+        TMP_Text[] texts = FindObjectsByType<TMP_Text>(FindObjectsInactive.Include);
+        return FindTextByNameWithFallbacks(texts, poolCleanGoalTextObjectName, "PGoalText", "PGoalTect");
+    }
+
+    TMP_Text FindTextByNameWithFallbacks(TMP_Text[] texts, params string[] names)
+    {
+        if (texts == null || names == null) return null;
+        for (int n = 0; n < names.Length; n++)
+        {
+            string objectName = names[n];
+            if (string.IsNullOrEmpty(objectName)) continue;
+            TMP_Text found = FindTextByName(texts, objectName);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     TMP_Text FindTextByName(TMP_Text[] texts, string objectName)
@@ -1597,5 +1855,139 @@ public class LevelObjectiveManager : MonoBehaviour
             int requiredPercent = Mathf.RoundToInt(required * 100f);
             cleanGoalText.text = $"{cleanPercent}% / {requiredPercent}%";
         }
+    }
+
+    void UpdatePoolCleanGoalUI()
+    {
+        if (poolCleanGoalSlider == null && poolCleanGoalText == null)
+            return;
+
+        SwimmingPoolObjective mostRecentPool = null;
+        float newestCleanedTime = -1f;
+
+        foreach (SwimmingPoolObjective pool in registeredPools)
+        {
+            if (pool == null) continue;
+            if (pool.LastCleanedTime > newestCleanedTime)
+            {
+                newestCleanedTime = pool.LastCleanedTime;
+                mostRecentPool = pool;
+            }
+        }
+
+        bool isCurrentlyCleaningPool = mostRecentPool != null &&
+            (Time.time - newestCleanedTime <= poolCleanGoalHideDelay);
+
+        if (poolCleanGoalSlider != null)
+        {
+            if (poolCleanGoalSlider.gameObject.activeSelf != isCurrentlyCleaningPool)
+                poolCleanGoalSlider.gameObject.SetActive(isCurrentlyCleaningPool);
+
+            if (isCurrentlyCleaningPool)
+            {
+                poolCleanGoalSlider.minValue = 0f;
+                poolCleanGoalSlider.maxValue = 1f;
+                poolCleanGoalSlider.value = Mathf.Clamp01(mostRecentPool.CleanProgress);
+            }
+        }
+
+        if (poolCleanGoalText != null)
+        {
+            if (poolCleanGoalSlider == null &&
+                poolCleanGoalText.gameObject.activeSelf != isCurrentlyCleaningPool)
+            {
+                poolCleanGoalText.gameObject.SetActive(isCurrentlyCleaningPool);
+            }
+
+            if (isCurrentlyCleaningPool)
+            {
+                int poolPercent = Mathf.RoundToInt(mostRecentPool.CleanProgress * 100f);
+                poolCleanGoalText.text = $"{poolPercent}%";
+            }
+        }
+    }
+
+    void SendPoolMandatoryStateToConnectedClients(SwimmingPoolObjective pool)
+    {
+        if (pool == null || !CanSendPoolObjectiveState())
+            return;
+
+        for (int i = 0; i < poolSyncNetworkManager.ConnectedClientsIds.Count; i++)
+        {
+            ulong clientId = poolSyncNetworkManager.ConnectedClientsIds[i];
+            if (clientId == NetworkManager.ServerClientId)
+                continue;
+
+            SendPoolMandatoryState(clientId, pool.SyncId, pool.RequiredForLevelCompletion);
+        }
+    }
+
+    void SendPoolMandatoryState(ulong clientId, int poolSyncId, bool isMandatory)
+    {
+        if (!CanSendPoolObjectiveState())
+            return;
+
+        FastBufferWriter writer = new FastBufferWriter(5, Allocator.Temp);
+        try
+        {
+            writer.WriteValueSafe(poolSyncId);
+            writer.WriteValueSafe(isMandatory);
+
+            poolSyncNetworkManager.CustomMessagingManager.SendNamedMessage(
+                PoolMandatoryStateMessageName,
+                clientId,
+                writer,
+                NetworkDelivery.ReliableSequenced);
+        }
+        finally
+        {
+            writer.Dispose();
+        }
+    }
+
+    void HandlePoolMandatoryStateMessage(
+        ulong senderClientId,
+        FastBufferReader messagePayload)
+    {
+        if (!CanUsePoolSyncMessaging() ||
+            poolSyncNetworkManager.IsServer ||
+            senderClientId != NetworkManager.ServerClientId)
+        {
+            return;
+        }
+
+        int poolSyncId;
+        bool isMandatory;
+        messagePayload.ReadValueSafe(out poolSyncId);
+        messagePayload.ReadValueSafe(out isMandatory);
+
+        ApplyPoolMandatoryNetworkState(poolSyncId, isMandatory);
+    }
+
+    void ApplyPoolMandatoryNetworkState(int poolSyncId, bool isMandatory)
+    {
+        SwimmingPoolObjective pool;
+        if (TryFindPoolBySyncId(poolSyncId, out pool))
+        {
+            pool.RequiredForLevelCompletion = isMandatory;
+            UpdatePoolDebugCounts();
+            RefreshObjectiveState();
+            return;
+        }
+
+        pendingPoolMandatoryStates[poolSyncId] = isMandatory;
+    }
+
+    void ApplyPendingPoolMandatoryState(SwimmingPoolObjective pool)
+    {
+        if (pool == null)
+            return;
+
+        bool pendingState;
+        if (!pendingPoolMandatoryStates.TryGetValue(pool.SyncId, out pendingState))
+            return;
+
+        pendingPoolMandatoryStates.Remove(pool.SyncId);
+        pool.RequiredForLevelCompletion = pendingState;
     }
 }

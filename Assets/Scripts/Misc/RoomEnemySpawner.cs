@@ -51,6 +51,9 @@ public class RoomEnemySpawner : MonoBehaviour
     public MonsterEncounterDirectorSettings encounterDirectorSettings =
         new MonsterEncounterDirectorSettings();
 
+    [Tooltip("Enemies with delayed encounter starts, like Golden Mouth, always use the encounter director so they appear during the match instead of at map load.")]
+    public bool forceDynamicEncountersForDelayedStartEnemies = true;
+
     [SerializeField] private MonsterEncounterDirector encounterDirector;
 
     [Header("NavMesh Placement")]
@@ -96,6 +99,10 @@ public class RoomEnemySpawner : MonoBehaviour
     public void SpawnEnemiesForRoom(GameObject room, int roomIndex, int runSeed)
     {
         if (room == null || !CanSpawnAuthoritatively()) return;
+        if (IsSafeEnemySpawnRoom(room)) return;
+
+        if (usePhaseBasedRunSelection)
+            return;
 
         if (usePhaseBasedRunSelection)
             return;
@@ -210,8 +217,12 @@ public class RoomEnemySpawner : MonoBehaviour
         }
 
         EnsureEncounterDirector();
-        if (encounterDirectorSettings != null &&
-            encounterDirectorSettings.useDynamicEncounters)
+        bool useDynamicDirector =
+            encounterDirectorSettings != null &&
+            (encounterDirectorSettings.useDynamicEncounters ||
+             ShouldForceDynamicDirector(profile, selectedEntryIndices));
+
+        if (useDynamicDirector)
         {
             if (encounterDirector == null ||
                 !encounterDirector.InitializePlan(
@@ -394,6 +405,8 @@ public class RoomEnemySpawner : MonoBehaviour
             GameObject room = rooms[i];
             if (room == null)
                 continue;
+            if (IsSafeEnemySpawnRoom(room))
+                continue;
 
             RoomEnemySpawnPoint[] roomPoints =
                 room.GetComponentsInChildren<RoomEnemySpawnPoint>(true);
@@ -463,6 +476,8 @@ public class RoomEnemySpawner : MonoBehaviour
         {
             GameObject room = rooms[random.Next(0, rooms.Count)];
             if (room == null)
+                continue;
+            if (IsSafeEnemySpawnRoom(room))
                 continue;
 
             RoomDefinition definition = GetRoomDefinition(room);
@@ -746,6 +761,8 @@ public class RoomEnemySpawner : MonoBehaviour
             GameObject room = rooms[random.Next(0, rooms.Count)];
             if (room == null)
                 continue;
+            if (IsSafeEnemySpawnRoom(room))
+                continue;
 
             RoomDefinition definition = GetRoomDefinition(room);
             Vector3 localCenter = definition != null
@@ -972,6 +989,41 @@ public class RoomEnemySpawner : MonoBehaviour
         return true;
     }
 
+    bool ShouldForceDynamicDirector(
+        RoomContentProfile profile,
+        IReadOnlyList<int> selectedEntryIndices)
+    {
+        if (!forceDynamicEncountersForDelayedStartEnemies ||
+            profile == null ||
+            selectedEntryIndices == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < selectedEntryIndices.Count; i++)
+        {
+            int index = selectedEntryIndices[i];
+            if (profile.enemies == null ||
+                index < 0 ||
+                index >= profile.enemies.Length)
+            {
+                continue;
+            }
+
+            if (IsDelayedStartEnemy(profile.enemies[index]))
+                return true;
+        }
+
+        return false;
+    }
+
+    bool IsDelayedStartEnemy(RoomContentProfile.EnemyEntry entry)
+    {
+        return entry != null &&
+            entry.prefab != null &&
+            entry.prefab.GetComponentInChildren<GoldenMouthBehavior>(true) != null;
+    }
+
     int CreateRunPlanSeed(int runSeed, int phase)
     {
         unchecked
@@ -1128,6 +1180,13 @@ public class RoomEnemySpawner : MonoBehaviour
             definition = room.GetComponentInChildren<RoomDefinition>(true);
 
         return definition;
+    }
+
+    bool IsSafeEnemySpawnRoom(GameObject room)
+    {
+        RoomDefinition definition = GetRoomDefinition(room);
+        return definition != null &&
+            definition.category == RoomCategory.SubmarineSpawn;
     }
 
     float GetEffectiveSpawnChanceMultiplier(RoomContentProfile contentProfile)

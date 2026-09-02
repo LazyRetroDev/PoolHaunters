@@ -411,7 +411,7 @@ MonoBehaviour:
   beamShakeDuration: 0.7
   countdownText: {fileID: 1653470349231397923}
   isClone: 0
-  transformKnockedOutPlayerImmediately: 0
+  transformKnockedOutPlayerImmediately: 1
 --- !u!114 &-1820873108034526379
 MonoBehaviour:
   m_ObjectHideFlags: 0

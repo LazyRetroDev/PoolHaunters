@@ -10,6 +10,10 @@ public class PlayerMovement : NetworkBehaviour
     public float sprintSpeed = 9f;
     public float knockedOutCrawlSpeed = 1.35f;
 
+    [Header("Debug Movement")]
+    public float debugSpeedMultiplier = 1f;
+    public float debugNoclipVerticalSpeed = 6f;
+
     [Header("Jump")]
     public float jumpVelocity = 5.5f;
     public float groundCheckRadius = 0.4f;
@@ -23,6 +27,10 @@ public class PlayerMovement : NetworkBehaviour
     public float crouchViewOffset = 0.65f;
     public float crouchTransitionSpeed = 10f;
     public bool IsCrouching() => isCrouching;
+
+    [Header("Ladder")]
+    public float ladderClimbSpeed = 3f;
+    public string ladderTriggerName = "Ladder";
 
     [Header("Stamina")]
     public float maxStamina = 100f;
@@ -65,6 +73,17 @@ public class PlayerMovement : NetworkBehaviour
     private float footstepTimer;
     private bool acceptsInput = true;
     private bool debugInfiniteStamina;
+    private bool debugNoclip;
+    private bool baseStaminaCaptured;
+    private float baseMaxStamina;
+    private bool debugSavedGravity;
+    private bool debugSavedKinematic;
+    private bool debugSavedColliderEnabled;
+    private bool hasDebugPhysicsState;
+    private Transform activeLadder;
+    private int ladderTriggerCount;
+    private bool isClimbingLadder;
+    private bool ladderSavedGravity;
     private PlayerVignetteEffect localVignetteEffect;
     private float lastThreatEffectSendTime = -999f;
     private float lastThreatEffectSentIntensity = -1f;
@@ -95,6 +114,7 @@ public class PlayerMovement : NetworkBehaviour
             crouchRequested = false;
             jumpRequested = false;
             footstepTimer = 0f;
+            RestoreLadderPhysics();
 
             if (footstepAudioSource != null)
                 footstepAudioSource.Stop();
@@ -105,11 +125,13 @@ public class PlayerMovement : NetworkBehaviour
 
     void Start()
     {
+        CaptureBaseStamina();
         rb = GetComponent<Rigidbody>();
         bodyCollider = GetComponent<CapsuleCollider>();
         playerInput = GetComponent<PlayerInput>();
         playerStatus = GetComponent<PlayerStatus>();
         jennyMopCleaner = GetComponent<JennyMopCleaner>();
+        ApplySavedSessionStamina();
         currentStamina = maxStamina;
 
         if (bodyCollider != null)
@@ -149,6 +171,9 @@ public class PlayerMovement : NetworkBehaviour
     public void OnCrouch(InputValue value)
     {
         if (!acceptsInput || !value.isPressed)
+            return;
+
+        if (IsInsideLadderTrigger())
             return;
 
         crouchRequested = !crouchRequested;
@@ -192,11 +217,23 @@ public class PlayerMovement : NetworkBehaviour
             UpdateLocalLocomotionState(false, false);
             return;
         }
+        if (debugNoclip)
+        {
+            RestoreLadderPhysics();
+            UpdateDebugNoclipMovement();
+            return;
+        }
         if (IsMovementBlockedByCharacterAbility())
         {
+            RestoreLadderPhysics();
             UpdateLocalLocomotionState(false, false);
             return;
         }
+
+        if (TryUpdateLadderMovement())
+            return;
+
+        RestoreLadderPhysics();
 
         bool knockedOut = playerStatus != null && playerStatus.IsKnockedOut();
         UpdateCrouchState(knockedOut);
@@ -227,6 +264,7 @@ public class PlayerMovement : NetworkBehaviour
             : isCrouching
                 ? crouchSpeed
                 : canSprint ? sprintSpeed : walkSpeed;
+        speed *= GetDebugSpeedMultiplier();
 
         Vector3 move = camForward * moveInput.y + camRight * moveInput.x;
         rb.MovePosition(rb.position + move * speed * Time.fixedDeltaTime);
@@ -271,6 +309,194 @@ public class PlayerMovement : NetworkBehaviour
             jennyMopCleaner = GetComponent<JennyMopCleaner>();
 
         return jennyMopCleaner != null && jennyMopCleaner.IsSurfDashing;
+    }
+
+    bool TryUpdateLadderMovement()
+    {
+        if (!IsInsideLadderTrigger() || rb == null)
+            return false;
+        if (playerStatus != null && !playerStatus.CanAct())
+            return false;
+
+        float verticalInput = GetLadderVerticalInput();
+        if (Mathf.Approximately(verticalInput, 0f))
+            return false;
+
+        if (isCrouching)
+        {
+            crouchRequested = false;
+            isCrouching = false;
+            ApplyColliderHeight();
+        }
+
+        ApplyLadderPhysics();
+
+        Vector3 climbDirection = GetLadderClimbDirection();
+        Vector3 targetPosition =
+            rb.position +
+            climbDirection * verticalInput * ladderClimbSpeed * Time.fixedDeltaTime;
+
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        rb.MovePosition(targetPosition);
+
+        Camera movementCamera = Camera.main;
+        if (movementCamera != null)
+        {
+            rb.MoveRotation(Quaternion.Euler(
+                0f,
+                movementCamera.transform.eulerAngles.y,
+                0f));
+        }
+
+        UpdateLocalLocomotionState(true, false);
+        return true;
+    }
+
+    float GetLadderVerticalInput()
+    {
+        if (Keyboard.current == null)
+            return 0f;
+
+        float vertical = 0f;
+        if (Keyboard.current.leftShiftKey.isPressed ||
+            Keyboard.current.rightShiftKey.isPressed)
+        {
+            vertical += 1f;
+        }
+
+        if (Keyboard.current.leftCtrlKey.isPressed ||
+            Keyboard.current.rightCtrlKey.isPressed)
+        {
+            vertical -= 1f;
+        }
+
+        return Mathf.Clamp(vertical, -1f, 1f);
+    }
+
+    Vector3 GetLadderClimbDirection()
+    {
+        if (activeLadder == null)
+            return Vector3.up;
+
+        Vector3 ladderUp = activeLadder.up;
+        return Mathf.Abs(Vector3.Dot(ladderUp.normalized, Vector3.up)) > 0.25f
+            ? ladderUp.normalized
+            : Vector3.up;
+    }
+
+    bool IsInsideLadderTrigger()
+    {
+        return ladderTriggerCount > 0 && activeLadder != null;
+    }
+
+    void ApplyLadderPhysics()
+    {
+        if (rb == null || isClimbingLadder)
+            return;
+
+        ladderSavedGravity = rb.useGravity;
+        rb.useGravity = false;
+        isClimbingLadder = true;
+    }
+
+    void RestoreLadderPhysics()
+    {
+        if (!isClimbingLadder)
+            return;
+
+        if (rb != null)
+        {
+            rb.useGravity = ladderSavedGravity;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        isClimbingLadder = false;
+    }
+
+    void OnTriggerEnter(Collider other)
+    {
+        if (!IsLadderTrigger(other))
+            return;
+
+        ladderTriggerCount++;
+        activeLadder = other.transform;
+    }
+
+    void OnTriggerExit(Collider other)
+    {
+        if (!IsLadderTrigger(other))
+            return;
+
+        ladderTriggerCount = Mathf.Max(0, ladderTriggerCount - 1);
+        if (ladderTriggerCount == 0 || activeLadder == other.transform)
+        {
+            activeLadder = null;
+            RestoreLadderPhysics();
+        }
+    }
+
+    bool IsLadderTrigger(Collider other)
+    {
+        if (other == null || !other.isTrigger)
+            return false;
+
+        Transform current = other.transform;
+        while (current != null)
+        {
+            if (string.Equals(
+                current.name,
+                ladderTriggerName,
+                System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    void UpdateDebugNoclipMovement()
+    {
+        Camera movementCamera = Camera.main;
+        if (movementCamera == null || rb == null)
+        {
+            UpdateLocalLocomotionState(false, false);
+            return;
+        }
+
+        Vector3 camForward = movementCamera.transform.forward;
+        Vector3 camRight = movementCamera.transform.right;
+        Vector3 horizontalMove = camForward * moveInput.y + camRight * moveInput.x;
+        if (horizontalMove.sqrMagnitude > 1f)
+            horizontalMove.Normalize();
+
+        float vertical = 0f;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.spaceKey.isPressed || Keyboard.current.eKey.isPressed)
+                vertical += 1f;
+            if (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.qKey.isPressed)
+                vertical -= 1f;
+        }
+
+        bool sprintPressed = playerInput != null &&
+            playerInput.actions["Sprint"].IsPressed();
+        float speedMultiplier = GetDebugSpeedMultiplier();
+        float baseSpeed = (sprintPressed ? sprintSpeed : walkSpeed) * speedMultiplier;
+        Vector3 move =
+            horizontalMove * baseSpeed +
+            Vector3.up * vertical * debugNoclipVerticalSpeed * speedMultiplier;
+
+        rb.MovePosition(rb.position + move * Time.fixedDeltaTime);
+        rb.MoveRotation(Quaternion.Euler(
+            0f,
+            movementCamera.transform.eulerAngles.y,
+            0f));
+        UpdateLocalLocomotionState(moveInput != Vector2.zero || vertical != 0f, sprintPressed);
     }
 
     void UpdateCrouchState(bool knockedOut)
@@ -476,6 +702,15 @@ public class PlayerMovement : NetworkBehaviour
         syncedLocomotionFlags.Value = SanitizeLocomotionFlags(flags);
     }
 
+    [ServerRpc]
+    void AddSessionMaxStaminaServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxStamina(amount, fillAddedCapacity);
+    }
+
     bool ShouldUseSyncedLocomotionState()
     {
         return IsNetworkSessionRunning() &&
@@ -558,6 +793,26 @@ public class PlayerMovement : NetworkBehaviour
 
     [ServerRpc]
     void EmitFootstepNoiseServerRpc(Vector3 noisePosition, float noiseRadius)
+    {
+        NoiseEvent.Emit(noisePosition, noiseRadius, gameObject);
+    }
+
+    public void EmitVoiceNoiseForEnemies(float noiseRadius)
+    {
+        if (noiseRadius <= 0f)
+            return;
+
+        if (IsSpawned && !IsServer)
+        {
+            EmitVoiceNoiseServerRpc(transform.position, noiseRadius);
+            return;
+        }
+
+        NoiseEvent.Emit(transform.position, noiseRadius, gameObject);
+    }
+
+    [ServerRpc]
+    void EmitVoiceNoiseServerRpc(Vector3 noisePosition, float noiseRadius)
     {
         NoiseEvent.Emit(noisePosition, noiseRadius, gameObject);
     }
@@ -1168,6 +1423,111 @@ public class PlayerMovement : NetworkBehaviour
         currentStamina = maxStamina;
     }
 
+    public bool AddSessionMaxStamina(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsNetworkSessionRunning() && IsSpawned && !IsServer)
+        {
+            ApplySessionMaxStamina(amount, fillAddedCapacity);
+            AddSessionMaxStaminaServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxStamina(amount, fillAddedCapacity);
+        return true;
+    }
+
+    void ApplySessionMaxStamina(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseStamina();
+        maxStamina = Mathf.Max(1f, maxStamina + amount);
+        if (fillAddedCapacity)
+            currentStamina = Mathf.Clamp(currentStamina + amount, 0f, maxStamina);
+        else
+            currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+    }
+
+    public float GetSessionMaxStaminaBonus() =>
+        Mathf.Max(0f, maxStamina - GetBaseMaxStamina());
+
+    public void SetDebugSpeedMultiplier(float multiplier)
+    {
+        debugSpeedMultiplier = Mathf.Clamp(multiplier, 0.1f, 10f);
+    }
+
+    public void SetDebugNoclip(bool value)
+    {
+        if (debugNoclip == value)
+            return;
+
+        debugNoclip = value;
+
+        if (debugNoclip)
+            ApplyDebugNoclipPhysics();
+        else
+            RestoreDebugNoclipPhysics();
+    }
+
+    public bool IsDebugNoclipEnabled()
+    {
+        return debugNoclip;
+    }
+
+    float GetDebugSpeedMultiplier()
+    {
+        return Mathf.Clamp(debugSpeedMultiplier, 0.1f, 10f);
+    }
+
+    void ApplyDebugNoclipPhysics()
+    {
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
+        if (bodyCollider == null)
+            bodyCollider = GetComponent<CapsuleCollider>();
+
+        if (!hasDebugPhysicsState)
+        {
+            debugSavedGravity = rb != null && rb.useGravity;
+            debugSavedKinematic = rb != null && rb.isKinematic;
+            debugSavedColliderEnabled = bodyCollider == null || bodyCollider.enabled;
+            hasDebugPhysicsState = true;
+        }
+
+        if (rb != null)
+        {
+            rb.useGravity = false;
+            rb.isKinematic = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (bodyCollider != null)
+            bodyCollider.enabled = false;
+    }
+
+    void RestoreDebugNoclipPhysics()
+    {
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
+        if (bodyCollider == null)
+            bodyCollider = GetComponent<CapsuleCollider>();
+
+        if (rb != null)
+        {
+            rb.useGravity = hasDebugPhysicsState ? debugSavedGravity : true;
+            rb.isKinematic = hasDebugPhysicsState && debugSavedKinematic;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (bodyCollider != null)
+            bodyCollider.enabled = !hasDebugPhysicsState || debugSavedColliderEnabled;
+
+        hasDebugPhysicsState = false;
+    }
+
     void UpdateTimedStaminaMultiplier()
     {
         if (staminaDrainMultiplierTimer <= 0f) return;
@@ -1182,4 +1542,34 @@ public class PlayerMovement : NetworkBehaviour
 
     public float GetStaminaPercent() =>
         maxStamina > 0f ? currentStamina / maxStamina : 0f;
+
+    void CaptureBaseStamina()
+    {
+        if (baseStaminaCaptured)
+            return;
+
+        baseMaxStamina = maxStamina;
+        baseStaminaCaptured = true;
+    }
+
+    float GetBaseMaxStamina()
+    {
+        CaptureBaseStamina();
+        return baseMaxStamina;
+    }
+
+    void ApplySavedSessionStamina()
+    {
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        float staminaBonus = savedState != null
+            ? Mathf.Max(0f, savedState.StaminaUpgradeBonus)
+            : 0f;
+
+        maxStamina = Mathf.Max(1f, GetBaseMaxStamina() + staminaBonus);
+    }
 }

@@ -379,6 +379,9 @@ public class DirtSpot : NetworkBehaviour
 
     public void Clean(float amount)
     {
+        if (IsPoolCleaningLocked())
+            return;
+
         if (ShouldRequestServerStateChange())
         {
             CleanServerRpc(amount);
@@ -418,6 +421,9 @@ public class DirtSpot : NetworkBehaviour
         float amount,
         PlayerStatus cleaner)
     {
+        if (IsPoolCleaningLocked())
+            return;
+
         if (ShouldRequestServerStateChange())
         {
             CleanAtWorldPointServerRpc(worldPoint, worldRadius, amount);
@@ -483,6 +489,11 @@ public class DirtSpot : NetworkBehaviour
         {
             UpdateVisualState();
         }
+
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null)
+            poolObjective.NotifyActivelyCleaned();
     }
 
     public void ApplyContaminatedWaterAtWorldPoint(Vector3 worldPoint, float worldRadius, float waterAmount)
@@ -567,6 +578,14 @@ public class DirtSpot : NetworkBehaviour
         }
     }
 
+    bool IsPoolCleaningLocked()
+    {
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+
+        return poolObjective != null && poolObjective.IsCleaningLocked;
+    }
+
     static bool IsFiniteVector3(Vector3 value)
     {
         return IsFiniteFloat(value.x) &&
@@ -589,6 +608,8 @@ public class DirtSpot : NetworkBehaviour
     {
         if (!HasValidAmount(amount))
             return;
+        if (IsPoolCleaningLocked())
+            return;
 
         ApplyCleanLocal(amount);
         CleanClientRpc(amount);
@@ -607,6 +628,8 @@ public class DirtSpot : NetworkBehaviour
         {
             return;
         }
+        if (IsPoolCleaningLocked())
+            return;
 
         float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);

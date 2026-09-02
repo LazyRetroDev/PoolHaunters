@@ -53,6 +53,7 @@ public class PlayerVignetteEffect : MonoBehaviour
     private Vignette vignette;
     private VolumeProfile activeProfile;
     private float externalThreatIntensity;
+    public float hallucinationIntensity; // Used by PlayerHallucinationController
     private float pulseIntensity;
     private float pulseStartIntensity;
     private float pulseTimer;
@@ -367,6 +368,7 @@ public class PlayerVignetteEffect : MonoBehaviour
     {
         float targetIntensity = baseIntensity;
         targetIntensity = Mathf.Max(targetIntensity, externalThreatIntensity);
+        targetIntensity = Mathf.Max(targetIntensity, hallucinationIntensity);
         targetIntensity = Mathf.Max(targetIntensity, pulseIntensity);
 
         if (reactToLowHealth && playerStatus != null)

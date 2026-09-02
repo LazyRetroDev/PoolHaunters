@@ -28,6 +28,7 @@ public class PlayerInventory : NetworkBehaviour
     private int selectedSlot = 0;
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
+    private HUD hud;
 
     void Awake()
     {
@@ -42,6 +43,53 @@ public class PlayerInventory : NetworkBehaviour
 
         if (interactionCamera == null)
             interactionCamera = Camera.main;
+
+        NetworkManager networkManager = NetworkManager.Singleton;
+        bool isOffline = networkManager == null || !networkManager.IsListening;
+        if (isOffline)
+        {
+            RestoreSavedItems();
+        }
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+
+        if (!IsServer)
+            return;
+
+        RestoreSavedItems();
+    }
+
+    void RestoreSavedItems()
+    {
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null && netObj.IsSpawned)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        if (savedState != null && savedState.ItemPrefabNames != null)
+        {
+            Debug.Log($"[PlayerInventory] Client {clientId} restoring {savedState.ItemPrefabNames.Count} items.");
+            foreach (string prefabName in savedState.ItemPrefabNames)
+            {
+                if (string.IsNullOrEmpty(prefabName))
+                    continue;
+
+                GameObject prefab = PlayerRunStateTracker.GetNetworkPrefabByName(prefabName);
+                if (prefab != null)
+                {
+                    bool success = TryReceiveShopItem(prefab, transform.position, transform.rotation);
+                    Debug.Log($"[PlayerInventory] Restoring '{prefab.name}': Success = {success}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[PlayerInventory] Could not find prefab '{prefabName}' in NetworkManager!");
+                }
+            }
+        }
     }
 
     public void OnInteract(InputValue value)
@@ -102,7 +150,15 @@ public class PlayerInventory : NetworkBehaviour
 
     void Update()
     {
-        if (!CanHandleLocalInput() || IsInventoryLocked()) return;
+        if (!CanHandleLocalInput())
+        {
+            SetInteractionPrompt(string.Empty, false);
+            return;
+        }
+
+        UpdateInteractionPrompt();
+
+        if (IsInventoryLocked()) return;
         if (Keyboard.current == null) return;
 
         for (int i = 0; i < inventorySize; i++)
@@ -165,6 +221,63 @@ public class PlayerInventory : NetworkBehaviour
         return playerPetrify != null && playerPetrify.IsPetrified();
     }
 
+    void UpdateInteractionPrompt()
+    {
+        if (IsInventoryLocked())
+        {
+            SetInteractionPrompt(string.Empty, false);
+            return;
+        }
+
+        if (TryGetLookedRevivePrompt(out string prompt))
+            SetInteractionPrompt(prompt, true);
+        else
+            SetInteractionPrompt(string.Empty, false);
+    }
+
+    bool TryGetLookedRevivePrompt(out string prompt)
+    {
+        prompt = string.Empty;
+
+        Camera cameraToUse = GetInteractionCamera();
+        if (cameraToUse == null)
+            return false;
+
+        Ray ray = cameraToUse.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        if (!Physics.Raycast(ray, out RaycastHit hit, pickupRange))
+            return false;
+
+        PlayerReviveInteractable revive =
+            hit.collider.GetComponentInParent<PlayerReviveInteractable>();
+        return revive != null &&
+            revive.TryGetInteractionPrompt(this, out prompt);
+    }
+
+    void SetInteractionPrompt(string prompt, bool visible)
+    {
+        HUD boundHud = GetBoundHud();
+        if (boundHud != null)
+            boundHud.SetInteractionPrompt(prompt, visible);
+    }
+
+    HUD GetBoundHud()
+    {
+        if (hud != null && hud.inventory == this)
+            return hud;
+
+        HUD[] huds = FindObjectsByType<HUD>(FindObjectsInactive.Include);
+        for (int i = 0; i < huds.Length; i++)
+        {
+            if (huds[i] == null || huds[i].inventory != this)
+                continue;
+
+            hud = huds[i];
+            return hud;
+        }
+
+        return null;
+    }
+
     void TryPickup(Item item)
     {
         if (item == null || IsInventoryLocked()) return;
@@ -185,16 +298,17 @@ public class PlayerInventory : NetworkBehaviour
     bool TryPickupAuthoritative(
         Item item,
         Vector3 pickupOrigin,
-        float extraRange)
+        float extraRange,
+        bool ignoreInventoryLock = false)
     {
         EnsureSlots();
-        if (item == null || IsInventoryLocked()) return false;
+        if (item == null || (!ignoreInventoryLock && IsInventoryLocked())) return false;
         if (!CanServerPickUp(item, pickupOrigin, extraRange)) return false;
 
         WaterItem waterItem = item.GetComponent<WaterItem>();
         if (waterItem != null && waterItem.useImmediatelyOnPickup)
         {
-            if (!waterItem.TryApply(playerStatus))
+            if (!waterItem.TryApply(playerStatus, ignoreInventoryLock))
             {
                 Debug.Log($"Could not use {item.itemName}; the player's water may already be full.");
                 return false;
@@ -479,12 +593,14 @@ public class PlayerInventory : NetworkBehaviour
         return false;
     }
 
-    public bool CanReceiveShopItem(GameObject itemPrefab)
+    public bool CanReceiveShopItem(
+        GameObject itemPrefab,
+        bool ignoreInventoryLock = false)
     {
         CacheReferences();
         EnsureSlots();
 
-        if (itemPrefab == null || IsInventoryLocked())
+        if (itemPrefab == null || (!ignoreInventoryLock && IsInventoryLocked()))
             return false;
 
         Item item = itemPrefab.GetComponentInChildren<Item>(true);
@@ -495,7 +611,7 @@ public class PlayerInventory : NetworkBehaviour
         if (waterItem != null && waterItem.useImmediatelyOnPickup)
         {
             return playerStatus != null &&
-                playerStatus.CanAct() &&
+                (ignoreInventoryLock || playerStatus.CanAct()) &&
                 waterItem.waterAmount > 0f &&
                 playerStatus.GetWaterSpace() > 0f;
         }
@@ -506,12 +622,13 @@ public class PlayerInventory : NetworkBehaviour
     public bool TryReceiveShopItem(
         GameObject itemPrefab,
         Vector3 spawnPosition,
-        Quaternion spawnRotation)
+        Quaternion spawnRotation,
+        bool ignoreInventoryLock = false)
     {
         CacheReferences();
         EnsureSlots();
 
-        if (!CanReceiveShopItem(itemPrefab))
+        if (!CanReceiveShopItem(itemPrefab, ignoreInventoryLock))
             return false;
 
         if (IsNetworkSessionRunning() && !IsServer)
@@ -532,8 +649,14 @@ public class PlayerInventory : NetworkBehaviour
         if (IsNetworkSessionRunning() && networkObject != null && !networkObject.IsSpawned)
             networkObject.Spawn(true);
 
-        if (TryPickupAuthoritative(item, transform.position, pickupRange))
+        if (TryPickupAuthoritative(
+            item,
+            transform.position,
+            pickupRange,
+            ignoreInventoryLock))
+        {
             return true;
+        }
 
         DestroyOrDespawnItem(item);
         return false;

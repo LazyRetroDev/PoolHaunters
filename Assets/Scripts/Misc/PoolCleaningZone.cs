@@ -9,6 +9,8 @@ public class PoolCleaningZone : MonoBehaviour
     public float currentContamination = 100f;
     [Range(0.01f, 1f)] public float cleanCompletionThreshold = 0.98f;
     public bool startsContaminated = true;
+    public bool forwardWaterToPoolDirtSpots = true;
+    [Min(1f)] public float forwardedDirtRadiusMultiplier = 1.4f;
 
     [Header("Water Effects")]
     public bool contaminatedWaterDirtiesPool = true;
@@ -69,8 +71,21 @@ public class PoolCleaningZone : MonoBehaviour
         float contactRadius,
         float cleanAmount,
         float waterAmount,
-        WaterQuality waterQuality)
+        WaterQuality waterQuality,
+        PlayerStatus cleaner = null)
     {
+        SwimmingPoolObjective poolObjective =
+            GetComponentInParent<SwimmingPoolObjective>();
+
+        ForwardWaterToPoolDirtSpots(
+            worldPoint,
+            contactRadius,
+            cleanAmount,
+            waterAmount,
+            waterQuality,
+            cleaner,
+            poolObjective);
+
         if (waterQuality == WaterQuality.Contaminated)
         {
             ApplyContaminatedWater(waterAmount);
@@ -83,8 +98,42 @@ public class PoolCleaningZone : MonoBehaviour
         Clean(cleanAmount);
     }
 
+    void ForwardWaterToPoolDirtSpots(
+        Vector3 worldPoint,
+        float contactRadius,
+        float cleanAmount,
+        float waterAmount,
+        WaterQuality waterQuality,
+        PlayerStatus cleaner,
+        SwimmingPoolObjective poolObjective)
+    {
+        if (!forwardWaterToPoolDirtSpots)
+            return;
+
+        if (poolObjective == null)
+            return;
+
+        float amount = waterQuality == WaterQuality.Contaminated
+            ? waterAmount
+            : cleanAmount;
+        if (amount <= 0f)
+            return;
+
+        poolObjective.ApplyWaterAtWorldPoint(
+            worldPoint,
+            Mathf.Max(0.01f, contactRadius * forwardedDirtRadiusMultiplier),
+            amount,
+            waterQuality,
+            cleaner);
+    }
+
     public void Clean(float amount)
     {
+        SwimmingPoolObjective poolObjective =
+            GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective != null && poolObjective.IsCleaningLocked)
+            return;
+
         if (IsCleaned || amount <= 0f)
             return;
 

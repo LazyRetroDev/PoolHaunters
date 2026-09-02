@@ -14,6 +14,8 @@ public class RoomGenerationProfile : ScriptableObject
 
     [Header("Full Map Generation")]
     public bool generateFullMapOnStart = true;
+
+    [Header("Branches")]
     [Min(1)] public int minimumBranchCount = 3;
     [Min(1)] public int maximumBranchCount = 4;
     [Min(1)] public int minimumRoomsPerBranch = 3;

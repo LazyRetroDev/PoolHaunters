@@ -243,7 +243,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6dd4dd1a9b40cd4458eff2bdf2e804f1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GoldenMouthBehavior
-  timeToExtinguish: 20
+  timeToExtinguish: 10
   extinguishRequired: 60
   chemicalWaterCountsAsPure: 1
   moveWhileWaitingForHelp: 1

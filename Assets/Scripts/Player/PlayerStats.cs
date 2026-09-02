@@ -12,6 +12,12 @@ public class PlayerStatus : NetworkBehaviour
     [Range(0.01f, 1f)] public float reviveHealthPercent = 0.35f;
     public bool disableControlsWhileKnockedOut = true;
 
+    [Header("Player Revive")]
+    public bool canBeRevivedByPlayers = true;
+    public float playerReviveRange = 2.75f;
+    public bool requireReviverCanAct = true;
+    public bool autoAddReviveInteractable = true;
+
     [Header("Water")]
     public float maxWater = 100f;
     public float fillRate = 10f;
@@ -43,6 +49,10 @@ public class PlayerStatus : NetworkBehaviour
         new NetworkVariable<float>();
     private NetworkVariable<float> syncedWater =
         new NetworkVariable<float>();
+    private NetworkVariable<float> syncedMaxHealth =
+        new NetworkVariable<float>();
+    private NetworkVariable<float> syncedMaxWater =
+        new NetworkVariable<float>();
     private NetworkVariable<float> syncedKnockoutTimer =
         new NetworkVariable<float>();
     private NetworkVariable<int> syncedWaterQuality =
@@ -68,7 +78,11 @@ public class PlayerStatus : NetworkBehaviour
     private bool localStateInitialized;
     private bool serverStateInitialized;
     private WaterZone activeWaterZone;
+    private bool debugInfiniteHealth;
     private bool debugInfiniteWater;
+    private bool baseCapacityCaptured;
+    private float baseMaxHealth;
+    private float baseMaxWater;
 
     private PlayerMovement movement;
     private PlayerInventory inventory;
@@ -79,7 +93,9 @@ public class PlayerStatus : NetworkBehaviour
 
     void Awake()
     {
+        CaptureBaseCapacity();
         CacheReferences();
+        EnsureReviveInteractable();
     }
 
     public override void OnNetworkSpawn()
@@ -153,10 +169,27 @@ public class PlayerStatus : NetworkBehaviour
             waterCannon = GetComponentInChildren<WaterCannon>(true);
     }
 
+    void EnsureReviveInteractable()
+    {
+        if (!autoAddReviveInteractable)
+            return;
+
+        if (GetComponent<PlayerReviveInteractable>() == null)
+            gameObject.AddComponent<PlayerReviveInteractable>();
+    }
+
     void InitializeLocalState()
     {
         if (localStateInitialized)
             return;
+
+        ulong clientId = 0;
+        NetworkObject netObj = GetComponent<NetworkObject>();
+        if (netObj != null)
+            clientId = netObj.OwnerClientId;
+
+        PlayerRunState savedState = PlayerRunStateTracker.GetSavedState(clientId);
+        ApplySavedSessionCapacity(savedState);
 
         currentHealth = Mathf.Clamp(maxHealth, 0f, maxHealth);
         currentWater = 0f;
@@ -167,6 +200,12 @@ public class PlayerStatus : NetworkBehaviour
         deathTransformationApplied = false;
         externalControlLocks = 0;
         localStateInitialized = true;
+
+        if (savedState != null)
+        {
+            currentWater = savedState.Water;
+            currentWaterQuality = (WaterQuality)savedState.WaterQuality;
+        }
 
         if (currentHealth <= 0f)
             ApplyEnterKnockout();
@@ -218,6 +257,10 @@ public class PlayerStatus : NetworkBehaviour
     public float GetMaxHealth() => maxHealth;
     public float GetCurrentWater() => currentWater;
     public float GetWaterSpace() => Mathf.Max(0f, maxWater - currentWater);
+    public float GetSessionMaxHealthBonus() =>
+        Mathf.Max(0f, maxHealth - GetBaseMaxHealth());
+    public float GetSessionMaxWaterBonus() =>
+        Mathf.Max(0f, maxWater - GetBaseMaxWater());
     public WaterQuality GetWaterQuality() => currentWaterQuality;
     public float GetHealthPercent() =>
         maxHealth > 0f ? currentHealth / maxHealth : 0f;
@@ -254,6 +297,62 @@ public class PlayerStatus : NetworkBehaviour
         }
 
         AddWater(amount, waterFillQuality);
+    }
+
+    public bool AddSessionMaxHealth(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsClientReplica())
+        {
+            ApplySessionMaxHealth(amount, fillAddedCapacity);
+            AddSessionMaxHealthServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxHealth(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncCoreState();
+        return true;
+    }
+
+    public bool AddSessionMaxWater(float amount, bool fillAddedCapacity = true)
+    {
+        if (amount <= 0f)
+            return false;
+
+        if (IsClientReplica())
+        {
+            ApplySessionMaxWater(amount, fillAddedCapacity);
+            AddSessionMaxWaterServerRpc(amount, fillAddedCapacity);
+            return true;
+        }
+
+        ApplySessionMaxWater(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncWaterState();
+        return true;
+    }
+
+    void ApplySessionMaxHealth(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseCapacity();
+        maxHealth = Mathf.Max(1f, maxHealth + amount);
+        if (fillAddedCapacity)
+            currentHealth = Mathf.Clamp(currentHealth + amount, 0f, maxHealth);
+        else
+            currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
+
+    void ApplySessionMaxWater(float amount, bool fillAddedCapacity)
+    {
+        CaptureBaseCapacity();
+        maxWater = Mathf.Max(1f, maxWater + amount);
+        if (fillAddedCapacity)
+            currentWater = Mathf.Clamp(currentWater + amount, 0f, maxWater);
+        else
+            currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
     }
 
     public bool TakeDamage(float damage)
@@ -323,6 +422,31 @@ public class PlayerStatus : NetworkBehaviour
         return true;
     }
 
+    public bool RequestReviveFrom(PlayerInventory reviverInventory)
+    {
+        if (reviverInventory == null)
+            return false;
+
+        PlayerStatus reviver = reviverInventory.GetComponent<PlayerStatus>();
+        if (reviver == null)
+            return false;
+
+        if (IsClientReplica())
+        {
+            if (!TryGetNetworkObjectReference(
+                reviver,
+                out NetworkObjectReference reviverReference))
+            {
+                return false;
+            }
+
+            RequestReviveServerRpc(reviverReference);
+            return false;
+        }
+
+        return ApplyReviveFrom(reviver);
+    }
+
     public void Die()
     {
         if (!CanWriteState())
@@ -340,6 +464,17 @@ public class PlayerStatus : NetworkBehaviour
         }
 
         ApplyDeath(false);
+    }
+
+    public void DebugResurrect()
+    {
+        if (IsClientReplica())
+        {
+            DebugResurrectServerRpc();
+            return;
+        }
+
+        ApplyDebugResurrection();
     }
 
     public void ApplyDeathTransformation()
@@ -394,6 +529,61 @@ public class PlayerStatus : NetworkBehaviour
         SyncWaterState();
     }
 
+    public void SetDebugInfiniteHealth(bool value)
+    {
+        debugInfiniteHealth = value;
+
+        if (!debugInfiniteHealth || IsClientReplica() || isDead || deathTransformationApplied)
+            return;
+
+        if (isKnockedOut)
+        {
+            Revive(maxHealth);
+            return;
+        }
+
+        if (currentHealth < maxHealth)
+        {
+            currentHealth = maxHealth;
+            SyncCoreState();
+        }
+    }
+
+    public void DebugFillHealth()
+    {
+        if (IsClientReplica() || isDead || deathTransformationApplied)
+            return;
+
+        if (isKnockedOut)
+        {
+            Revive(maxHealth);
+            return;
+        }
+
+        currentHealth = maxHealth;
+        SyncCoreState();
+    }
+
+    void ApplyDebugResurrection()
+    {
+        bool wasDeadOrKnockedOut = isDead || isKnockedOut || deathTransformationApplied;
+
+        isDead = false;
+        isKnockedOut = false;
+        deathTransformationApplied = false;
+        knockoutTimer = 0f;
+        currentHealth = maxHealth;
+
+        RestoreDeathPresentation();
+        RestoreConfiguredComponents();
+        RestoreToolObjectsForDebugResurrection();
+        ApplyLocalControlState();
+        SyncAllState();
+
+        if (wasDeadOrKnockedOut)
+            OnRevived?.Invoke(this);
+    }
+
     public bool AddWater(
         float amount,
         WaterQuality quality,
@@ -406,6 +596,31 @@ public class PlayerStatus : NetworkBehaviour
         {
             PredictAddWater(amount, quality, replaceExistingQuality);
             AddWaterServerRpc(amount, (int)quality, replaceExistingQuality);
+            return true;
+        }
+
+        ApplyAddWater(amount, quality, replaceExistingQuality);
+        SyncWaterState();
+        return true;
+    }
+
+    public bool AddWaterIgnoringControlLock(
+        float amount,
+        WaterQuality quality,
+        bool replaceExistingQuality = false)
+    {
+        if (isKnockedOut || isDead || deathTransformationApplied)
+            return false;
+        if (amount <= 0f || currentWater >= maxWater)
+            return false;
+
+        if (IsClientReplica())
+        {
+            PredictAddWater(amount, quality, replaceExistingQuality);
+            AddWaterIgnoringControlLockServerRpc(
+                amount,
+                (int)quality,
+                replaceExistingQuality);
             return true;
         }
 
@@ -498,6 +713,13 @@ public class PlayerStatus : NetworkBehaviour
         if (damage <= 0f || isDead || isKnockedOut || deathTransformationApplied)
             return false;
 
+        if (debugInfiniteHealth)
+        {
+            currentHealth = maxHealth;
+            SyncCoreState();
+            return false;
+        }
+
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
 
@@ -525,6 +747,33 @@ public class PlayerStatus : NetworkBehaviour
         ApplyLocalControlState();
         SyncAllState();
         OnKnockedOut?.Invoke(this);
+    }
+
+    bool ApplyReviveFrom(PlayerStatus reviver)
+    {
+        if (!CanBeRevivedBy(reviver))
+            return false;
+
+        return Revive(maxHealth * reviveHealthPercent);
+    }
+
+    public bool CanBeRevivedBy(PlayerStatus reviver)
+    {
+        if (!canBeRevivedByPlayers)
+            return false;
+
+        if (reviver == null || reviver == this)
+            return false;
+
+        if (!isKnockedOut || isDead || deathTransformationApplied)
+            return false;
+
+        if (requireReviverCanAct && !reviver.CanAct())
+            return false;
+
+        float range = Mathf.Max(0f, playerReviveRange);
+        Vector3 offset = reviver.transform.position - transform.position;
+        return offset.sqrMagnitude <= range * range;
     }
 
     void ApplyDeath(bool transformed)
@@ -627,6 +876,121 @@ public class PlayerStatus : NetworkBehaviour
         }
     }
 
+    void RestoreDeathPresentation()
+    {
+        RestoreGravityAndMotion();
+        RestoreDeathHud();
+        RestoreBodyVisibility();
+        EndSpectatorMode();
+    }
+
+    void RestoreGravityAndMotion()
+    {
+        if (!disableGravityOnDeath) return;
+
+        Rigidbody[] bodies = GetComponentsInChildren<Rigidbody>(true);
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            if (bodies[i] == null) continue;
+            bodies[i].useGravity = true;
+            bodies[i].isKinematic = false;
+            bodies[i].linearVelocity = Vector3.zero;
+            bodies[i].angularVelocity = Vector3.zero;
+        }
+    }
+
+    void RestoreDeathHud()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        if (hudsToDisableOnDeath != null && hudsToDisableOnDeath.Length > 0)
+        {
+            for (int i = 0; i < hudsToDisableOnDeath.Length; i++)
+                EnableHud(hudsToDisableOnDeath[i]);
+
+            return;
+        }
+
+        HUD[] huds = FindObjectsByType<HUD>(FindObjectsInactive.Include);
+        for (int i = 0; i < huds.Length; i++)
+        {
+            if (huds[i] != null && huds[i].playerStatus == this)
+                EnableHud(huds[i]);
+        }
+    }
+
+    void EnableHud(HUD hud)
+    {
+        if (hud == null) return;
+
+        Canvas canvas = hud.GetComponent<Canvas>();
+        if (canvas != null)
+            canvas.enabled = true;
+        else
+            hud.gameObject.SetActive(true);
+    }
+
+    void RestoreBodyVisibility()
+    {
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer targetRenderer = renderers[i];
+            if (targetRenderer == null) continue;
+            if (ShouldIgnoreDeathPresentationRenderer(targetRenderer)) continue;
+
+            targetRenderer.enabled = true;
+            Material[] materials = targetRenderer.materials;
+            for (int m = 0; m < materials.Length; m++)
+                RestoreMaterialAlpha(materials[m]);
+        }
+
+        Collider[] colliders = GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] != null)
+                colliders[i].enabled = true;
+        }
+    }
+
+    void RestoreMaterialAlpha(Material material)
+    {
+        if (material == null) return;
+
+        if (material.HasProperty("_BaseColor"))
+        {
+            Color color = material.GetColor("_BaseColor");
+            color.a = 1f;
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            Color color = material.GetColor("_Color");
+            color.a = 1f;
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_Surface"))
+            material.SetFloat("_Surface", 0f);
+        if (material.HasProperty("_ZWrite"))
+            material.SetFloat("_ZWrite", 1f);
+
+        material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.renderQueue = -1;
+    }
+
+    void EndSpectatorMode()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        PlayerSpectatorMode spectator = FindFirstObjectByType<PlayerSpectatorMode>();
+        if (spectator != null)
+            spectator.EndSpectating();
+    }
+
     void DisableGravityAndMotion()
     {
         if (!disableGravityOnDeath) return;
@@ -681,6 +1045,7 @@ public class PlayerStatus : NetworkBehaviour
         {
             Renderer targetRenderer = renderers[i];
             if (targetRenderer == null || !targetRenderer.enabled) continue;
+            if (ShouldIgnoreDeathPresentationRenderer(targetRenderer)) continue;
 
             Material[] materials = targetRenderer.materials;
             for (int m = 0; m < materials.Length; m++)
@@ -722,6 +1087,23 @@ public class PlayerStatus : NetworkBehaviour
         material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         material.DisableKeyword("_ALPHATEST_ON");
         material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+    }
+
+    bool ShouldIgnoreDeathPresentationRenderer(Renderer targetRenderer)
+    {
+        if (targetRenderer == null)
+            return true;
+
+        if (targetRenderer is ParticleSystemRenderer)
+            return true;
+
+        if (targetRenderer.GetComponentInParent<WaterCannon>() != null)
+            return true;
+
+        if (targetRenderer.GetComponentInParent<JennyMopCleaner>() != null)
+            return true;
+
+        return false;
     }
 
     void ActivateSpectatorMode()
@@ -799,6 +1181,32 @@ public class PlayerStatus : NetworkBehaviour
             waterCannon.enabled = CanUseWaterCannon();
     }
 
+    void RestoreToolObjectsForDebugResurrection()
+    {
+        if (!ShouldApplyOwnerLocalState())
+            return;
+
+        bool canUseWaterCannon = CanUseWaterCannon();
+        WaterCannon[] waterCannons = GetComponentsInChildren<WaterCannon>(true);
+        for (int i = 0; i < waterCannons.Length; i++)
+        {
+            WaterCannon cannon = waterCannons[i];
+            if (cannon == null)
+                continue;
+
+            if (canUseWaterCannon && !cannon.gameObject.activeSelf)
+                cannon.gameObject.SetActive(true);
+
+            cannon.enabled = canUseWaterCannon;
+        }
+
+        PlayerAgentLoadout loadout = GetComponent<PlayerAgentLoadout>();
+        if (loadout != null)
+            loadout.ApplyAgent(loadout.currentAgent);
+
+        CacheReferences();
+    }
+
     void ApplyLocalControlState()
     {
         if (!ShouldApplyOwnerLocalState())
@@ -838,6 +1246,8 @@ public class PlayerStatus : NetworkBehaviour
     {
         syncedHealth.OnValueChanged += HandleHealthChanged;
         syncedWater.OnValueChanged += HandleWaterChanged;
+        syncedMaxHealth.OnValueChanged += HandleMaxHealthChanged;
+        syncedMaxWater.OnValueChanged += HandleMaxWaterChanged;
         syncedKnockoutTimer.OnValueChanged += HandleKnockoutTimerChanged;
         syncedWaterQuality.OnValueChanged += HandleWaterQualityChanged;
         syncedKnockedOut.OnValueChanged += HandleKnockoutChanged;
@@ -850,6 +1260,8 @@ public class PlayerStatus : NetworkBehaviour
     {
         syncedHealth.OnValueChanged -= HandleHealthChanged;
         syncedWater.OnValueChanged -= HandleWaterChanged;
+        syncedMaxHealth.OnValueChanged -= HandleMaxHealthChanged;
+        syncedMaxWater.OnValueChanged -= HandleMaxWaterChanged;
         syncedKnockoutTimer.OnValueChanged -= HandleKnockoutTimerChanged;
         syncedWaterQuality.OnValueChanged -= HandleWaterQualityChanged;
         syncedKnockedOut.OnValueChanged -= HandleKnockoutChanged;
@@ -860,6 +1272,11 @@ public class PlayerStatus : NetworkBehaviour
 
     void ApplySyncedState(bool invokeEvents)
     {
+        if (syncedMaxHealth.Value > 0f)
+            maxHealth = syncedMaxHealth.Value;
+        if (syncedMaxWater.Value > 0f)
+            maxWater = syncedMaxWater.Value;
+
         currentHealth = syncedHealth.Value;
         currentWater = syncedWater.Value;
         knockoutTimer = syncedKnockoutTimer.Value;
@@ -881,6 +1298,24 @@ public class PlayerStatus : NetworkBehaviour
     void HandleWaterChanged(float previous, float next)
     {
         currentWater = next;
+    }
+
+    void HandleMaxHealthChanged(float previous, float next)
+    {
+        if (next <= 0f)
+            return;
+
+        maxHealth = next;
+        currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+    }
+
+    void HandleMaxWaterChanged(float previous, float next)
+    {
+        if (next <= 0f)
+            return;
+
+        maxWater = next;
+        currentWater = Mathf.Clamp(currentWater, 0f, maxWater);
     }
 
     void HandleKnockoutTimerChanged(float previous, float next)
@@ -986,6 +1421,15 @@ public class PlayerStatus : NetworkBehaviour
         syncedTransformed.Value = deathTransformationApplied;
     }
 
+    void SyncCapacityState()
+    {
+        if (!IsSpawned || !IsServer)
+            return;
+
+        syncedMaxHealth.Value = maxHealth;
+        syncedMaxWater.Value = maxWater;
+    }
+
     void SyncWaterState()
     {
         if (!IsSpawned || !IsServer)
@@ -1005,9 +1449,78 @@ public class PlayerStatus : NetworkBehaviour
 
     void SyncAllState()
     {
+        SyncCapacityState();
         SyncCoreState();
         SyncWaterState();
         SyncControlLockState();
+    }
+
+    void CaptureBaseCapacity()
+    {
+        if (baseCapacityCaptured)
+            return;
+
+        baseMaxHealth = maxHealth;
+        baseMaxWater = maxWater;
+        baseCapacityCaptured = true;
+    }
+
+    float GetBaseMaxHealth()
+    {
+        CaptureBaseCapacity();
+        return baseMaxHealth;
+    }
+
+    float GetBaseMaxWater()
+    {
+        CaptureBaseCapacity();
+        return baseMaxWater;
+    }
+
+    void ApplySavedSessionCapacity(PlayerRunState savedState)
+    {
+        CaptureBaseCapacity();
+
+        float healthBonus = savedState != null
+            ? Mathf.Max(0f, savedState.HealthUpgradeBonus)
+            : 0f;
+        float waterBonus = savedState != null
+            ? Mathf.Max(0f, savedState.WaterUpgradeBonus)
+            : 0f;
+
+        maxHealth = Mathf.Max(1f, baseMaxHealth + healthBonus);
+        maxWater = Mathf.Max(1f, baseMaxWater + waterBonus);
+    }
+
+    bool TryGetNetworkObjectReference(
+        PlayerStatus status,
+        out NetworkObjectReference reference)
+    {
+        NetworkObject networkObject =
+            status != null ? status.GetComponent<NetworkObject>() : null;
+
+        if (networkObject == null)
+        {
+            reference = default;
+            return false;
+        }
+
+        reference = networkObject;
+        return true;
+    }
+
+    bool CanProcessReviveRequest(
+        PlayerStatus reviver,
+        ServerRpcParams serverRpcParams)
+    {
+        if (!IsNetworked())
+            return true;
+
+        if (reviver == null || reviver.NetworkObject == null)
+            return false;
+
+        return reviver.NetworkObject.OwnerClientId ==
+            serverRpcParams.Receive.SenderClientId;
     }
 
     [ServerRpc]
@@ -1020,6 +1533,52 @@ public class PlayerStatus : NetworkBehaviour
     void RequestImmediateDeathServerRpc()
     {
         ApplyDeath(false);
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void DebugResurrectServerRpc()
+    {
+        ApplyDebugResurrection();
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void RequestReviveServerRpc(
+        NetworkObjectReference reviverReference,
+        ServerRpcParams serverRpcParams = default)
+    {
+        if (!reviverReference.TryGet(out NetworkObject reviverObject) ||
+            reviverObject == null)
+        {
+            return;
+        }
+
+        PlayerStatus reviver = reviverObject.GetComponent<PlayerStatus>();
+        if (!CanProcessReviveRequest(reviver, serverRpcParams))
+            return;
+
+        ApplyReviveFrom(reviver);
+    }
+
+    [ServerRpc]
+    void AddSessionMaxHealthServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxHealth(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncCoreState();
+    }
+
+    [ServerRpc]
+    void AddSessionMaxWaterServerRpc(float amount, bool fillAddedCapacity)
+    {
+        if (amount <= 0f)
+            return;
+
+        ApplySessionMaxWater(amount, fillAddedCapacity);
+        SyncCapacityState();
+        SyncWaterState();
     }
 
     [ServerRpc]
@@ -1039,6 +1598,21 @@ public class PlayerStatus : NetworkBehaviour
         bool replaceExistingQuality)
     {
         if (!CanAct() || amount <= 0f || currentWater >= maxWater)
+            return;
+
+        ApplyAddWater(amount, (WaterQuality)quality, replaceExistingQuality);
+        SyncWaterState();
+    }
+
+    [ServerRpc]
+    void AddWaterIgnoringControlLockServerRpc(
+        float amount,
+        int quality,
+        bool replaceExistingQuality)
+    {
+        if (isKnockedOut || isDead || deathTransformationApplied)
+            return;
+        if (amount <= 0f || currentWater >= maxWater)
             return;
 
         ApplyAddWater(amount, (WaterQuality)quality, replaceExistingQuality);

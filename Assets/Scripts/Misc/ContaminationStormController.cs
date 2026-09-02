@@ -8,8 +8,16 @@ public class ContaminationStormController : MonoBehaviour
 {
     [Header("Timing")]
     public bool startStormOnStart = true;
+    public bool startStormWhenWaterValveActivated = true;
     public float initialDelay = 480f;
     public float spreadInterval = 120f;
+    public bool scaleTimingByRunDifficulty = true;
+    public float easyTimingMultiplier = 1.25f;
+    public float mediumTimingMultiplier = 1f;
+    public float hardTimingMultiplier = 0.75f;
+    public float gradualStartingTimingMultiplier = 1.25f;
+    public float gradualEndingTimingMultiplier = 0.75f;
+    [Min(1)] public int gradualTimingMaxPhase = 8;
     public bool contaminateFirstRoomImmediately = false;
     public bool stopAfterFinalRoom = true;
 
@@ -26,9 +34,25 @@ public class ContaminationStormController : MonoBehaviour
     public bool spawnDirtSpots = true;
     public int dirtSpotsPerRoom = 4;
     public int contaminationZonesPerRoom = 1;
+    public bool scaleDirtByRunDifficulty = true;
+    public float easyDirtMultiplier = 0.75f;
+    public float mediumDirtMultiplier = 1f;
+    public float hardDirtMultiplier = 1.35f;
+    public float gradualStartingDirtMultiplier = 0.75f;
+    public float gradualEndingDirtMultiplier = 1.35f;
+    [Min(1)] public int gradualDirtMaxPhase = 8;
     public float spawnHeightOffset = 0.08f;
     public float navMeshSampleRadius = 6f;
     public float roomBoundsInset = 1f;
+    public LayerMask dirtPlacementMask = ~0;
+    [Range(0f, 1f)] public float minimumFloorNormalDot = 0.65f;
+    public bool allowWallDirtSpots = true;
+    [Range(0f, 1f)] public float wallDirtChance = 0.35f;
+    [Range(-1f, 1f)] public float minimumWallSurfaceUpDot = -0.1f;
+    [Range(0f, 1f)] public float maximumWallSurfaceUpDot = 0.35f;
+    public float wallDirtSearchRadius = 5f;
+    public float wallDirtHeightOffset = 1.2f;
+    public float dirtPlacementRaycastPadding = 2f;
 
     [Header("Multiplayer")]
     public bool runOnlyOnServer = true;
@@ -53,6 +77,12 @@ public class ContaminationStormController : MonoBehaviour
         CacheRoomGeneratorField();
         ResetSpreadTimerForStormStart();
         stormRunning = startStormOnStart;
+        RegisterObjectiveEvents();
+    }
+
+    void OnDisable()
+    {
+        UnregisterObjectiveEvents();
     }
 
     void Update()
@@ -63,7 +93,7 @@ public class ContaminationStormController : MonoBehaviour
         spreadTimer -= Time.deltaTime;
         if (spreadTimer > 0f) return;
 
-        spreadTimer = Mathf.Max(0.01f, spreadInterval);
+        spreadTimer = GetEffectiveSpreadInterval();
         SpreadToNextRoom();
     }
 
@@ -72,6 +102,27 @@ public class ContaminationStormController : MonoBehaviour
         stormRunning = true;
         finalRoomReached = false;
         ResetSpreadTimerForStormStart();
+    }
+
+    void RegisterObjectiveEvents()
+    {
+        if (!startStormWhenWaterValveActivated ||
+            LevelObjectiveManager.Instance == null)
+        {
+            return;
+        }
+
+        LevelObjectiveManager.Instance.OnWaterValveActivated -= StartStorm;
+        LevelObjectiveManager.Instance.OnWaterValveActivated += StartStorm;
+
+        if (LevelObjectiveManager.Instance.WaterValveActivated)
+            StartStorm();
+    }
+
+    void UnregisterObjectiveEvents()
+    {
+        if (LevelObjectiveManager.Instance != null)
+            LevelObjectiveManager.Instance.OnWaterValveActivated -= StartStorm;
     }
 
     public void StopStorm()
@@ -91,7 +142,7 @@ public class ContaminationStormController : MonoBehaviour
     {
         spreadTimer = contaminateFirstRoomImmediately
             ? 0f
-            : Mathf.Max(0.01f, initialDelay);
+            : GetEffectiveInitialDelay();
     }
 
     [ContextMenu("Spread To Next Room")]
@@ -256,11 +307,11 @@ public class ContaminationStormController : MonoBehaviour
     {
         if (dirtSpotPrefab == null) return;
 
-        int count = Mathf.Max(0, dirtSpotsPerRoom);
+        int count = GetEffectiveDirtSpotCount();
         for (int i = 0; i < count; i++)
         {
             Vector3 position;
-            if (!TryGetRoomSpawnPosition(room, out position)) continue;
+            if (!TryGetDirtSpotSpawnPosition(room, out position)) continue;
 
             DirtSpot dirtSpot = Instantiate(dirtSpotPrefab, position, Quaternion.identity);
             if (!TrySpawnNetworkDirtSpot(dirtSpot))
@@ -270,6 +321,107 @@ public class ContaminationStormController : MonoBehaviour
                 0.35f,
                 dirtSpot.contaminatedGrowthPerWaterChunk,
                 dirtSpot.contaminatedWaterPerGrowthChunk);
+        }
+    }
+
+    bool TryGetDirtSpotSpawnPosition(GameObject room, out Vector3 position)
+    {
+        if (allowWallDirtSpots &&
+            Random.value < wallDirtChance &&
+            TryGetRoomWallSpawnPosition(room, out position))
+        {
+            return true;
+        }
+
+        if (TryGetRoomSpawnPosition(room, out position))
+            return true;
+
+        return allowWallDirtSpots &&
+            TryGetRoomWallSpawnPosition(room, out position);
+    }
+
+    int GetEffectiveDirtSpotCount()
+    {
+        int baseCount = Mathf.Max(0, dirtSpotsPerRoom);
+        if (!scaleDirtByRunDifficulty || baseCount <= 0)
+            return baseCount;
+
+        float multiplier = GetDirtMultiplierForCurrentRun();
+        return Mathf.Max(0, Mathf.RoundToInt(baseCount * multiplier));
+    }
+
+    float GetDirtMultiplierForCurrentRun()
+    {
+        switch (RegionRunState.Difficulty)
+        {
+            case RunDifficulty.Easy:
+                return Mathf.Max(0f, easyDirtMultiplier);
+
+            case RunDifficulty.Medium:
+                return Mathf.Max(0f, mediumDirtMultiplier);
+
+            case RunDifficulty.Hard:
+                return Mathf.Max(0f, hardDirtMultiplier);
+
+            case RunDifficulty.Gradual:
+                int phase = Mathf.Max(1, RegionRunState.PhaseNumber);
+                int maxPhase = Mathf.Max(1, gradualDirtMaxPhase);
+                float t = maxPhase <= 1
+                    ? 1f
+                    : Mathf.Clamp01((phase - 1f) / (maxPhase - 1f));
+                return Mathf.Max(
+                    0f,
+                    Mathf.Lerp(
+                        gradualStartingDirtMultiplier,
+                        gradualEndingDirtMultiplier,
+                        t));
+
+            default:
+                return 1f;
+        }
+    }
+
+    float GetEffectiveInitialDelay()
+    {
+        return Mathf.Max(0.01f, initialDelay * GetTimingMultiplierForCurrentRun());
+    }
+
+    float GetEffectiveSpreadInterval()
+    {
+        return Mathf.Max(0.01f, spreadInterval * GetTimingMultiplierForCurrentRun());
+    }
+
+    float GetTimingMultiplierForCurrentRun()
+    {
+        if (!scaleTimingByRunDifficulty)
+            return 1f;
+
+        switch (RegionRunState.Difficulty)
+        {
+            case RunDifficulty.Easy:
+                return Mathf.Max(0.01f, easyTimingMultiplier);
+
+            case RunDifficulty.Medium:
+                return Mathf.Max(0.01f, mediumTimingMultiplier);
+
+            case RunDifficulty.Hard:
+                return Mathf.Max(0.01f, hardTimingMultiplier);
+
+            case RunDifficulty.Gradual:
+                int phase = Mathf.Max(1, RegionRunState.PhaseNumber);
+                int maxPhase = Mathf.Max(1, gradualTimingMaxPhase);
+                float t = maxPhase <= 1
+                    ? 1f
+                    : Mathf.Clamp01((phase - 1f) / (maxPhase - 1f));
+                return Mathf.Max(
+                    0.01f,
+                    Mathf.Lerp(
+                        gradualStartingTimingMultiplier,
+                        gradualEndingTimingMultiplier,
+                        t));
+
+            default:
+                return 1f;
         }
     }
 
@@ -326,7 +478,7 @@ public class ContaminationStormController : MonoBehaviour
             max = bounds.max;
         }
 
-        for (int attempt = 0; attempt < 8; attempt++)
+        for (int attempt = 0; attempt < 16; attempt++)
         {
             Vector3 candidate = new Vector3(
                 Random.Range(min.x, max.x),
@@ -336,12 +488,215 @@ public class ContaminationStormController : MonoBehaviour
             NavMeshHit hit;
             if (NavMesh.SamplePosition(candidate, out hit, navMeshSampleRadius, NavMesh.AllAreas))
             {
-                position = hit.position + Vector3.up * spawnHeightOffset;
+                if (TryFindFloorAtRoomPoint(
+                    hit.position,
+                    bounds,
+                    out RaycastHit floorHit))
+                {
+                    position = floorHit.point + floorHit.normal.normalized * spawnHeightOffset;
+                    return true;
+                }
+            }
+
+            if (TryFindFloorAtRoomPoint(candidate, bounds, out RaycastHit randomFloorHit))
+            {
+                position = randomFloorHit.point +
+                    randomFloorHit.normal.normalized * spawnHeightOffset;
                 return true;
             }
         }
 
-        position = bounds.center + Vector3.up * spawnHeightOffset;
+        if (TryFindFloorAtRoomPoint(bounds.center, bounds, out RaycastHit fallbackHit))
+        {
+            position = fallbackHit.point +
+                fallbackHit.normal.normalized * spawnHeightOffset;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryFindFloorAtRoomPoint(
+        Vector3 point,
+        Bounds roomBounds,
+        out RaycastHit floorHit)
+    {
+        floorHit = default;
+
+        float padding = Mathf.Max(0.1f, dirtPlacementRaycastPadding);
+        Vector3 origin = new Vector3(
+            point.x,
+            Mathf.Min(point.y + padding, roomBounds.max.y + padding),
+            point.z);
+        float maxDistance = Mathf.Max(0.1f, padding * 2f);
+
+        RaycastHit[] hits = Physics.RaycastAll(
+            origin,
+            Vector3.down,
+            maxDistance,
+            dirtPlacementMask,
+            QueryTriggerInteraction.Ignore);
+
+        if (hits == null || hits.Length == 0)
+            return false;
+
+        float minimumDot = Mathf.Clamp01(minimumFloorNormalDot);
+        float bestY = float.NegativeInfinity;
+        bool found = false;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (hit.collider == null)
+                continue;
+
+            if (Vector3.Dot(hit.normal.normalized, Vector3.up) < minimumDot)
+                continue;
+
+            if (!IsValidDirtSurfaceHit(hit, roomBounds))
+                continue;
+
+            if (!found || hit.point.y > bestY)
+            {
+                floorHit = hit;
+                bestY = hit.point.y;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    bool TryGetRoomWallSpawnPosition(GameObject room, out Vector3 position)
+    {
+        position = room != null ? room.transform.position : transform.position;
+        if (room == null) return false;
+
+        Bounds bounds = GetRoomBounds(room);
+        Vector3 min = bounds.min + Vector3.one * roomBoundsInset;
+        Vector3 max = bounds.max - Vector3.one * roomBoundsInset;
+
+        if (min.x > max.x || min.z > max.z)
+        {
+            min = bounds.min;
+            max = bounds.max;
+        }
+
+        for (int attempt = 0; attempt < 16; attempt++)
+        {
+            Vector3 candidate = new Vector3(
+                Random.Range(min.x, max.x),
+                bounds.center.y,
+                Random.Range(min.z, max.z));
+
+            NavMeshHit navHit;
+            if (NavMesh.SamplePosition(
+                candidate,
+                out navHit,
+                navMeshSampleRadius,
+                NavMesh.AllAreas))
+            {
+                candidate = navHit.position;
+            }
+
+            candidate.y = Mathf.Clamp(
+                candidate.y + wallDirtHeightOffset,
+                bounds.min.y,
+                bounds.max.y);
+
+            if (TryFindWallNearPoint(candidate, bounds, out RaycastHit wallHit))
+            {
+                position = wallHit.point +
+                    wallHit.normal.normalized * spawnHeightOffset;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool TryFindWallNearPoint(
+        Vector3 point,
+        Bounds roomBounds,
+        out RaycastHit wallHit)
+    {
+        wallHit = default;
+
+        float searchRadius = Mathf.Max(0.1f, wallDirtSearchRadius);
+        float minimumUpDot = minimumWallSurfaceUpDot;
+        float maximumUpDot = maximumWallSurfaceUpDot;
+        if (minimumUpDot > maximumUpDot)
+        {
+            float temp = minimumUpDot;
+            minimumUpDot = maximumUpDot;
+            maximumUpDot = temp;
+        }
+
+        Vector3[] directions =
+        {
+            Vector3.forward,
+            Vector3.back,
+            Vector3.left,
+            Vector3.right,
+            new Vector3(1f, 0f, 1f).normalized,
+            new Vector3(-1f, 0f, 1f).normalized,
+            new Vector3(1f, 0f, -1f).normalized,
+            new Vector3(-1f, 0f, -1f).normalized
+        };
+
+        float bestDistance = float.MaxValue;
+        bool found = false;
+
+        for (int i = 0; i < directions.Length; i++)
+        {
+            RaycastHit[] hits = Physics.RaycastAll(
+                point,
+                directions[i],
+                searchRadius,
+                dirtPlacementMask,
+                QueryTriggerInteraction.Ignore);
+
+            for (int hitIndex = 0; hitIndex < hits.Length; hitIndex++)
+            {
+                RaycastHit hit = hits[hitIndex];
+                if (!IsValidDirtSurfaceHit(hit, roomBounds))
+                    continue;
+
+                float upDot = Vector3.Dot(hit.normal.normalized, Vector3.up);
+                if (upDot < minimumUpDot || upDot > maximumUpDot)
+                    continue;
+
+                if (hit.distance >= bestDistance)
+                    continue;
+
+                wallHit = hit;
+                bestDistance = hit.distance;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    bool IsValidDirtSurfaceHit(RaycastHit hit, Bounds roomBounds)
+    {
+        if (hit.collider == null)
+            return false;
+
+        if (hit.collider.GetComponentInParent<DirtSpot>() != null)
+            return false;
+
+        float padding = Mathf.Max(0.1f, dirtPlacementRaycastPadding);
+        if (hit.point.x < roomBounds.min.x - padding ||
+            hit.point.x > roomBounds.max.x + padding ||
+            hit.point.y < roomBounds.min.y - padding ||
+            hit.point.y > roomBounds.max.y + padding ||
+            hit.point.z < roomBounds.min.z - padding ||
+            hit.point.z > roomBounds.max.z + padding)
+        {
+            return false;
+        }
+
         return true;
     }
 

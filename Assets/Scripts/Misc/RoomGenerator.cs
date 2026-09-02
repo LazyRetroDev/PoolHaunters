@@ -79,6 +79,20 @@ public class RoomGenerator : MonoBehaviour
         public RoomConnector second;
     }
 
+    class RoomConnectionSnapshot
+    {
+        public RoomConnector neighborConnector;
+        public Vector2Int neighborCell;
+    }
+
+    class PoolReplacementCandidate
+    {
+        public GameObject room;
+        public GameObject poolPrefab;
+        public RoomPlacement placement;
+        public float score;
+    }
+
     class FullMapGenerationStats
     {
         public int requiredBranchCount;
@@ -159,6 +173,11 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField] private RoomGenerationProfile generationProfile;
     [SerializeField] private bool applyGenerationProfileOnAwake = true;
 
+    [Header("Phase Profile")]
+    [SerializeField] private bool applyPhaseProfileOnAwake = true;
+    [SerializeField] private RunPhaseProfile fallbackPhaseProfile;
+    [SerializeField] private RunPhaseProfile[] phaseProfiles = new RunPhaseProfile[0];
+
     [Header("Rooms")]
     public GameObject[] roomPrefabs;
     public int startingRoomCount = 2;
@@ -171,6 +190,9 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField] private bool requirePoolRoomsInFullMap = true;
     [Min(0)]
     [SerializeField] private int minimumRequiredPoolRooms = 1;
+    [SerializeField] private bool spreadRequiredPoolRooms = true;
+    [Min(0)]
+    [SerializeField] private int minimumPoolRoomCellDistance = 1;
 
     [Min(1)]
     public int minimumBranchCount = 3;
@@ -272,6 +294,12 @@ public class RoomGenerator : MonoBehaviour
     [SerializeField, Min(0f)] private float waterValveSidePadding = 1.25f;
     [SerializeField, Min(1)] private int waterValveWallProbeAttempts = 16;
     [SerializeField] private Vector3 waterValveRotationOffset;
+    [SerializeField, Min(0f)] private float waterValveMinimumDoorDistance = 2.5f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceWidth = 1.0f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceHeight = 1.2f;
+    [SerializeField, Min(0.05f)] private float waterValveClearanceDepth = 0.6f;
+    [SerializeField, Min(0f)] private float waterValveClearanceForwardOffset = 0.15f;
+    [SerializeField] private LayerMask waterValveBlockingLayers = ~0;
 
     [Header("Run Progression")]
     [SerializeField] private RoomProgressionController progression;
@@ -361,9 +389,23 @@ public class RoomGenerator : MonoBehaviour
     private Coroutine roomContentFlushCoroutine;
     private bool mapMessageHandlersRegistered;
     private bool generatedMapSnapshotReady;
+    private bool generatedMapReadyEventRaised;
     private bool clientPlayerTeleportedAfterInitialMapSync;
     private GameObject spawnedWaterValve;
     private bool generatedMapReadyEventRaised;
+
+    public int CurrentSeed => seed;
+    public bool IsGeneratedMapReady => generatedMapSnapshotReady;
+
+    public List<GameObject> GetSpawnedRoomsSnapshot()
+    {
+        return new List<GameObject>(spawnedRooms);
+    }
+
+    public bool ContainsGeneratedRoom(GameObject room)
+    {
+        return room != null && spawnedRooms.Contains(room);
+    }
 
     public int CurrentSeed => seed;
     public bool IsGeneratedMapReady => generatedMapSnapshotReady;
@@ -405,14 +447,14 @@ public class RoomGenerator : MonoBehaviour
 
         if (applyGenerationProfileOnAwake)
             ApplyGenerationProfile();
+
+        if (applyPhaseProfileOnAwake)
+            ApplyPhaseProfile(ResolvePhaseProfile());
     }
 
     [ContextMenu("Apply Generation Profile")]
     public void ApplyGenerationProfile()
     {
-        if (generationProfile == null)
-            return;
-
         ApplyGenerationProfile(generationProfile);
     }
 
@@ -495,6 +537,42 @@ public class RoomGenerator : MonoBehaviour
         drawBranchConnectionGizmos = profile.drawBranchConnectionGizmos;
         generationDebugMarkerSize = profile.generationDebugMarkerSize;
         generationDebugLabelHeight = profile.generationDebugLabelHeight;
+    }
+
+    public void ApplyPhaseProfile(RunPhaseProfile profile)
+    {
+        if (profile == null)
+            return;
+
+        minimumBranchCount = profile.minimumBranchCount;
+        maximumBranchCount = profile.maximumBranchCount;
+        minimumRoomsPerBranch = profile.minimumRoomsPerBranch;
+        maximumRoomsPerBranch = profile.maximumRoomsPerBranch;
+
+        requirePoolRoomsInFullMap = profile.requirePoolRoomsInFullMap;
+        minimumRequiredPoolRooms = profile.minimumPoolRoomsInMap;
+    }
+
+    RunPhaseProfile ResolvePhaseProfile()
+    {
+        RunPhaseProfile profile = GetPhaseProfileForCurrentRun();
+        if (profile != null)
+            return profile;
+
+        return fallbackPhaseProfile;
+    }
+
+    RunPhaseProfile GetPhaseProfileForCurrentRun()
+    {
+        if (phaseProfiles == null || phaseProfiles.Length == 0)
+            return null;
+
+        int phaseIndex = RegionRunState.HasSelectedRegion
+            ? RegionRunState.PhaseNumber - 1
+            : 0;
+        phaseIndex = Mathf.Clamp(phaseIndex, 0, phaseProfiles.Length - 1);
+
+        return phaseProfiles[phaseIndex];
     }
 
     void Start()
@@ -753,6 +831,7 @@ public class RoomGenerator : MonoBehaviour
         TrackGeneratedPrefab(roomPrefab, roomIndex);
         generatedRoomCount++;
         RecordGeneratedRoom(room, roomPrefab, placement, roomIndex);
+        SelectPoolRoomVariant(room, roomIndex);
 
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
@@ -2126,6 +2205,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
             totalWeight += GetRoomPrefabWeight(prefab);
         }
@@ -2139,6 +2219,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
 
             roll -= GetRoomPrefabWeight(prefab);
@@ -2147,6 +2228,65 @@ public class RoomGenerator : MonoBehaviour
         }
 
         return null;
+    }
+
+    bool IsTargetCellTooCloseToRoomCategory(
+        RoomConnector expansionConnector,
+        RoomCategory category,
+        int minimumCellDistance)
+    {
+        if (!spreadRequiredPoolRooms)
+            return false;
+
+        int distance = Mathf.Max(0, minimumCellDistance);
+        if (distance <= 0)
+            return false;
+
+        Vector2Int targetCell;
+        if (!TryGetConnectorTargetCell(expansionConnector, out targetCell))
+            return false;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            RoomPlacement placement = pair.Value;
+            if (room == null || placement == null)
+                continue;
+
+            RoomDefinition definition = GetRoomDefinition(room);
+            if (definition == null || definition.category != category)
+                continue;
+
+            int cellDistance =
+                Mathf.Abs(targetCell.x - placement.cell.x) +
+                Mathf.Abs(targetCell.y - placement.cell.y);
+            if (cellDistance <= distance)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool IsRoomPrefabCategory(GameObject prefab, RoomCategory category)
+    {
+        RoomDefinition definition = GetRoomDefinition(prefab);
+        return definition != null && definition.category == category;
+    }
+
+    bool ShouldAvoidPoolRoomForSpread(
+        GameObject prefab,
+        RoomConnector expansionConnector,
+        RoomGenerationRole role)
+    {
+        if (role != RoomGenerationRole.BranchMiddle)
+            return false;
+        if (!IsRoomPrefabCategory(prefab, RoomCategory.Pool))
+            return false;
+
+        return IsTargetCellTooCloseToRoomCategory(
+            expansionConnector,
+            RoomCategory.Pool,
+            minimumPoolRoomCellDistance);
     }
 
     bool CanSpawnRoomPrefabForRole(GameObject prefab, RoomGenerationRole role)
@@ -2168,6 +2308,15 @@ public class RoomGenerator : MonoBehaviour
             GetGeneratedPrefabCount(prefab),
             generatedRoomCount,
             GetRoomsSinceLastInstance(prefab)))
+        {
+            return false;
+        }
+
+        if (progression != null &&
+            !progression.AllowsRoom(
+                definition,
+                generatedRoomCount,
+                maxGeneratedRooms))
         {
             return false;
         }
@@ -2747,6 +2896,7 @@ public class RoomGenerator : MonoBehaviour
 
         int adjacentBranchConnections = TryConnectAdjacentBranches();
         RecordAdjacentBranchConnections(adjacentBranchConnections);
+        EnsureRequiredPoolRoomsAfterGeneration();
         CleanOpenConnectors();
 
         for (int i = 0; i < spawnedRooms.Count; i++)
@@ -2823,6 +2973,811 @@ public class RoomGenerator : MonoBehaviour
         }
 
         return connectedCount;
+    }
+
+    int EnsureRequiredPoolRoomsAfterGeneration()
+    {
+        if (!requirePoolRoomsInFullMap)
+            return 0;
+
+        int requiredPools = Mathf.Max(0, minimumRequiredPoolRooms);
+        if (requiredPools <= 0)
+            return 0;
+
+        int replacedCount = 0;
+        string lastFailureReason = string.Empty;
+
+        while (CountRoomsInCategory(RoomCategory.Pool) < requiredPools)
+        {
+            bool replaced =
+                TryReplaceGeneratedRoomWithPool(
+                    requireSpread: spreadRequiredPoolRooms,
+                    avoidFirstBranchRoom: true,
+                    out lastFailureReason) ||
+                TryReplaceGeneratedRoomWithPool(
+                    requireSpread: false,
+                    avoidFirstBranchRoom: true,
+                    out lastFailureReason) ||
+                TryReplaceGeneratedRoomWithPool(
+                    requireSpread: false,
+                    avoidFirstBranchRoom: false,
+                    out lastFailureReason);
+
+            if (!replaced)
+                break;
+
+            replacedCount++;
+        }
+
+        if (replacedCount > 0)
+        {
+            Physics.SyncTransforms();
+            Debug.Log(
+                $"RoomGenerator replaced {replacedCount} generated room(s) with required pool room(s).");
+        }
+
+        int poolRoomCount = CountRoomsInCategory(RoomCategory.Pool);
+        if (poolRoomCount < requiredPools)
+        {
+            string reason = string.IsNullOrWhiteSpace(lastFailureReason)
+                ? "no eligible generated room could be replaced by a pool room"
+                : lastFailureReason;
+            RecordGenerationRejection(
+                $"required pool replacement failed: {reason}");
+            Debug.LogWarning(
+                $"RoomGenerator could only place {poolRoomCount}/{requiredPools} required pool room(s): {reason}.");
+        }
+
+        return replacedCount;
+    }
+
+    bool TryReplaceGeneratedRoomWithPool(
+        bool requireSpread,
+        bool avoidFirstBranchRoom,
+        out string failureReason)
+    {
+        failureReason = "no eligible room found";
+        PoolReplacementCandidate bestCandidate = null;
+
+        for (int i = 0; i < spawnedRooms.Count; i++)
+        {
+            GameObject room = spawnedRooms[i];
+            RoomPlacement placement;
+            string rejectionReason;
+            if (!CanUseRoomAsPoolReplacementTarget(
+                room,
+                requireSpread,
+                avoidFirstBranchRoom,
+                out placement,
+                out rejectionReason))
+            {
+                failureReason = rejectionReason;
+                continue;
+            }
+
+            GameObject poolPrefab;
+            if (!TryChoosePoolReplacementPrefab(
+                room,
+                placement,
+                out poolPrefab,
+                out rejectionReason))
+            {
+                failureReason = rejectionReason;
+                continue;
+            }
+
+            float score = GetPoolReplacementScore(room, placement);
+            if (bestCandidate == null ||
+                score > bestCandidate.score ||
+                Mathf.Approximately(score, bestCandidate.score) && Random.value > 0.5f)
+            {
+                bestCandidate = new PoolReplacementCandidate
+                {
+                    room = room,
+                    poolPrefab = poolPrefab,
+                    placement = placement,
+                    score = score
+                };
+            }
+        }
+
+        if (bestCandidate == null)
+            return false;
+
+        return ReplaceGeneratedRoomWithPool(bestCandidate, out failureReason);
+    }
+
+    bool CanUseRoomAsPoolReplacementTarget(
+        GameObject room,
+        bool requireSpread,
+        bool avoidFirstBranchRoom,
+        out RoomPlacement placement,
+        out string rejectionReason)
+    {
+        placement = null;
+        rejectionReason = string.Empty;
+
+        if (room == null)
+        {
+            rejectionReason = "room is missing";
+            return false;
+        }
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null)
+        {
+            rejectionReason = $"{room.name} has no RoomDefinition";
+            return false;
+        }
+
+        if (definition.category == RoomCategory.Pool)
+        {
+            rejectionReason = $"{room.name} is already a pool room";
+            return false;
+        }
+
+        if (definition.category == RoomCategory.Final || IsStartRoom(room))
+        {
+            rejectionReason = $"{room.name} is start or final room";
+            return false;
+        }
+
+        if (avoidFirstBranchRoom && IsFirstGeneratedRoomInBranch(room))
+        {
+            rejectionReason = $"{room.name} is the first branch room";
+            return false;
+        }
+
+        if (!placementsByRoom.TryGetValue(room, out placement) || placement == null)
+        {
+            rejectionReason = $"{room.name} has no registered placement";
+            return false;
+        }
+
+        if (requireSpread &&
+            IsCellTooCloseToRoomCategory(
+                placement.cell,
+                RoomCategory.Pool,
+                minimumPoolRoomCellDistance))
+        {
+            rejectionReason = $"{room.name} is too close to another pool room";
+            return false;
+        }
+
+        List<RoomConnectionSnapshot> connections =
+            new List<RoomConnectionSnapshot>();
+        if (!CollectConnectedRoomConnections(room, connections))
+        {
+            rejectionReason = $"{room.name} has no valid connected room links";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool TryChoosePoolReplacementPrefab(
+        GameObject room,
+        RoomPlacement placement,
+        out GameObject poolPrefab,
+        out string failureReason)
+    {
+        poolPrefab = null;
+        failureReason = "no pool room prefab can replace this room";
+        float totalWeight = 0f;
+
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (!CanPoolPrefabReplaceRoom(prefab, room, placement, out failureReason))
+                continue;
+
+            totalWeight += Mathf.Max(0.01f, GetRoomPrefabWeight(prefab));
+        }
+
+        if (totalWeight <= 0f)
+            return false;
+
+        float roll = Random.Range(0f, totalWeight);
+        for (int i = 0; i < roomPrefabs.Length; i++)
+        {
+            GameObject prefab = roomPrefabs[i];
+            if (!CanPoolPrefabReplaceRoom(prefab, room, placement, out failureReason))
+                continue;
+
+            roll -= Mathf.Max(0.01f, GetRoomPrefabWeight(prefab));
+            if (roll <= 0f)
+            {
+                poolPrefab = prefab;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool CanPoolPrefabReplaceRoom(
+        GameObject poolPrefab,
+        GameObject room,
+        RoomPlacement placement,
+        out string failureReason)
+    {
+        failureReason = string.Empty;
+        if (poolPrefab == null)
+        {
+            failureReason = "pool prefab is missing";
+            return false;
+        }
+
+        if (!IsRoomPrefabCategory(poolPrefab, RoomCategory.Pool))
+        {
+            failureReason = $"{poolPrefab.name} is not a pool room";
+            return false;
+        }
+
+        GameObject previewRoom = Instantiate(
+            poolPrefab,
+            room.transform.position,
+            room.transform.rotation);
+        previewRoom.name = poolPrefab.name + "_PoolReplacementPreview";
+
+        bool canReplace = false;
+        try
+        {
+            RoomPlacement previewPlacement;
+            if (!CanPlaceReplacementRoom(
+                previewRoom,
+                placement.cell,
+                room,
+                out previewPlacement,
+                out failureReason))
+            {
+                return false;
+            }
+
+            List<RoomConnectionSnapshot> connections =
+                new List<RoomConnectionSnapshot>();
+            if (!CollectConnectedRoomConnections(room, connections))
+            {
+                failureReason = $"{room.name} has no valid connected room links";
+                return false;
+            }
+
+            List<RoomConnector> mappedConnectors;
+            if (!TryMapReplacementConnectors(
+                previewRoom,
+                previewPlacement,
+                connections,
+                out mappedConnectors,
+                out failureReason))
+            {
+                return false;
+            }
+
+            canReplace = true;
+            return true;
+        }
+        finally
+        {
+            DestroyGeneratedObject(previewRoom);
+            if (!canReplace)
+                Physics.SyncTransforms();
+        }
+    }
+
+    bool ReplaceGeneratedRoomWithPool(
+        PoolReplacementCandidate candidate,
+        out string failureReason)
+    {
+        failureReason = string.Empty;
+        if (candidate == null ||
+            candidate.room == null ||
+            candidate.poolPrefab == null ||
+            candidate.placement == null)
+        {
+            failureReason = "pool replacement candidate is invalid";
+            return false;
+        }
+
+        GameObject oldRoom = candidate.room;
+        int roomIndex = spawnedRooms.IndexOf(oldRoom);
+        if (roomIndex < 0)
+        {
+            failureReason = $"{oldRoom.name} is no longer tracked";
+            return false;
+        }
+
+        List<RoomConnectionSnapshot> connections =
+            new List<RoomConnectionSnapshot>();
+        if (!CollectConnectedRoomConnections(oldRoom, connections))
+        {
+            failureReason = $"{oldRoom.name} has no valid connected room links";
+            return false;
+        }
+
+        GameObject replacementRoom = Instantiate(
+            candidate.poolPrefab,
+            oldRoom.transform.position,
+            oldRoom.transform.rotation);
+
+        if (renameGeneratedRoomsForDebug)
+            replacementRoom.name = GetGeneratedRoomDebugName(
+                candidate.poolPrefab,
+                candidate.placement,
+                roomIndex);
+
+        RoomPlacement replacementPlacement;
+        if (!CanPlaceReplacementRoom(
+            replacementRoom,
+            candidate.placement.cell,
+            oldRoom,
+            out replacementPlacement,
+            out failureReason))
+        {
+            DestroyGeneratedObject(replacementRoom);
+            return false;
+        }
+
+        List<RoomConnector> replacementConnectors;
+        if (!TryMapReplacementConnectors(
+            replacementRoom,
+            replacementPlacement,
+            connections,
+            out replacementConnectors,
+            out failureReason))
+        {
+            DestroyGeneratedObject(replacementRoom);
+            return false;
+        }
+
+        RoomDebugInfo debugInfo = GetRoomDebugInfo(oldRoom);
+        bool contentWasSpawned = contentSpawnedRooms.Remove(oldRoom);
+        bool contentWasPending = ReplacePendingRoomContentSpawn(
+            oldRoom,
+            replacementRoom,
+            roomIndex);
+
+        RemoveOpenConnectorsForRoom(oldRoom);
+        RemoveDebugBranchConnectionsForRoom(oldRoom);
+        UnregisterRoomNavMesh(oldRoom);
+
+        if (resourceSpawner != null)
+            resourceSpawner.DespawnResourcesForRoom(oldRoom);
+
+        if (enemySpawner != null)
+            enemySpawner.DespawnEnemiesForRoom(oldRoom);
+
+        generatedPrefabIndicesByRoom.Remove(oldRoom);
+        roomDebugInfoByRoom.Remove(oldRoom);
+
+        spawnedRooms[roomIndex] = replacementRoom;
+        DestroyGeneratedObject(oldRoom);
+
+        RegisterRoomPlacement(replacementPlacement);
+        generatedPrefabIndicesByRoom[replacementRoom] =
+            GetRoomPrefabIndex(candidate.poolPrefab);
+
+        if (debugInfo != null)
+        {
+            debugInfo.cell = replacementPlacement.cell;
+            debugInfo.isFinal = false;
+            roomDebugInfoByRoom[replacementRoom] = debugInfo;
+        }
+        else
+        {
+            RecordRoomDebugInfo(replacementRoom, replacementPlacement, roomIndex);
+        }
+
+        SelectPoolRoomVariant(replacementRoom, roomIndex);
+
+        for (int i = 0; i < connections.Count; i++)
+        {
+            RoomConnectionSnapshot connection = connections[i];
+            RoomConnector replacementConnector = replacementConnectors[i];
+            connection.neighborConnector.Open();
+            replacementConnector.Open();
+
+            if (!ConnectReplacementRoomLink(
+                replacementConnector,
+                connection.neighborConnector))
+            {
+                failureReason =
+                    $"could not reconnect {replacementRoom.name} to {connection.neighborConnector.name}";
+                Debug.LogWarning(
+                    $"RoomGenerator failed to reconnect pool replacement: {failureReason}");
+            }
+        }
+
+        RegisterRoomDoors(replacementRoom);
+        RegisterRoomNavMesh(replacementRoom);
+        AddOpenConnectors(replacementRoom);
+        UpdateLegacyExitPoint(replacementRoom);
+
+        if (contentWasSpawned)
+            SpawnRoomContent(replacementRoom, roomIndex);
+        else if (!contentWasPending)
+            SpawnOrQueueRoomContent(replacementRoom, roomIndex);
+
+        return true;
+    }
+
+    bool CanPlaceReplacementRoom(
+        GameObject room,
+        Vector2Int cell,
+        GameObject ignoredRoom,
+        out RoomPlacement placement,
+        out string rejectionReason)
+    {
+        placement = new RoomPlacement
+        {
+            room = room,
+            cell = cell,
+            bounds = CalculateRoomBounds(room)
+        };
+        rejectionReason = null;
+
+        RoomPlacement occupiedPlacement;
+        if (useGridOccupancy &&
+            placementsByCell.TryGetValue(cell, out occupiedPlacement) &&
+            occupiedPlacement != null &&
+            occupiedPlacement.room != null &&
+            occupiedPlacement.room != ignoredRoom)
+        {
+            rejectionReason = $"cell {cell} is already occupied";
+            return false;
+        }
+
+        GameObject overlappingRoom;
+        if (useBoundsOverlapCheck &&
+            IntersectsExistingRoomIgnoring(
+                placement.bounds,
+                ignoredRoom,
+                out overlappingRoom))
+        {
+            rejectionReason = overlappingRoom != null
+                ? $"bounds overlap {overlappingRoom.name}"
+                : "bounds overlap another generated room";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool IntersectsExistingRoomIgnoring(
+        Bounds candidateBounds,
+        GameObject ignoredRoom,
+        out GameObject overlappingRoom)
+    {
+        overlappingRoom = null;
+        Bounds candidate = ShrinkBounds(candidateBounds);
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            RoomPlacement placement = pair.Value;
+            if (placement == null || placement.room == null) continue;
+            if (placement.room == ignoredRoom) continue;
+
+            Bounds existing = ShrinkBounds(placement.bounds);
+            if (!candidate.Intersects(existing)) continue;
+
+            overlappingRoom = placement.room;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool CollectConnectedRoomConnections(
+        GameObject room,
+        List<RoomConnectionSnapshot> connections)
+    {
+        if (room == null || connections == null)
+            return false;
+
+        RoomDefinition definition = GetRoomDefinition(room);
+        if (definition == null || definition.connectors == null)
+            return false;
+
+        connections.Clear();
+        for (int i = 0; i < definition.connectors.Length; i++)
+        {
+            RoomConnector connector = definition.connectors[i];
+            if (connector == null ||
+                connector.State != RoomConnectorState.Connected ||
+                connector.ConnectedTo == null)
+            {
+                continue;
+            }
+
+            RoomPlacement neighborPlacement;
+            if (!TryGetConnectorSourcePlacement(
+                connector.ConnectedTo,
+                out neighborPlacement) ||
+                neighborPlacement == null ||
+                neighborPlacement.room == null)
+            {
+                continue;
+            }
+
+            connections.Add(new RoomConnectionSnapshot
+            {
+                neighborConnector = connector.ConnectedTo,
+                neighborCell = neighborPlacement.cell
+            });
+        }
+
+        return connections.Count > 0;
+    }
+
+    bool TryMapReplacementConnectors(
+        GameObject replacementRoom,
+        RoomPlacement replacementPlacement,
+        List<RoomConnectionSnapshot> connections,
+        out List<RoomConnector> replacementConnectors,
+        out string failureReason)
+    {
+        replacementConnectors = new List<RoomConnector>();
+        failureReason = string.Empty;
+
+        RoomDefinition definition = GetRoomDefinition(replacementRoom);
+        if (definition == null || definition.connectors == null)
+        {
+            failureReason = $"{replacementRoom.name} has no RoomDefinition connectors";
+            return false;
+        }
+
+        List<RoomConnector> usedConnectors = new List<RoomConnector>();
+        for (int i = 0; i < connections.Count; i++)
+        {
+            RoomConnector connector;
+            if (!TryFindReplacementConnectorForConnection(
+                definition,
+                replacementPlacement,
+                connections[i],
+                usedConnectors,
+                out connector))
+            {
+                failureReason =
+                    $"{replacementRoom.name} has no connector for neighbor cell {connections[i].neighborCell}";
+                return false;
+            }
+
+            usedConnectors.Add(connector);
+            replacementConnectors.Add(connector);
+        }
+
+        return true;
+    }
+
+    bool TryFindReplacementConnectorForConnection(
+        RoomDefinition replacementDefinition,
+        RoomPlacement replacementPlacement,
+        RoomConnectionSnapshot connection,
+        List<RoomConnector> usedConnectors,
+        out RoomConnector replacementConnector)
+    {
+        replacementConnector = null;
+        if (replacementDefinition == null ||
+            replacementDefinition.connectors == null ||
+            replacementPlacement == null ||
+            connection == null ||
+            connection.neighborConnector == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < replacementDefinition.connectors.Length; i++)
+        {
+            RoomConnector candidate = replacementDefinition.connectors[i];
+            if (candidate == null || usedConnectors.Contains(candidate))
+                continue;
+
+            Vector2Int targetCell =
+                replacementPlacement.cell + GetConnectorStep(candidate);
+            if (targetCell != connection.neighborCell)
+                continue;
+
+            if (!CanPotentiallyConnectReplacement(
+                candidate,
+                connection.neighborConnector))
+            {
+                continue;
+            }
+
+            replacementConnector = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool CanPotentiallyConnectReplacement(
+        RoomConnector replacementConnector,
+        RoomConnector neighborConnector)
+    {
+        return CanPotentiallyConnectOrdered(
+                replacementConnector,
+                neighborConnector) ||
+            CanPotentiallyConnectOrdered(
+                neighborConnector,
+                replacementConnector);
+    }
+
+    bool CanPotentiallyConnectOrdered(
+        RoomConnector exitConnector,
+        RoomConnector entryConnector)
+    {
+        if (exitConnector == null || entryConnector == null)
+            return false;
+        if (!exitConnector.canBeExit || !entryConnector.canBeEntrance)
+            return false;
+        if (!exitConnector.enforceDirectionCompatibility &&
+            !entryConnector.enforceDirectionCompatibility)
+        {
+            return true;
+        }
+
+        return AreConnectorDirectionsCompatible(
+            exitConnector.direction,
+            entryConnector.direction);
+    }
+
+    bool AreConnectorDirectionsCompatible(
+        RoomDoorDirection first,
+        RoomDoorDirection second)
+    {
+        if (first == RoomDoorDirection.Any || second == RoomDoorDirection.Any)
+            return true;
+
+        return
+            first == RoomDoorDirection.North && second == RoomDoorDirection.South ||
+            first == RoomDoorDirection.South && second == RoomDoorDirection.North ||
+            first == RoomDoorDirection.East && second == RoomDoorDirection.West ||
+            first == RoomDoorDirection.West && second == RoomDoorDirection.East;
+    }
+
+    bool ConnectReplacementRoomLink(
+        RoomConnector replacementConnector,
+        RoomConnector neighborConnector)
+    {
+        if (replacementConnector == null || neighborConnector == null)
+            return false;
+
+        if (replacementConnector.CanConnectTo(neighborConnector))
+            return ConnectRooms(replacementConnector, neighborConnector);
+
+        if (neighborConnector.CanConnectTo(replacementConnector))
+            return ConnectRooms(neighborConnector, replacementConnector);
+
+        return false;
+    }
+
+    bool ReplacePendingRoomContentSpawn(
+        GameObject oldRoom,
+        GameObject replacementRoom,
+        int roomIndex)
+    {
+        bool replaced = false;
+        for (int i = 0; i < pendingRoomContentSpawns.Count; i++)
+        {
+            PendingRoomContentSpawn pending = pendingRoomContentSpawns[i];
+            if (pending == null || pending.room != oldRoom)
+                continue;
+
+            pending.room = replacementRoom;
+            pending.roomIndex = roomIndex;
+            replaced = true;
+        }
+
+        return replaced;
+    }
+
+    void UnregisterRoomNavMesh(GameObject room)
+    {
+        if (room == null)
+            return;
+
+        NavMeshSurface surface = room.GetComponent<NavMeshSurface>();
+        if (surface == null)
+            surface = room.GetComponentInChildren<NavMeshSurface>(true);
+
+        if (surface == null)
+            return;
+
+        registeredSurfaces.Remove(surface);
+        if (EnemySpawner.Instance != null)
+            EnemySpawner.Instance.UnregisterSurface(surface);
+    }
+
+    bool IsStartRoom(GameObject room)
+    {
+        if (room == null)
+            return false;
+        if (spawnedRooms.Count > 0 && spawnedRooms[0] == room)
+            return true;
+
+        RoomDebugInfo debugInfo = GetRoomDebugInfo(room);
+        return debugInfo != null && debugInfo.isStart;
+    }
+
+    bool IsFirstGeneratedRoomInBranch(GameObject room)
+    {
+        RoomDebugInfo debugInfo = GetRoomDebugInfo(room);
+        return debugInfo != null &&
+            !debugInfo.isStart &&
+            !debugInfo.isFinal &&
+            debugInfo.branchNumber > 0 &&
+            debugInfo.branchRoomNumber <= 1;
+    }
+
+    bool IsCellTooCloseToRoomCategory(
+        Vector2Int cell,
+        RoomCategory category,
+        int minimumCellDistance)
+    {
+        if (!spreadRequiredPoolRooms)
+            return false;
+
+        int distance = Mathf.Max(0, minimumCellDistance);
+        if (distance <= 0)
+            return false;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject room = pair.Key;
+            RoomPlacement placement = pair.Value;
+            if (room == null || placement == null) continue;
+
+            RoomDefinition definition = GetRoomDefinition(room);
+            if (definition == null || definition.category != category)
+                continue;
+
+            int cellDistance =
+                Mathf.Abs(placement.cell.x - cell.x) +
+                Mathf.Abs(placement.cell.y - cell.y);
+            if (cellDistance < distance)
+                return true;
+        }
+
+        return false;
+    }
+
+    float GetPoolReplacementScore(GameObject room, RoomPlacement placement)
+    {
+        float nearestPoolDistance = 0f;
+        bool foundPool = false;
+
+        foreach (KeyValuePair<GameObject, RoomPlacement> pair in placementsByRoom)
+        {
+            GameObject existingRoom = pair.Key;
+            RoomPlacement existingPlacement = pair.Value;
+            if (existingRoom == null ||
+                existingRoom == room ||
+                existingPlacement == null)
+            {
+                continue;
+            }
+
+            RoomDefinition definition = GetRoomDefinition(existingRoom);
+            if (definition == null || definition.category != RoomCategory.Pool)
+                continue;
+
+            float distance =
+                Mathf.Abs(existingPlacement.cell.x - placement.cell.x) +
+                Mathf.Abs(existingPlacement.cell.y - placement.cell.y);
+            if (!foundPool || distance < nearestPoolDistance)
+                nearestPoolDistance = distance;
+
+            foundPool = true;
+        }
+
+        RoomDebugInfo debugInfo = GetRoomDebugInfo(room);
+        float progressionScore = debugInfo != null
+            ? debugInfo.branchRoomNumber
+            : spawnedRooms.IndexOf(room);
+
+        return (foundPool ? nearestPoolDistance * 100f : 1000f) +
+            progressionScore +
+            Random.value * 0.1f;
     }
 
     void RecordDebugBranchConnection(
@@ -3469,7 +4424,8 @@ public class RoomGenerator : MonoBehaviour
                     wallNormal = -wallNormal;
 
                 BuildWaterValvePoseFromWall(hit.point, wallNormal, out position, out rotation);
-                return true;
+                if (IsWaterValvePoseValid(room, hit.point, wallNormal, rotation))
+                    return true;
             }
         }
 
@@ -3645,7 +4601,113 @@ public class RoomGenerator : MonoBehaviour
                 break;
         }
 
-        BuildWaterValvePoseFromWall(position, -outwardNormal, out position, out rotation);
+        Vector3 wallPoint = position;
+        Vector3 roomNormal = -outwardNormal;
+        BuildWaterValvePoseFromWall(wallPoint, roomNormal, out position, out rotation);
+        return IsWaterValvePoseValid(room, wallPoint, roomNormal, rotation);
+    }
+
+    bool IsWaterValvePoseValid(
+        GameObject room,
+        Vector3 wallPoint,
+        Vector3 roomNormal,
+        Quaternion rotation)
+    {
+        if (room == null)
+            return false;
+
+        if (roomNormal.sqrMagnitude <= 0.0001f)
+            roomNormal = rotation * Vector3.forward;
+        if (roomNormal.sqrMagnitude <= 0.0001f)
+            roomNormal = Vector3.forward;
+
+        roomNormal.Normalize();
+
+        if (IsWaterValveTooCloseToDoor(room, wallPoint))
+            return false;
+
+        return HasWaterValveClearance(room, wallPoint, roomNormal);
+    }
+
+    bool IsWaterValveTooCloseToDoor(GameObject room, Vector3 wallPoint)
+    {
+        float minimumDistance = Mathf.Max(0f, waterValveMinimumDoorDistance);
+        if (minimumDistance <= 0f)
+            return false;
+
+        float minimumSqrDistance = minimumDistance * minimumDistance;
+        RoomConnector[] connectors =
+            room.GetComponentsInChildren<RoomConnector>(true);
+
+        for (int i = 0; i < connectors.Length; i++)
+        {
+            RoomConnector connector = connectors[i];
+            Transform point = connector != null ? connector.Point : null;
+            if (point == null)
+                continue;
+
+            if ((point.position - wallPoint).sqrMagnitude < minimumSqrDistance)
+                return true;
+        }
+
+        DoorTrigger[] triggers = room.GetComponentsInChildren<DoorTrigger>(true);
+        for (int i = 0; i < triggers.Length; i++)
+        {
+            DoorTrigger trigger = triggers[i];
+            if (trigger == null)
+                continue;
+
+            if ((trigger.transform.position - wallPoint).sqrMagnitude < minimumSqrDistance)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool HasWaterValveClearance(
+        GameObject room,
+        Vector3 wallPoint,
+        Vector3 roomNormal)
+    {
+        float width = Mathf.Max(0.05f, waterValveClearanceWidth);
+        float height = Mathf.Max(0.05f, waterValveClearanceHeight);
+        float depth = Mathf.Max(0.05f, waterValveClearanceDepth);
+        float forwardOffset = Mathf.Max(0f, waterValveClearanceForwardOffset);
+        Vector3 center = wallPoint +
+            roomNormal * (forwardOffset + depth * 0.5f);
+        Quaternion boxRotation = Quaternion.LookRotation(roomNormal, Vector3.up);
+        Vector3 halfExtents = new Vector3(
+            width * 0.5f,
+            height * 0.5f,
+            depth * 0.5f);
+
+        Collider[] overlaps = Physics.OverlapBox(
+            center,
+            halfExtents,
+            boxRotation,
+            waterValveBlockingLayers,
+            QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            Collider overlap = overlaps[i];
+            if (overlap == null)
+                continue;
+            if (IsDoorwayIgnoredLayer(overlap.gameObject.layer))
+                continue;
+            if (overlap.GetComponentInParent<RoomConnector>() != null ||
+                overlap.GetComponentInParent<DoorTrigger>() != null)
+            {
+                return false;
+            }
+
+            Transform overlapTransform = overlap.transform;
+            if (overlapTransform.IsChildOf(room.transform))
+                return false;
+
+            return false;
+        }
+
         return true;
     }
 
@@ -4863,10 +5925,25 @@ public class RoomGenerator : MonoBehaviour
             SendGeneratedMapSnapshotToConnectedClients();
             FlushPendingRoomContentSpawns();
         }
+        else if (CanSpawnRoomContentNow())
+        {
+            FlushPendingRoomContentSpawns();
+        }
         else
         {
             StartRoomContentFlushWhenReady();
         }
+
+        RaiseGeneratedMapReady();
+    }
+
+    void RaiseGeneratedMapReady()
+    {
+        if (generatedMapReadyEventRaised)
+            return;
+
+        generatedMapReadyEventRaised = true;
+        OnGeneratedMapReady?.Invoke(this);
     }
 
     bool CanSendGeneratedMapSnapshot()
@@ -5102,6 +6179,7 @@ public class RoomGenerator : MonoBehaviour
             TeleportLocalClientPlayerToSpawn();
 
         Debug.Log($"RoomGenerator synchronized {spawnedRooms.Count} room(s) from host.");
+        RaiseGeneratedMapReady();
     }
 
     void RaiseGeneratedMapReadyEventOnce()
@@ -5148,8 +6226,20 @@ public class RoomGenerator : MonoBehaviour
         generatedPrefabIndicesByRoom[room] = roomSnapshot.prefabIndex;
         TrackGeneratedPrefab(roomPrefab, roomSnapshot.roomIndex);
         RecordRoomDebugInfo(room, placement, roomSnapshot.roomIndex);
+        SelectPoolRoomVariant(room, roomSnapshot.roomIndex);
         RegisterRoomDoors(room);
         RegisterRoomNavMesh(room);
+    }
+
+    void SelectPoolRoomVariant(GameObject room, int roomIndex)
+    {
+        if (room == null)
+            return;
+
+        PoolRoomPoolSelector selector =
+            room.GetComponentInChildren<PoolRoomPoolSelector>(true);
+        if (selector != null)
+            selector.SelectPool(seed, roomIndex);
     }
 
     void ApplySynchronizedConnectorStates(

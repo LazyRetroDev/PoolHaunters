@@ -19,12 +19,22 @@ public class MainMenu : MonoBehaviour
     const string ReadyMessageName = "PoolHaunters_LobbyReady";
     const string SnapshotMessageName = "PoolHaunters_LobbySnapshot";
     const string StartGameMessageName = "PoolHaunters_LobbyStartGame";
+    const string PlayerNameMessageName = "PoolHaunters_LobbyPlayerName";
+    const string PlayerNamePrefsKey = "PlayerName";
+    const string DefaultPlayerName = "Player";
 
     [Header("Run")]
     [SerializeField] private string regionName = "Submarino";
     [SerializeField] private string gameSceneName = "Game";
+    [SerializeField] private RunSceneOption[] availableRunScenes =
+    {
+        new RunSceneOption { regionName = "Hospital", sceneName = "Game", weight = 1f },
+        new RunSceneOption { regionName = "Museum", sceneName = "Game 1", weight = 1f },
+        new RunSceneOption { regionName = "Hotel", sceneName = "Game 2", weight = 1f }
+    };
     [SerializeField] private bool useRandomSeed = true;
     [SerializeField] private int fixedSeed;
+    [SerializeField] private RunDifficulty selectedDifficulty = RunDifficulty.Gradual;
 
     [Header("Multiplayer LAN / Direct")]
     [SerializeField] private string connectionAddress = "127.0.0.1";
@@ -54,9 +64,15 @@ public class MainMenu : MonoBehaviour
     [SerializeField] private TMP_Text joinCodeText;
     [SerializeField] private TMP_Text lobbyStatusText;
     [SerializeField] private TMP_InputField joinCodeInput;
+    [SerializeField] private TMP_InputField nameField;
+    [SerializeField] private TMP_Dropdown singleplayerDifficultyDropdown;
+    [SerializeField] private TMP_Dropdown multiplayerDifficultyDropdown;
+    [SerializeField] private TMP_Dropdown difficultyDropdown;
 
     private readonly Dictionary<ulong, bool> lobbyReadyByClientId =
         new Dictionary<ulong, bool>();
+    private readonly Dictionary<ulong, string> lobbyNameByClientId =
+        new Dictionary<ulong, string>();
 
     private bool registeredNetworkCallbacks;
     private bool registeredMessageHandlers;
@@ -66,6 +82,7 @@ public class MainMenu : MonoBehaviour
     private bool gameStartInProgress;
     private bool cursorUnlockRequested;
     private bool characterSelectConfirmed;
+    private Coroutine messageHandlerRegistrationCoroutine;
 
     public void StartSinglePlayer()
     {
@@ -76,8 +93,13 @@ public class MainMenu : MonoBehaviour
         }
 
         ShutdownActiveLobby(false);
-        RegionRunState.SelectSinglePlayerRegion(regionName, gameSceneName, CreateRunSeed());
-        LoadGameScene();
+        RunSceneOption selectedScene = ChooseStartingScene();
+        RegionRunState.SelectSinglePlayerRegion(
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
+            CreateRunSeed(),
+            selectedDifficulty);
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public void StartHost()
@@ -88,13 +110,15 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        RunSceneOption selectedScene = ChooseStartingScene();
         RegionRunState.SelectMultiplayerHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             CreateRunSeed(),
-            GetConnectionPort());
+            GetConnectionPort(),
+            selectedDifficulty);
 
-        LoadGameScene();
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public void StartClient()
@@ -105,14 +129,16 @@ public class MainMenu : MonoBehaviour
             return;
         }
 
+        RunSceneOption selectedScene = ChooseFallbackStartingScene();
         RegionRunState.SelectMultiplayerClientRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             CreateRunSeed(),
             connectionAddress,
-            GetConnectionPort());
+            GetConnectionPort(),
+            selectedDifficulty);
 
-        LoadGameScene();
+        LoadGameScene(selectedScene.sceneName);
     }
 
     public async void StartRelayHost()
@@ -122,6 +148,9 @@ public class MainMenu : MonoBehaviour
             ShowCharacterSelectThen(StartRelayHost);
             return;
         }
+
+        ResolveReferences();
+        CommitPlayerNameFromInput();
 
         if (networkManager != null && networkManager.IsListening && networkManager.IsHost)
         {
@@ -162,6 +191,7 @@ public class MainMenu : MonoBehaviour
 
             lobbyReadyByClientId.Clear();
             lobbyReadyByClientId[NetworkManager.ServerClientId] = false;
+            lobbyNameByClientId[NetworkManager.ServerClientId] = RegionRunState.PlayerName;
 
             SetRelayJoinCode(RegionRunState.RelayJoinCode);
             ApplyLobbyState(isHostLobby: true);
@@ -191,6 +221,9 @@ public class MainMenu : MonoBehaviour
 
         if (lobbyStartInProgress || networkManager != null && networkManager.IsListening)
             return;
+
+        ResolveReferences();
+        CommitPlayerNameFromInput();
 
         string joinCode = GetJoinCodeFromInput();
         if (string.IsNullOrWhiteSpace(joinCode))
@@ -285,32 +318,34 @@ public class MainMenu : MonoBehaviour
         gameStartInProgress = true;
 
         int runSeed = CreateRunSeed();
+        RunSceneOption selectedScene = ChooseStartingScene();
         RegionRunState.SelectRelayHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(selectedScene),
+            selectedScene.sceneName,
             runSeed,
             relayMaxConnections,
-            relayConnectionType);
+            relayConnectionType,
+            selectedDifficulty);
         RegionRunState.SetRelayJoinCode(relayJoinCode);
 
-        SendStartGameMessage(runSeed);
+        SendStartGameMessage(runSeed, selectedScene);
         SetLobbyStatus("Iniciando partida...");
 
-        StartCoroutine(LoadLobbyGameAfterStartMessage());
+        StartCoroutine(LoadLobbyGameAfterStartMessage(selectedScene.sceneName));
     }
 
-    private IEnumerator LoadLobbyGameAfterStartMessage()
+    private IEnumerator LoadLobbyGameAfterStartMessage(string sceneName)
     {
         yield return null;
         yield return new WaitForSeconds(0.15f);
 
         if (networkManager != null && networkManager.SceneManager != null)
         {
-            networkManager.SceneManager.LoadScene(gameSceneName, LoadSceneMode.Single);
+            networkManager.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
             yield break;
         }
 
-        SceneManager.LoadScene(gameSceneName);
+        SceneManager.LoadScene(sceneName);
     }
 
     public void DisconnectLobby()
@@ -336,8 +371,12 @@ public class MainMenu : MonoBehaviour
             ? string.Empty
             : joinCode.Trim().ToUpperInvariant();
 
-        if (joinCodeInput != null && joinCodeInput.text != relayJoinCode)
+        if (joinCodeInput != null &&
+            joinCodeInput != nameField &&
+            joinCodeInput.text != relayJoinCode)
+        {
             joinCodeInput.SetTextWithoutNotify(relayJoinCode);
+        }
 
         if (joinCodeText != null)
             joinCodeText.text = string.IsNullOrWhiteSpace(relayJoinCode)
@@ -358,6 +397,48 @@ public class MainMenu : MonoBehaviour
             : connectionType.Trim().ToLowerInvariant();
     }
 
+    public void SetRunDifficultyByIndex(int difficultyIndex)
+    {
+        SetRunDifficulty((RunDifficulty)Mathf.Clamp(
+            difficultyIndex,
+            0,
+            Enum.GetValues(typeof(RunDifficulty)).Length - 1));
+    }
+
+    public void SetRunDifficultyByName(string difficultyName)
+    {
+        if (Enum.TryParse(difficultyName, true, out RunDifficulty parsed))
+            SetRunDifficulty(parsed);
+    }
+
+    public void SetRunDifficultyEasy()
+    {
+        SetRunDifficulty(RunDifficulty.Easy);
+    }
+
+    public void SetRunDifficultyMedium()
+    {
+        SetRunDifficulty(RunDifficulty.Medium);
+    }
+
+    public void SetRunDifficultyHard()
+    {
+        SetRunDifficulty(RunDifficulty.Hard);
+    }
+
+    public void SetRunDifficultyGradual()
+    {
+        SetRunDifficulty(RunDifficulty.Gradual);
+    }
+
+    void SetRunDifficulty(RunDifficulty difficulty)
+    {
+        selectedDifficulty = difficulty;
+        RegionRunState.SetDifficulty(selectedDifficulty);
+
+        SyncDifficultyDropdowns();
+    }
+
     public void QuitButton()
     {
         Application.Quit();
@@ -374,6 +455,8 @@ public class MainMenu : MonoBehaviour
     {
         UnlockCursorForMenu();
         ResolveReferences();
+        InitializePlayerNameField();
+        InitializeDifficultyDropdown();
         ResetLobbyToInitialState();
     }
 
@@ -466,12 +549,14 @@ public class MainMenu : MonoBehaviour
             AllocationUtils.ToRelayServerData(allocation, connectionType));
 
         string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+        RunSceneOption fallbackScene = ChooseFallbackStartingScene();
         RegionRunState.SelectRelayHostRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(fallbackScene),
+            fallbackScene.sceneName,
             CreateRunSeed(),
             relayMaxConnections,
-            connectionType);
+            connectionType,
+            selectedDifficulty);
         RegionRunState.SetRelayJoinCode(joinCode);
 
         relayConnectionType = connectionType;
@@ -496,12 +581,14 @@ public class MainMenu : MonoBehaviour
         unityTransport.SetRelayServerData(
             AllocationUtils.ToRelayServerData(joinAllocation, connectionType));
 
+        RunSceneOption fallbackScene = ChooseFallbackStartingScene();
         RegionRunState.SelectRelayClientRegion(
-            regionName,
-            gameSceneName,
+            GetRegionName(fallbackScene),
+            fallbackScene.sceneName,
             CreateRunSeed(),
             joinCode,
-            connectionType);
+            connectionType,
+            selectedDifficulty);
 
         relayConnectionType = connectionType;
         SetRelayJoinCode(joinCode);
@@ -552,12 +639,21 @@ public class MainMenu : MonoBehaviour
 
     private void RegisterMessageHandlersWhenReady()
     {
-        if (networkManager == null || registeredMessageHandlers)
+        if (networkManager == null ||
+            registeredMessageHandlers ||
+            !networkManager.IsListening)
+        {
             return;
+        }
 
         if (networkManager.CustomMessagingManager == null)
         {
-            StartCoroutine(RegisterMessageHandlersWhenCustomMessagingIsReady());
+            if (messageHandlerRegistrationCoroutine == null)
+            {
+                messageHandlerRegistrationCoroutine = StartCoroutine(
+                    RegisterMessageHandlersWhenCustomMessagingIsReady());
+            }
+
             return;
         }
 
@@ -570,6 +666,9 @@ public class MainMenu : MonoBehaviour
         networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
             StartGameMessageName,
             HandleStartGameMessage);
+        networkManager.CustomMessagingManager.RegisterNamedMessageHandler(
+            PlayerNameMessageName,
+            HandlePlayerNameMessage);
 
         registeredMessageHandlers = true;
     }
@@ -583,11 +682,18 @@ public class MainMenu : MonoBehaviour
             yield return null;
         }
 
+        messageHandlerRegistrationCoroutine = null;
+
+        if (networkManager == null || !networkManager.IsListening)
+            yield break;
+
         RegisterMessageHandlersWhenReady();
     }
 
     private void UnregisterMessageHandlers()
     {
+        StopMessageHandlerRegistrationCoroutine();
+
         if (!registeredMessageHandlers ||
             networkManager == null ||
             networkManager.CustomMessagingManager == null)
@@ -599,7 +705,17 @@ public class MainMenu : MonoBehaviour
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(ReadyMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(SnapshotMessageName);
         networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(StartGameMessageName);
+        networkManager.CustomMessagingManager.UnregisterNamedMessageHandler(PlayerNameMessageName);
         registeredMessageHandlers = false;
+    }
+
+    private void StopMessageHandlerRegistrationCoroutine()
+    {
+        if (messageHandlerRegistrationCoroutine == null)
+            return;
+
+        StopCoroutine(messageHandlerRegistrationCoroutine);
+        messageHandlerRegistrationCoroutine = null;
     }
 
     private void HandleClientConnected(ulong clientId)
@@ -614,6 +730,9 @@ public class MainMenu : MonoBehaviour
             if (!lobbyReadyByClientId.ContainsKey(clientId))
                 lobbyReadyByClientId[clientId] = false;
 
+            if (clientId == NetworkManager.ServerClientId)
+                lobbyNameByClientId[clientId] = RegionRunState.PlayerName;
+
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
         }
@@ -622,6 +741,17 @@ public class MainMenu : MonoBehaviour
         {
             ApplyLobbyState(networkManager.IsHost);
             SetLobbyStatus("Conectado ao lobby.");
+
+        if (!networkManager.IsHost)
+        {
+            using FastBufferWriter writer = new FastBufferWriter(128, Allocator.Temp);
+            writer.WriteValueSafe(RegionRunState.PlayerName);
+                networkManager.CustomMessagingManager.SendNamedMessage(
+                    PlayerNameMessageName,
+                    NetworkManager.ServerClientId,
+                    writer,
+                    NetworkDelivery.ReliableSequenced);
+            }
         }
     }
 
@@ -633,6 +763,7 @@ public class MainMenu : MonoBehaviour
         if (networkManager.IsServer)
         {
             lobbyReadyByClientId.Remove(clientId);
+            lobbyNameByClientId.Remove(clientId);
             RefreshLobbyUI();
             BroadcastLobbySnapshot();
             return;
@@ -641,17 +772,20 @@ public class MainMenu : MonoBehaviour
         if (clientId == networkManager.LocalClientId ||
             clientId == NetworkManager.ServerClientId)
         {
+            ShutdownActiveLobby(true);
             ResetLobbyToInitialState();
         }
     }
 
     private void HandleLocalClientStopped(bool wasHost)
     {
+        CleanupLobbyNetworkRegistration();
         ResetLobbyToInitialState();
     }
 
     private void HandleLocalServerStopped(bool wasHost)
     {
+        CleanupLobbyNetworkRegistration();
         ResetLobbyToInitialState();
     }
 
@@ -662,6 +796,19 @@ public class MainMenu : MonoBehaviour
 
         reader.ReadValueSafe(out bool isReady);
         lobbyReadyByClientId[senderClientId] = isReady;
+        RefreshLobbyUI();
+        BroadcastLobbySnapshot();
+    }
+
+    private void HandlePlayerNameMessage(ulong senderClientId, FastBufferReader reader)
+    {
+        if (networkManager == null || !networkManager.IsServer)
+            return;
+
+        reader.ReadValueSafe(out string playerName);
+        lobbyNameByClientId[senderClientId] = string.IsNullOrWhiteSpace(playerName)
+            ? $"Player {senderClientId}"
+            : playerName.Trim();
         RefreshLobbyUI();
         BroadcastLobbySnapshot();
     }
@@ -677,12 +824,15 @@ public class MainMenu : MonoBehaviour
 
         reader.ReadValueSafe(out int count);
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
 
         for (int i = 0; i < count; i++)
         {
             reader.ReadValueSafe(out ulong clientId);
             reader.ReadValueSafe(out bool isReady);
+            reader.ReadValueSafe(out string pName);
             lobbyReadyByClientId[clientId] = isReady;
+            lobbyNameByClientId[clientId] = pName;
         }
 
         ApplyLobbyState(false);
@@ -695,12 +845,19 @@ public class MainMenu : MonoBehaviour
             return;
 
         reader.ReadValueSafe(out int runSeed);
+        reader.ReadValueSafe(out string selectedRegionName);
+        reader.ReadValueSafe(out string selectedSceneName);
+        reader.ReadValueSafe(out int difficultyIndex);
         RegionRunState.SelectRelayClientRegion(
-            regionName,
-            gameSceneName,
+            selectedRegionName,
+            selectedSceneName,
             runSeed,
             relayJoinCode,
-            relayConnectionType);
+            relayConnectionType,
+            (RunDifficulty)Mathf.Clamp(
+                difficultyIndex,
+                0,
+                Enum.GetValues(typeof(RunDifficulty)).Length - 1));
     }
 
     private void BroadcastLobbySnapshot()
@@ -725,6 +882,9 @@ public class MainMenu : MonoBehaviour
         {
             writer.WriteValueSafe(player.Key);
             writer.WriteValueSafe(player.Value);
+            
+            string pName = lobbyNameByClientId.TryGetValue(player.Key, out string name) ? name : (player.Key == NetworkManager.ServerClientId ? "Host" : $"Player {player.Key}");
+            writer.WriteValueSafe(pName);
         }
 
         networkManager.CustomMessagingManager.SendNamedMessage(
@@ -734,7 +894,7 @@ public class MainMenu : MonoBehaviour
             NetworkDelivery.ReliableSequenced);
     }
 
-    private void SendStartGameMessage(int runSeed)
+    private void SendStartGameMessage(int runSeed, RunSceneOption selectedScene)
     {
         if (networkManager == null ||
             !networkManager.IsServer ||
@@ -748,8 +908,11 @@ public class MainMenu : MonoBehaviour
             if (clientId == NetworkManager.ServerClientId)
                 continue;
 
-            using FastBufferWriter writer = new FastBufferWriter(16, Allocator.Temp);
+            using FastBufferWriter writer = new FastBufferWriter(256, Allocator.Temp);
             writer.WriteValueSafe(runSeed);
+            writer.WriteValueSafe(GetRegionName(selectedScene));
+            writer.WriteValueSafe(selectedScene.sceneName);
+            writer.WriteValueSafe((int)selectedDifficulty);
             networkManager.CustomMessagingManager.SendNamedMessage(
                 StartGameMessageName,
                 clientId,
@@ -769,9 +932,11 @@ public class MainMenu : MonoBehaviour
         foreach (KeyValuePair<ulong, bool> player in lobbyReadyByClientId)
         {
             bool isHost = player.Key == NetworkManager.ServerClientId;
+            string pName = lobbyNameByClientId.TryGetValue(player.Key, out string name) ? name : (isHost ? "Host" : $"Player {player.Key}");
+
             players.Add(new LobbyUI.PlayerView(
                 player.Key,
-                isHost ? "Host" : $"Player {player.Key}",
+                pName,
                 isHost,
                 player.Value,
                 player.Key == localClientId));
@@ -805,12 +970,15 @@ public class MainMenu : MonoBehaviour
 
     private void ApplyLobbyState(bool isHostLobby)
     {
+        CommitPlayerNameFromInput();
+
         SetActive(hostButton, false);
         SetActive(joinButton, false);
         SetActive(playButton, isHostLobby);
         SetActive(disconnectButton, true);
         SetActive(readyToggle, true);
         SetActive(joinCodeInput, false);
+        SetActive(nameField, false);
 
         if (joinCodeText != null)
         {
@@ -830,6 +998,7 @@ public class MainMenu : MonoBehaviour
         gameStartInProgress = false;
         characterSelectConfirmed = false;
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
 
         if (lobbyUI != null)
             lobbyUI.ClearPlayers();
@@ -840,6 +1009,9 @@ public class MainMenu : MonoBehaviour
         SetActive(disconnectButton, false);
         SetActive(readyToggle, false);
         SetActive(joinCodeInput, true);
+        SetActive(nameField, true);
+        SetRelayJoinCode(string.Empty);
+        SyncPlayerNameFromInputWithoutSaving();
 
         if (joinCodeText != null)
             joinCodeText.gameObject.SetActive(false);
@@ -853,6 +1025,8 @@ public class MainMenu : MonoBehaviour
 
     private void ShutdownActiveLobby(bool clearRunState)
     {
+        CleanupLobbyNetworkRegistration();
+
         if (networkManager != null && networkManager.IsListening)
             networkManager.Shutdown();
 
@@ -860,6 +1034,16 @@ public class MainMenu : MonoBehaviour
             RegionRunState.Clear();
 
         lobbyReadyByClientId.Clear();
+        lobbyNameByClientId.Clear();
+    }
+
+    private void CleanupLobbyNetworkRegistration()
+    {
+        UnregisterMessageHandlers();
+        UnregisterNetworkCallbacks();
+
+        if (networkManager != null)
+            networkManager.ConnectionApprovalCallback = null;
     }
 
     private void SetMenuButtonsInteractable(bool interactable)
@@ -889,12 +1073,109 @@ public class MainMenu : MonoBehaviour
 
     private string GetJoinCodeFromInput()
     {
-        if (joinCodeInput != null && !string.IsNullOrWhiteSpace(joinCodeInput.text))
+        if (joinCodeInput != null &&
+            joinCodeInput != nameField &&
+            !string.IsNullOrWhiteSpace(joinCodeInput.text))
+        {
             return joinCodeInput.text.Trim().ToUpperInvariant();
+        }
 
         return string.IsNullOrWhiteSpace(relayJoinCode)
             ? string.Empty
             : relayJoinCode.Trim().ToUpperInvariant();
+    }
+
+    private void InitializePlayerNameField()
+    {
+        string savedPlayerName = PlayerPrefs.GetString(PlayerNamePrefsKey, DefaultPlayerName);
+        RegionRunState.SetPlayerName(savedPlayerName);
+
+        if (nameField != null)
+            nameField.SetTextWithoutNotify(RegionRunState.PlayerName);
+    }
+
+    private string CommitPlayerNameFromInput()
+    {
+        string playerName = GetPlayerNameFromInput();
+        RegionRunState.SetPlayerName(playerName);
+
+        if (nameField != null && nameField.text != RegionRunState.PlayerName)
+            nameField.SetTextWithoutNotify(RegionRunState.PlayerName);
+
+        PlayerPrefs.SetString(PlayerNamePrefsKey, RegionRunState.PlayerName);
+        PlayerPrefs.Save();
+        return RegionRunState.PlayerName;
+    }
+
+    private void SyncPlayerNameFromInputWithoutSaving()
+    {
+        RegionRunState.SetPlayerName(GetPlayerNameFromInput());
+    }
+
+    private void InitializeDifficultyDropdown()
+    {
+        RegionRunState.SetDifficulty(selectedDifficulty);
+
+        ConfigureDifficultyDropdown(singleplayerDifficultyDropdown);
+        ConfigureDifficultyDropdown(multiplayerDifficultyDropdown);
+        ConfigureDifficultyDropdown(difficultyDropdown);
+        SyncDifficultyDropdowns();
+    }
+
+    private void ConfigureDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
+            return;
+
+        dropdown.ClearOptions();
+        dropdown.AddOptions(new List<string>
+        {
+            "Easy",
+            "Medium",
+            "Hard",
+            "Gradual"
+        });
+        dropdown.SetValueWithoutNotify((int)selectedDifficulty);
+        dropdown.RefreshShownValue();
+    }
+
+    private void SyncDifficultyDropdowns()
+    {
+        SyncDifficultyDropdown(singleplayerDifficultyDropdown);
+        SyncDifficultyDropdown(multiplayerDifficultyDropdown);
+        SyncDifficultyDropdown(difficultyDropdown);
+    }
+
+    private void SyncDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
+            return;
+
+        if (dropdown.value != (int)selectedDifficulty)
+            dropdown.SetValueWithoutNotify((int)selectedDifficulty);
+
+        dropdown.RefreshShownValue();
+    }
+
+    private string GetPlayerNameFromInput()
+    {
+        if (nameField != null && !string.IsNullOrWhiteSpace(nameField.text))
+            return nameField.text.Trim();
+
+        if (!string.IsNullOrWhiteSpace(RegionRunState.PlayerName))
+            return RegionRunState.PlayerName;
+
+        return PlayerPrefs.GetString(PlayerNamePrefsKey, DefaultPlayerName);
+    }
+
+    private void HandlePlayerNameChanged(string playerName)
+    {
+        RegionRunState.SetPlayerName(playerName);
+    }
+
+    private void HandlePlayerNameEndEdit(string playerName)
+    {
+        CommitPlayerNameFromInput();
     }
 
     private void RegisterUiListeners()
@@ -932,7 +1213,28 @@ public class MainMenu : MonoBehaviour
             readyToggle.onValueChanged.AddListener(SetLobbyReady);
         }
 
+        RegisterDifficultyDropdown(singleplayerDifficultyDropdown);
+        RegisterDifficultyDropdown(multiplayerDifficultyDropdown);
+        RegisterDifficultyDropdown(difficultyDropdown);
+
+        if (nameField != null)
+        {
+            nameField.onValueChanged.RemoveListener(HandlePlayerNameChanged);
+            nameField.onEndEdit.RemoveListener(HandlePlayerNameEndEdit);
+            nameField.onValueChanged.AddListener(HandlePlayerNameChanged);
+            nameField.onEndEdit.AddListener(HandlePlayerNameEndEdit);
+        }
+
         registeredUiListeners = true;
+    }
+
+    private void RegisterDifficultyDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null)
+            return;
+
+        dropdown.onValueChanged.RemoveListener(SetRunDifficultyByIndex);
+        dropdown.onValueChanged.AddListener(SetRunDifficultyByIndex);
     }
 
     private void ResolveReferences()
@@ -946,6 +1248,7 @@ public class MainMenu : MonoBehaviour
         if (characterSelectMenu == null)
             characterSelectMenu = gameObject.AddComponent<CharacterSelectMenu>();
 
+        Transform singleplayerMenu = FindChildByName(null, "SingleplayerMenu");
         Transform multiplayerMenu = FindChildByName(null, "MultiplayerMenu");
         Transform root = multiplayerMenu != null ? multiplayerMenu : transform.root;
 
@@ -970,6 +1273,65 @@ public class MainMenu : MonoBehaviour
         if (joinCodeInput == null)
             joinCodeInput = FindComponentByName<TMP_InputField>(root, "JoinCodeField");
 
+        if (nameField == null)
+            nameField = FindComponentByName<TMP_InputField>(root, "NameField");
+
+        if (singleplayerDifficultyDropdown == null)
+        {
+            singleplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    singleplayerMenu,
+                    "Difficulty");
+        }
+
+        if (singleplayerDifficultyDropdown == null)
+        {
+            singleplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    transform.root,
+                    "SingleplayerDifficulty");
+        }
+
+        if (multiplayerDifficultyDropdown == null)
+        {
+            multiplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    multiplayerMenu,
+                    "Difficulty");
+        }
+
+        if (multiplayerDifficultyDropdown == null)
+        {
+            multiplayerDifficultyDropdown =
+                FindComponentByName<TMP_Dropdown>(
+                    transform.root,
+                    "MultiplayerDifficulty");
+        }
+
+        if (difficultyDropdown == null &&
+            singleplayerDifficultyDropdown == null &&
+            multiplayerDifficultyDropdown == null)
+        {
+            difficultyDropdown = FindComponentByName<TMP_Dropdown>(
+                transform.root,
+                "Difficulty");
+        }
+
+        if (nameField == joinCodeInput)
+        {
+            TMP_InputField resolvedNameField =
+                FindComponentByName<TMP_InputField>(root, "NameField");
+            TMP_InputField resolvedJoinCodeInput =
+                FindComponentByName<TMP_InputField>(root, "JoinCodeField");
+
+            nameField = resolvedNameField != joinCodeInput
+                ? resolvedNameField
+                : null;
+            joinCodeInput = resolvedJoinCodeInput != nameField
+                ? resolvedJoinCodeInput
+                : null;
+        }
+
         if (networkManager == null)
             networkManager = NetworkManager.Singleton;
 
@@ -993,9 +1355,71 @@ public class MainMenu : MonoBehaviour
         return (ushort)Mathf.Clamp(connectionPort, 1, ushort.MaxValue);
     }
 
-    private void LoadGameScene()
+    private RunSceneOption ChooseStartingScene()
     {
-        if (string.IsNullOrWhiteSpace(gameSceneName))
+        if (availableRunScenes == null || availableRunScenes.Length == 0)
+            return ChooseFallbackStartingScene();
+
+        float totalWeight = 0f;
+        for (int i = 0; i < availableRunScenes.Length; i++)
+        {
+            RunSceneOption option = availableRunScenes[i];
+            if (!CanUseSceneOption(option))
+                continue;
+
+            totalWeight += Mathf.Max(0f, option.weight);
+        }
+
+        if (totalWeight <= 0f)
+            return ChooseFallbackStartingScene();
+
+        float roll = UnityEngine.Random.Range(0f, totalWeight);
+        for (int i = 0; i < availableRunScenes.Length; i++)
+        {
+            RunSceneOption option = availableRunScenes[i];
+            if (!CanUseSceneOption(option))
+                continue;
+
+            roll -= Mathf.Max(0f, option.weight);
+            if (roll <= 0f)
+                return option;
+        }
+
+        return ChooseFallbackStartingScene();
+    }
+
+    private RunSceneOption ChooseFallbackStartingScene()
+    {
+        return new RunSceneOption
+        {
+            regionName = regionName,
+            sceneName = string.IsNullOrWhiteSpace(gameSceneName)
+                ? "Game"
+                : gameSceneName,
+            weight = 1f
+        };
+    }
+
+    private static bool CanUseSceneOption(RunSceneOption option)
+    {
+        return option != null &&
+            !string.IsNullOrWhiteSpace(option.sceneName) &&
+            option.weight > 0f;
+    }
+
+    private static string GetRegionName(RunSceneOption option)
+    {
+        if (option == null)
+            return string.Empty;
+
+        return string.IsNullOrWhiteSpace(option.regionName)
+            ? option.sceneName
+            : option.regionName;
+    }
+
+    private void LoadGameScene(string sceneName)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
         {
             Debug.LogError("MainMenu cannot start the run because the game scene name is empty.");
             return;
@@ -1003,7 +1427,7 @@ public class MainMenu : MonoBehaviour
 
         ReleaseCursorUnlock();
         characterSelectConfirmed = false;
-        SceneManager.LoadScene(gameSceneName);
+        SceneManager.LoadScene(sceneName);
     }
 
     private bool ShouldShowCharacterSelect()
@@ -1137,5 +1561,22 @@ public class MainMenu : MonoBehaviour
     {
         Transform child = FindChildByName(root, objectName);
         return child != null ? child.GetComponent<T>() : null;
+    }
+
+    private static bool IsSameOrChildOf(Transform child, Transform root)
+    {
+        if (child == null || root == null)
+            return false;
+
+        Transform current = child;
+        while (current != null)
+        {
+            if (current == root)
+                return true;
+
+            current = current.parent;
+        }
+
+        return false;
     }
 }

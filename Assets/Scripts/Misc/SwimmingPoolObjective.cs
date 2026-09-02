@@ -38,11 +38,21 @@ public class SwimmingPoolObjective : MonoBehaviour
     [SerializeField] private int cleanedDirtSpotCount;
 
     private bool applyingSynchronizedState;
+    private readonly System.Collections.Generic.List<DirtSpot> trackedDirtSpots =
+        new System.Collections.Generic.List<DirtSpot>();
+    private readonly System.Collections.Generic.HashSet<DirtSpot> subscribedDirtSpots =
+        new System.Collections.Generic.HashSet<DirtSpot>();
 
     public event Action<SwimmingPoolObjective> OnPoolStateChanged;
     public event Action<SwimmingPoolObjective> OnPoolCleaned;
+    public event Action<SwimmingPoolObjective> OnPoolActivelyCleaned;
 
-    public bool RequiredForLevelCompletion => requiredForLevelCompletion;
+    public float LastCleanedTime { get; private set; } = -100f;
+    public bool RequiredForLevelCompletion
+    {
+        get => requiredForLevelCompletion;
+        set => requiredForLevelCompletion = value;
+    }
     public bool IsFilled => filled;
     public bool IsCleaned => cleaned;
     public bool IsCleaningLocked => cleaningLocked;
@@ -51,10 +61,23 @@ public class SwimmingPoolObjective : MonoBehaviour
     public byte SyncState => (byte)GetState();
     public int TotalDirtSpotCount => totalDirtSpotCount;
     public int CleanedDirtSpotCount => cleanedDirtSpotCount;
-    public float CleanProgress =>
-        Mathf.Max(
-            totalDirtSpotCount > 0 ? CalculateDirtCleanProgress() : cleaned ? 1f : 0f,
-            GetCleaningZoneProgress());
+    public float CleanProgress
+    {
+        get
+        {
+            RefreshDirtSpots();
+            float dirtProgress = trackedDirtSpots.Count > 0
+                ? CalculateDirtCleanProgress()
+                : cleaned ? 1f : 0f;
+            return Mathf.Max(dirtProgress, GetCleaningZoneProgress());
+        }
+    }
+
+    public void NotifyActivelyCleaned()
+    {
+        LastCleanedTime = Time.time;
+        OnPoolActivelyCleaned?.Invoke(this);
+    }
 
     void Awake()
     {
@@ -175,15 +198,12 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        if (dirtSpots != null)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            for (int i = 0; i < dirtSpots.Length; i++)
+            if (trackedDirtSpots[i] == dirtSpot)
             {
-                if (dirtSpots[i] == dirtSpot)
-                {
-                    dirtSpotIndex = i;
-                    return true;
-                }
+                dirtSpotIndex = i;
+                return true;
             }
         }
 
@@ -197,12 +217,14 @@ public class SwimmingPoolObjective : MonoBehaviour
         float worldRadius,
         float amount)
     {
+        if (cleaningLocked)
+            return;
+
         RefreshDirtSpots();
 
-        if (dirtSpots == null ||
-            dirtSpotIndex < 0 ||
-            dirtSpotIndex >= dirtSpots.Length ||
-            dirtSpots[dirtSpotIndex] == null)
+        if (dirtSpotIndex < 0 ||
+            dirtSpotIndex >= trackedDirtSpots.Count ||
+            trackedDirtSpots[dirtSpotIndex] == null)
         {
             return;
         }
@@ -211,7 +233,7 @@ public class SwimmingPoolObjective : MonoBehaviour
 
         try
         {
-            dirtSpots[dirtSpotIndex].ApplySynchronizedPoolCleanAtWorldPoint(
+            trackedDirtSpots[dirtSpotIndex].ApplySynchronizedPoolCleanAtWorldPoint(
                 worldPoint,
                 worldRadius,
                 amount);
@@ -226,6 +248,60 @@ public class SwimmingPoolObjective : MonoBehaviour
         {
             applyingSynchronizedState = false;
         }
+    }
+
+    public void ApplyWaterAtWorldPoint(
+        Vector3 worldPoint,
+        float worldRadius,
+        float amount,
+        WaterQuality waterQuality,
+        PlayerStatus cleaner = null)
+    {
+        if (cleaningLocked && waterQuality != WaterQuality.Contaminated)
+            return;
+
+        RefreshDirtSpots();
+
+        if (trackedDirtSpots.Count == 0)
+            return;
+
+        bool changed = false;
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
+        {
+            DirtSpot dirt = trackedDirtSpots[i];
+            if (dirt == null || dirt.IsCleaned)
+                continue;
+
+            float previousDirtPercent = dirt.GetDirtPercent();
+            if (waterQuality == WaterQuality.Contaminated)
+            {
+                dirt.ApplyContaminatedWaterAtWorldPoint(
+                    worldPoint,
+                    worldRadius,
+                    amount);
+            }
+            else
+            {
+                dirt.CleanAtWorldPoint(
+                    worldPoint,
+                    worldRadius,
+                    amount,
+                    cleaner);
+            }
+
+            if (!Mathf.Approximately(previousDirtPercent, dirt.GetDirtPercent()))
+                changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        NotifyActivelyCleaned();
+        RefreshCleanProgress();
+        if (filled && !cleaned && IsPoolCleanComplete())
+            MarkCleaned();
+        else
+            NotifyStateChanged();
     }
 
     public void ApplySynchronizedState(byte state)
@@ -322,15 +398,12 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        totalDirtSpotCount = dirtSpots != null ? dirtSpots.Length : 0;
+        totalDirtSpotCount = trackedDirtSpots.Count;
         cleanedDirtSpotCount = 0;
 
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt == null || dirt.IsCleaned)
                 cleanedDirtSpotCount++;
         }
@@ -340,13 +413,13 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         RefreshDirtSpots();
 
-        if (dirtSpots == null || dirtSpots.Length == 0)
+        if (trackedDirtSpots.Count == 0)
             return cleaned ? 1f : 0f;
 
         float cleanAmount = 0f;
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt == null || dirt.IsCleaned)
             {
                 cleanAmount += 1f;
@@ -356,7 +429,7 @@ public class SwimmingPoolObjective : MonoBehaviour
             cleanAmount += Mathf.Clamp01(1f - dirt.GetDirtPercent());
         }
 
-        return Mathf.Clamp01(cleanAmount / dirtSpots.Length);
+        return Mathf.Clamp01(cleanAmount / trackedDirtSpots.Count);
     }
 
     bool IsEveryDirtSpotCleaned()
@@ -364,12 +437,12 @@ public class SwimmingPoolObjective : MonoBehaviour
         if (IsCleaningZoneComplete())
             return true;
 
-        if (dirtSpots == null || dirtSpots.Length == 0)
+        if (trackedDirtSpots.Count == 0)
             return true;
 
-        for (int i = 0; i < dirtSpots.Length; i++)
+        for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
-            DirtSpot dirt = dirtSpots[i];
+            DirtSpot dirt = trackedDirtSpots[i];
             if (dirt != null && !dirt.IsCleaned)
                 return false;
         }
@@ -425,7 +498,7 @@ public class SwimmingPoolObjective : MonoBehaviour
             LevelObjectiveManager.Instance.NotifyPoolObjectiveStateChanged(this);
     }
 
-    SwimmingPoolObjectiveState GetState()
+    public SwimmingPoolObjectiveState GetState()
     {
         if (cleaned)
             return SwimmingPoolObjectiveState.Clean;
@@ -508,27 +581,46 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     void RefreshDirtSpots()
     {
-        if (!autoFindDirtSpots)
+        if (autoFindDirtSpots)
+        {
+            DirtSpot[] found = GetComponentsInChildren<DirtSpot>(true);
+            if (found != null)
+            {
+                for (int i = 0; i < found.Length; i++)
+                {
+                    DirtSpot ds = found[i];
+                    TrackDirtSpot(ds);
+                }
+            }
+        }
+
+        if (dirtSpots != null)
+        {
+            for (int i = 0; i < dirtSpots.Length; i++)
+            {
+                DirtSpot ds = dirtSpots[i];
+                TrackDirtSpot(ds);
+            }
+        }
+
+        totalDirtSpotCount = trackedDirtSpots.Count;
+    }
+
+    void TrackDirtSpot(DirtSpot dirtSpot)
+    {
+        if (dirtSpot == null)
             return;
 
-        dirtSpots = GetComponentsInChildren<DirtSpot>(true);
+        if (!trackedDirtSpots.Contains(dirtSpot))
+            trackedDirtSpots.Add(dirtSpot);
 
-        if (poolCleaningZone == null)
-            poolCleaningZone = GetComponentInChildren<PoolCleaningZone>(true);
+        if (subscribedDirtSpots.Add(dirtSpot))
+            dirtSpot.OnCleaned += HandleDirtSpotCleaned;
     }
 
     void RegisterDirtSpotEvents()
     {
         RefreshDirtSpots();
-
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
-        {
-            if (dirtSpots[i] != null)
-                dirtSpots[i].OnCleaned += HandleDirtSpotCleaned;
-        }
     }
 
     void RegisterCleaningZoneEvents()
@@ -547,14 +639,13 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     void UnregisterDirtSpotEvents()
     {
-        if (dirtSpots == null)
-            return;
-
-        for (int i = 0; i < dirtSpots.Length; i++)
+        foreach (DirtSpot dirtSpot in subscribedDirtSpots)
         {
-            if (dirtSpots[i] != null)
-                dirtSpots[i].OnCleaned -= HandleDirtSpotCleaned;
+            if (dirtSpot != null)
+                dirtSpot.OnCleaned -= HandleDirtSpotCleaned;
         }
+
+        subscribedDirtSpots.Clear();
     }
 
     void UnregisterCleaningZoneEvents()

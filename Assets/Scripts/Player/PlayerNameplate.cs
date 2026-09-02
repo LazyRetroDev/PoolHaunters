@@ -78,6 +78,11 @@ public class PlayerNameplate : MonoBehaviour
 
         if (canvas == null)
             canvas = GetComponentInParent<Canvas>(true);
+
+        if (canvas == null && nameText != null)
+        {
+            canvas = gameObject.AddComponent<Canvas>();
+        }
     }
 
     private void ConfigureCanvas()

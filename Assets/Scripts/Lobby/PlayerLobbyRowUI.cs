@@ -7,6 +7,8 @@ public class PlayerLobbyRowUI : MonoBehaviour
 {
     const float RowHeight = 42f;
     const float HorizontalPadding = 12f;
+    const float StatusWidth = 140f;
+    const float ColumnGap = 8f;
 
     [Header("Text")]
     [SerializeField] private TMP_Text playerNameText;
@@ -46,13 +48,14 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (playerNameText != null)
         {
             string displayName = isLocalPlayer ? safeName + localPlayerSuffix : safeName;
-            playerNameText.text = $"{displayName} - {status}";
+            playerNameText.text = displayName;
         }
 
         if (statusText != null)
         {
-            statusText.text = string.Empty;
-            statusText.gameObject.SetActive(false);
+            statusText.gameObject.SetActive(true);
+            statusText.text = status;
+            statusText.color = GetStatusColor(isHost, isReady);
         }
 
         if (hostBadge != null)
@@ -64,7 +67,7 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (statusGraphic != null)
             statusGraphic.color = GetStatusColor(isHost, isReady);
 
-        if (statusText != null && statusText.gameObject.activeSelf)
+        if (statusText != null)
             statusText.color = GetStatusColor(isHost, isReady);
     }
 
@@ -151,7 +154,7 @@ public class PlayerLobbyRowUI : MonoBehaviour
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0f, 0.5f);
             rect.offsetMin = new Vector2(HorizontalPadding, 0f);
-            rect.offsetMax = new Vector2(-HorizontalPadding, 0f);
+            rect.offsetMax = new Vector2(-(StatusWidth + HorizontalPadding + ColumnGap), 0f);
         }
 
         LayoutElement layoutElement = playerNameText.GetComponent<LayoutElement>();
@@ -168,7 +171,7 @@ public class PlayerLobbyRowUI : MonoBehaviour
             layoutElement.preferredHeight = RowHeight;
         }
 
-        playerNameText.alignment = TextAlignmentOptions.Left | TextAlignmentOptions.Midline;
+        playerNameText.alignment = TextAlignmentOptions.Left;
         playerNameText.textWrappingMode = TextWrappingModes.NoWrap;
         playerNameText.overflowMode = TextOverflowModes.Ellipsis;
         playerNameText.fontSize = Mathf.Min(playerNameText.fontSize, 22f);
@@ -179,16 +182,16 @@ public class PlayerLobbyRowUI : MonoBehaviour
         if (statusText == null)
             return;
 
-        statusText.text = string.Empty;
-        statusText.gameObject.SetActive(false);
+        statusText.gameObject.SetActive(true);
 
         RectTransform rect = statusText.transform as RectTransform;
         if (rect != null)
         {
-            rect.anchorMin = new Vector2(0f, 0.5f);
-            rect.anchorMax = new Vector2(0f, 0.5f);
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(1f, 0.5f);
-            rect.sizeDelta = new Vector2(0f, RowHeight);
+            rect.anchoredPosition = new Vector2(-HorizontalPadding, 0f);
+            rect.sizeDelta = new Vector2(StatusWidth, 0f);
         }
 
         LayoutElement layoutElement = statusText.GetComponent<LayoutElement>();
@@ -197,16 +200,15 @@ public class PlayerLobbyRowUI : MonoBehaviour
 
         if (layoutElement != null)
         {
-            layoutElement.ignoreLayout = false;
             layoutElement.ignoreLayout = true;
-            layoutElement.minWidth = 0f;
-            layoutElement.preferredWidth = 0f;
+            layoutElement.minWidth = StatusWidth;
+            layoutElement.preferredWidth = StatusWidth;
             layoutElement.flexibleWidth = 0f;
             layoutElement.minHeight = RowHeight;
             layoutElement.preferredHeight = RowHeight;
         }
 
-        statusText.alignment = TextAlignmentOptions.Right | TextAlignmentOptions.Midline;
+        statusText.alignment = TextAlignmentOptions.Right;
         statusText.textWrappingMode = TextWrappingModes.NoWrap;
         statusText.overflowMode = TextOverflowModes.Ellipsis;
         statusText.fontSize = Mathf.Min(statusText.fontSize, 22f);

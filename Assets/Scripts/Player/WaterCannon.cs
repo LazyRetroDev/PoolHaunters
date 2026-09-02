@@ -66,6 +66,7 @@ public class WaterCannon : MonoBehaviour
     private readonly HashSet<PoolWaterReactive> poolReactiveHits = new HashSet<PoolWaterReactive>();
     private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
     private readonly HashSet<TubaraoBehavior> tubaraoHits = new HashSet<TubaraoBehavior>();
+    private readonly HashSet<PoolWaterReactive> poolReactiveHits = new HashSet<PoolWaterReactive>();
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
@@ -446,6 +447,7 @@ public class WaterCannon : MonoBehaviour
         poolReactiveHits.Clear();
         goldenMouthHits.Clear();
         tubaraoHits.Clear();
+        poolReactiveHits.Clear();
 
         bool handledContaminatedDirt = false;
         RaycastHit? contaminationSurfaceHit = null;
@@ -483,10 +485,22 @@ public class WaterCannon : MonoBehaviour
                     cleanContactRadius,
                     cleanAmount,
                     waterAmount,
-                    waterQuality);
+                    waterQuality,
+                    playerStatus);
 
                 if (waterQuality == WaterQuality.Contaminated)
                     handledContaminatedDirt = true;
+            }
+
+            PoolWaterReactive poolReactive =
+                hits[i].collider.GetComponentInParent<PoolWaterReactive>();
+            if (poolReactive != null && !poolReactiveHits.Contains(poolReactive))
+            {
+                poolReactiveHits.Add(poolReactive);
+                poolReactive.ApplyPoolWaterHit(
+                    waterQuality,
+                    cleanAmount,
+                    sprayOrigin.position);
             }
 
             if (waterQuality == WaterQuality.Contaminated)
