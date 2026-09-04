@@ -89,6 +89,7 @@ public class JennyMopCleaner : MonoBehaviour
 
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
+    private readonly HashSet<PoolWaterReactive> poolReactiveHits = new HashSet<PoolWaterReactive>();
     private readonly HashSet<GameObject> splashHits = new HashSet<GameObject>();
     private Rigidbody rb;
     private PlayerInput playerInput;
@@ -212,6 +213,7 @@ public class JennyMopCleaner : MonoBehaviour
 
         dirtHits.Clear();
         poolHits.Clear();
+        poolReactiveHits.Clear();
 
         Vector3 center = GetMopWorldPosition();
         Quaternion rotation = GetMopWorldRotation();
@@ -238,6 +240,16 @@ public class JennyMopCleaner : MonoBehaviour
                 contactPoint = center;
 
             DirtSpot dirt = hit.GetComponentInParent<DirtSpot>();
+            PoolWaterReactive poolReactive = hit.GetComponentInParent<PoolWaterReactive>();
+            if (poolReactive != null && !poolReactiveHits.Contains(poolReactive))
+            {
+                poolReactiveHits.Add(poolReactive);
+                poolReactive.ApplyPoolWaterHit(
+                    waterQuality,
+                    cleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
+                    center);
+            }
+
             if (dirt != null && !dirtHits.Contains(dirt))
             {
                 dirtHits.Add(dirt);
@@ -602,10 +614,13 @@ public class JennyMopCleaner : MonoBehaviour
         PoolWaterReactive poolReactive =
             target.GetComponentInParent<PoolWaterReactive>();
         if (poolReactive != null)
+        {
             poolReactive.ApplyPoolWaterHit(
                 waterQuality,
                 splashCleanAmount,
                 sourcePosition);
+            return;
+        }
 
         if (movement != null)
         {

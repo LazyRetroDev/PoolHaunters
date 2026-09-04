@@ -248,8 +248,8 @@ public class LevelObjectiveManager : MonoBehaviour
         yield return new WaitForSeconds(1.0f);
 
         // ONLY SERVER SHOULD DO THIS
-        bool isServer = NetworkManager.Singleton == null || 
-                        !NetworkManager.Singleton.IsListening || 
+        bool isServer = NetworkManager.Singleton == null ||
+                        !NetworkManager.Singleton.IsListening ||
                         NetworkManager.Singleton.IsServer;
 
         if (isServer)

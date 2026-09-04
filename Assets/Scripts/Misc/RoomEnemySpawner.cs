@@ -104,6 +104,9 @@ public class RoomEnemySpawner : MonoBehaviour
         if (usePhaseBasedRunSelection)
             return;
 
+        if (usePhaseBasedRunSelection)
+            return;
+
         RoomDefinition definition = GetRoomDefinition(room);
         RoomContentProfile contentProfile =
             definition != null ? definition.contentProfile : null;

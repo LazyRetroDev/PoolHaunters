@@ -20,6 +20,8 @@ public class PoolCleaningZone : MonoBehaviour
     public Collider cleaningCollider;
     public bool forceColliderAsTrigger = true;
 
+    private SwimmingPoolObjective poolObjective;
+
     public event Action<PoolCleaningZone> OnCleaned;
     public event Action<PoolCleaningZone> OnProgressChanged;
 
@@ -39,6 +41,7 @@ public class PoolCleaningZone : MonoBehaviour
     void Awake()
     {
         ResolveCollider();
+        ResolvePoolObjective();
 
         maxContamination = Mathf.Max(1f, maxContamination);
         currentContamination = startsContaminated
@@ -183,5 +186,11 @@ public class PoolCleaningZone : MonoBehaviour
 
         if (forceColliderAsTrigger && cleaningCollider != null)
             cleaningCollider.isTrigger = true;
+    }
+
+    void ResolvePoolObjective()
+    {
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
     }
 }

@@ -100,6 +100,23 @@ public class FungalMushroomHazard : PoolWaterReactive
         float waterPower,
         Vector3 sourcePosition)
     {
+        if (IsSpawned && !IsServer && IsNetworkSessionRunning())
+        {
+            ApplyPoolWaterHitServerRpc((int)waterQuality, waterPower, sourcePosition);
+            return;
+        }
+
+        ApplyPoolWaterHitLocal(waterQuality, waterPower, sourcePosition);
+
+        if (IsSpawned && IsServer && IsNetworkSessionRunning())
+            ApplyPoolWaterHitClientRpc((int)waterQuality, waterPower, sourcePosition);
+    }
+
+    void ApplyPoolWaterHitLocal(
+        WaterQuality waterQuality,
+        float waterPower,
+        Vector3 sourcePosition)
+    {
         if (removed || waterPower <= 0f)
             return;
 
@@ -125,6 +142,34 @@ public class FungalMushroomHazard : PoolWaterReactive
             else
                 RemoveMushroom();
         }
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    void ApplyPoolWaterHitServerRpc(
+        int waterQuality,
+        float waterPower,
+        Vector3 sourcePosition)
+    {
+        ApplyPoolWaterHitLocal((WaterQuality)waterQuality, waterPower, sourcePosition);
+        ApplyPoolWaterHitClientRpc(waterQuality, waterPower, sourcePosition);
+    }
+
+    [ClientRpc]
+    void ApplyPoolWaterHitClientRpc(
+        int waterQuality,
+        float waterPower,
+        Vector3 sourcePosition)
+    {
+        if (IsServer)
+            return;
+
+        ApplyPoolWaterHitLocal((WaterQuality)waterQuality, waterPower, sourcePosition);
+    }
+
+    static bool IsNetworkSessionRunning()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        return networkManager != null && networkManager.IsListening;
     }
 
     private void StartSporeCloud()

@@ -25,6 +25,8 @@ public class SwimmingPoolObjective : MonoBehaviour
     [Header("Dirt")]
     [SerializeField] private bool autoFindDirtSpots = true;
     [SerializeField] private DirtSpot[] dirtSpots = new DirtSpot[0];
+    [SerializeField] private PoolCleaningZone poolCleaningZone;
+    [SerializeField] private bool useCleaningZoneProgress = true;
     [SerializeField, Range(0.01f, 1f)] private float poolCleanCompletionThreshold = 0.95f;
     [SerializeField] private bool cleaningLocked;
 
@@ -64,9 +66,10 @@ public class SwimmingPoolObjective : MonoBehaviour
         get
         {
             RefreshDirtSpots();
-            return trackedDirtSpots.Count > 0
+            float dirtProgress = trackedDirtSpots.Count > 0
                 ? CalculateDirtCleanProgress()
                 : cleaned ? 1f : 0f;
+            return Mathf.Max(dirtProgress, GetCleaningZoneProgress());
         }
     }
 
@@ -85,6 +88,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     void OnEnable()
     {
         RegisterDirtSpotEvents();
+        RegisterCleaningZoneEvents();
 
         if (LevelObjectiveManager.Instance != null)
         {
@@ -110,6 +114,7 @@ public class SwimmingPoolObjective : MonoBehaviour
     void OnDisable()
     {
         UnregisterDirtSpotEvents();
+        UnregisterCleaningZoneEvents();
 
         if (LevelObjectiveManager.Instance != null)
         {
@@ -158,11 +163,33 @@ public class SwimmingPoolObjective : MonoBehaviour
         if (cleaned)
             return;
 
+        if (cleaningLocked)
+        {
+            if (notifyWhenUnchanged)
+                NotifyStateChanged();
+            return;
+        }
+
         RefreshCleanProgress();
         if (filled && IsPoolCleanComplete())
             MarkCleaned();
         else if (notifyWhenUnchanged)
             NotifyStateChanged();
+    }
+
+    public void SetCleaningLocked(bool locked)
+    {
+        if (cleaningLocked == locked)
+            return;
+
+        cleaningLocked = locked;
+        if (!cleaningLocked && filled && !cleaned && IsPoolCleanComplete())
+        {
+            MarkCleaned();
+            return;
+        }
+
+        NotifyStateChanged();
     }
 
     public bool TryGetDirtSpotIndex(
@@ -323,15 +350,6 @@ public class SwimmingPoolObjective : MonoBehaviour
         }
     }
 
-    public void SetCleaningLocked(bool locked)
-    {
-        if (cleaningLocked == locked)
-            return;
-
-        cleaningLocked = locked;
-        NotifyStateChanged();
-    }
-
     void HandleWaterValveActivated()
     {
         FillContaminated();
@@ -340,7 +358,25 @@ public class SwimmingPoolObjective : MonoBehaviour
     void HandleDirtSpotCleaned(DirtSpot dirt)
     {
         RefreshCleanProgress();
-        if (filled && !cleaned && IsPoolCleanComplete())
+        if (filled && !cleaned && !cleaningLocked && IsPoolCleanComplete())
+            MarkCleaned();
+        else
+            NotifyStateChanged();
+    }
+
+    void HandleCleaningZoneProgressChanged(PoolCleaningZone zone)
+    {
+        RefreshCleanProgress();
+        if (filled && !cleaned && !cleaningLocked && IsPoolCleanComplete())
+            MarkCleaned();
+        else
+            NotifyStateChanged();
+    }
+
+    void HandleCleaningZoneCleaned(PoolCleaningZone zone)
+    {
+        RefreshCleanProgress();
+        if (filled && !cleaned && !cleaningLocked && IsPoolCleanComplete())
             MarkCleaned();
         else
             NotifyStateChanged();
@@ -398,6 +434,9 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     bool IsEveryDirtSpotCleaned()
     {
+        if (IsCleaningZoneComplete())
+            return true;
+
         if (trackedDirtSpots.Count == 0)
             return true;
 
@@ -413,10 +452,27 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     bool IsPoolCleanComplete()
     {
+        if (cleaningLocked)
+            return false;
+
         if (IsEveryDirtSpotCleaned())
             return true;
 
         return CalculateDirtCleanProgress() >= poolCleanCompletionThreshold;
+    }
+
+    float GetCleaningZoneProgress()
+    {
+        return useCleaningZoneProgress && poolCleaningZone != null
+            ? Mathf.Clamp01(poolCleaningZone.CleanPercent)
+            : 0f;
+    }
+
+    bool IsCleaningZoneComplete()
+    {
+        return useCleaningZoneProgress &&
+            poolCleaningZone != null &&
+            poolCleaningZone.IsCleaned;
     }
 
     void ApplyVisualState()
@@ -567,6 +623,20 @@ public class SwimmingPoolObjective : MonoBehaviour
         RefreshDirtSpots();
     }
 
+    void RegisterCleaningZoneEvents()
+    {
+        if (poolCleaningZone == null)
+            poolCleaningZone = GetComponentInChildren<PoolCleaningZone>(true);
+
+        if (poolCleaningZone == null)
+            return;
+
+        poolCleaningZone.OnCleaned -= HandleCleaningZoneCleaned;
+        poolCleaningZone.OnCleaned += HandleCleaningZoneCleaned;
+        poolCleaningZone.OnProgressChanged -= HandleCleaningZoneProgressChanged;
+        poolCleaningZone.OnProgressChanged += HandleCleaningZoneProgressChanged;
+    }
+
     void UnregisterDirtSpotEvents()
     {
         foreach (DirtSpot dirtSpot in subscribedDirtSpots)
@@ -576,6 +646,15 @@ public class SwimmingPoolObjective : MonoBehaviour
         }
 
         subscribedDirtSpots.Clear();
+    }
+
+    void UnregisterCleaningZoneEvents()
+    {
+        if (poolCleaningZone == null)
+            return;
+
+        poolCleaningZone.OnCleaned -= HandleCleaningZoneCleaned;
+        poolCleaningZone.OnProgressChanged -= HandleCleaningZoneProgressChanged;
     }
 
     void AutoBindReferences()
