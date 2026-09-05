@@ -38,15 +38,15 @@ public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
         if (poweredLight != null)
             poweredLight.enabled = powered;
 
-        ApplyTint();
+        // ApplyTint();
     }
 
     public void Interact(PlayerInventory inventory)
     {
-        if (!powered)
+        if (!powered || pool == null || !pool.CanDisablePower())
             return;
 
-        pool?.DisablePowerTemporarily();
+        pool.DisablePowerTemporarily();
     }
 
     public override void ApplyPoolWaterHit(
@@ -55,6 +55,8 @@ public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
         Vector3 sourcePosition)
     {
         if (!powered || waterPower <= 0f)
+            return;
+        if (pool != null && !pool.CanDisablePower())
             return;
         if (waterQuality == WaterQuality.Clean && !cleanWaterDisables)
             return;

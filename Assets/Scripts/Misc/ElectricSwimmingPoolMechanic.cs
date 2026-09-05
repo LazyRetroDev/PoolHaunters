@@ -16,10 +16,13 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
 
     [Header("Hazards")]
     [SerializeField] private ElectricPoolPowerDevice powerDevicePrefab;
+    [SerializeField] private Transform powerDeviceSpawnPoint;
+    [SerializeField] private Vector3 powerDeviceRotationOffset = Vector3.zero;
     [SerializeField] private ElectricPoolCable cablePrefab;
     [SerializeField, Min(0)] private int floorCableCount = 6;
     [SerializeField, Min(0)] private int ceilingCableCount = 3;
-    [SerializeField, Min(0.05f)] private float spawnFloorOffset = 0.04f;
+    [SerializeField] private float cableSurfaceOffset = 0.04f;
+    [SerializeField] private float powerDeviceFallbackOffset = 0.04f;
     [SerializeField] private LayerMask groundLayers = ~0;
 
     [Header("Noise")]
@@ -93,6 +96,13 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
         }
     }
 
+    public bool CanDisablePower()
+    {
+        if (poolObjective != null && poolObjective.GetState() == SwimmingPoolObjectiveState.Empty)
+            return false;
+        return true;
+    }
+
     public void DisablePowerTemporarily()
     {
         if (!CanSpawnAuthoritatively())
@@ -158,9 +168,35 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
         if (powerDevicePrefab == null)
             return;
 
-        Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
-        Vector3 point = transform.position + up * spawnFloorOffset;
-        powerDevice = Instantiate(powerDevicePrefab, point, Quaternion.identity);
+        Transform actualSpawnPoint = powerDeviceSpawnPoint;
+        if (actualSpawnPoint == null)
+        {
+            foreach (Transform child in GetComponentsInChildren<Transform>(true))
+            {
+                if (child.name.ToLower().Replace(" ", "").Contains("powerdevicepoint"))
+                {
+                    actualSpawnPoint = child;
+                    break;
+                }
+            }
+        }
+
+        if (actualSpawnPoint != null)
+        {
+            Quaternion finalRotation = actualSpawnPoint.rotation * Quaternion.Euler(powerDeviceRotationOffset);
+            powerDevice = Instantiate(powerDevicePrefab, actualSpawnPoint.position, finalRotation, transform);
+            if (powerDevice.GetComponent<NetworkObject>() != null)
+                powerDevice.GetComponent<NetworkObject>().TrySetParent(transform, false);
+        }
+        else
+        {
+            Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
+            Vector3 point = transform.position + up * powerDeviceFallbackOffset;
+            powerDevice = Instantiate(powerDevicePrefab, point, Quaternion.identity, transform);
+            if (powerDevice.GetComponent<NetworkObject>() != null)
+                powerDevice.GetComponent<NetworkObject>().TrySetParent(transform, false);
+        }
+        
         powerDevice.BindPool(this);
         SpawnNetworkObject(powerDevice.gameObject);
     }
@@ -192,12 +228,15 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
             if (!TryGetCablePose(definition, random, ceiling, out point, out up))
                 continue;
 
-            Quaternion rotation = Quaternion.AngleAxis(
+            Quaternion randomYaw = Quaternion.AngleAxis(
                 (float)random.NextDouble() * 360f,
                 up);
+            Quaternion alignToSurface = Quaternion.FromToRotation(Vector3.up, up);
+            Quaternion rotation = randomYaw * alignToSurface * Quaternion.Euler(90f, 0f, 0f);
+
             ElectricPoolCable cable = Instantiate(
                 cablePrefab,
-                point + up.normalized * spawnFloorOffset,
+                point + up.normalized * cableSurfaceOffset,
                 rotation);
 
             RegisterCable(cable);
@@ -223,14 +262,17 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
         Vector3 size = definition.size;
         float localX = Mathf.Lerp(-size.x * 0.35f, size.x * 0.35f, (float)random.NextDouble());
         float localZ = Mathf.Lerp(-size.z * 0.35f, size.z * 0.35f, (float)random.NextDouble());
-        float y = ceiling ? -size.y * 0.5f - 1f : size.y * 0.5f + 1f;
+        
+        // Start the raycast from the exact vertical center of the room to avoid hitting the exterior of the room's colliders
+        float y = 0f; 
+        
         Vector3 origin = definition.transform.TransformPoint(
             definition.boundsCenter + new Vector3(localX, y, localZ));
 
         RaycastHit[] hits = Physics.RaycastAll(
             origin,
             rayDirection,
-            Mathf.Max(4f, size.y + 4f),
+            size.y,
             groundLayers,
             QueryTriggerInteraction.Ignore);
 
@@ -328,3 +370,6 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
         }
     }
 }
+
+
+

@@ -158,8 +158,8 @@ MonoBehaviour:
   currentDirt: 100
   destroyWhenClean: 1
   usePhysicalAreaCheck: 1
-  cleanCompletionThreshold: 0.852
-  gridResolution: 10
+  cleanCompletionThreshold: 1
+  gridResolution: 20
   currentCleanPercentage: 0
   targetRenderer: {fileID: 2633773052948678239}
   targetCollider: {fileID: 5070254616084529267}
@@ -169,7 +169,7 @@ MonoBehaviour:
   useDissolveShader: 1
   useLocalizedCleaning: 1
   dissolveEdgeGlow: 0
-  cleanPointMergeDistance: 0.08
+  cleanPointMergeDistance: 0.01
   keepCleaningRadiusWorldSized: 1
   maxLocalCleanRadius: 8
   adhereToSurface: 1
@@ -177,10 +177,14 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   adhesionRadius: 0.12
-  surfaceOffset: 0.01
+  surfaceOffset: 0.02
   fallAcceleration: 18
   maxFallSpeed: 10
   followAdheredSurfacePosition: 1
+  disableAdhesionWhenInPoolObjective: 1
+  ignorePoolAndWaterVolumesForAdhesion: 1
+  allowPoolDirtFallbackCleanWhenAreaMisses: 1
+  poolDirtAreaMissCleanMultiplier: 0.35
   createdByContaminatedWater: 0
   contaminatedGrowthPerWaterChunk: 1
   contaminatedWaterPerGrowthChunk: 50

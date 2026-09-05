@@ -1446,13 +1446,16 @@ MonoBehaviour:
   poolPrefabs:
   - label: Amaldicoada
     prefab: {fileID: 4456091574275649116, guid: c5408b02d0d393840b39b3c9359e0ad3, type: 3}
-    weight: 1
+    weight: 0
   - label: Fungica
     prefab: {fileID: 4456091574275649116, guid: 4a7140a8fbcc8bc4497f27708f480a6d, type: 3}
     weight: 0
   - label: Normal
     prefab: {fileID: 4456091574275649116, guid: dece44367e26fd0429e13d69235ba9f7, type: 3}
     weight: 0
+  - label: Electrical
+    prefab: {fileID: 4456091574275649116, guid: 865de424b13738148b5343ae7f6f038c, type: 3}
+    weight: 1
   seedSalt: 913579
   poolParent: {fileID: 386774599646835487}
   localPosition: {x: 0, y: 1, z: 0}

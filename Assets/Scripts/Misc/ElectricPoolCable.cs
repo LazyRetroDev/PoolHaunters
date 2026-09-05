@@ -117,32 +117,8 @@ public class ElectricPoolCable : PoolWaterReactive
         if (litVisualRoot != null)
             litVisualRoot.SetActive(lit);
         if (disabledVisualRoot != null)
-            disabledVisualRoot.SetActive(disabled);
+            disabledVisualRoot.SetActive(!lit);
         if (cableLight != null)
             cableLight.enabled = lit;
-
-        ApplyTint(lit ? litColor : unlitColor);
-    }
-
-    private void ApplyTint(Color color)
-    {
-        if (tintRenderers == null || tintRenderers.Length == 0)
-            tintRenderers = GetComponentsInChildren<Renderer>(true);
-
-        for (int i = 0; i < tintRenderers.Length; i++)
-        {
-            Renderer target = tintRenderers[i];
-            if (target == null)
-                continue;
-
-            Material material = target.material;
-            if (material == null)
-                continue;
-
-            if (material.HasProperty("_BaseColor"))
-                material.SetColor("_BaseColor", color);
-            else if (material.HasProperty("_Color"))
-                material.SetColor("_Color", color);
-        }
     }
 }
