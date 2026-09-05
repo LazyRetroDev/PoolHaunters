@@ -129,6 +129,12 @@ public class PlayerMovement : NetworkBehaviour
         rb = GetComponent<Rigidbody>();
         bodyCollider = GetComponent<CapsuleCollider>();
         playerInput = GetComponent<PlayerInput>();
+        
+        if (playerInput != null)
+        {
+            GameSettingsManager.ApplyInputOverridesToPlayer(playerInput);
+        }
+
         playerStatus = GetComponent<PlayerStatus>();
         jennyMopCleaner = GetComponent<JennyMopCleaner>();
         ApplySavedSessionStamina();
