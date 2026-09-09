@@ -2,8 +2,9 @@ using UnityEngine;
 using UnityEngine.AI;
 using TMPro;
 using System.Collections;
+using Unity.Netcode;
 
-public class TimeCamper : MonoBehaviour
+public class TimeCamper : NetworkBehaviour
 {
     [Header("Detection")]
     public Transform player;
@@ -90,6 +91,46 @@ public class TimeCamper : MonoBehaviour
 
     enum State { WaitingToBeSeen, Countdown, Beam, Leaving, Cooldown }
     State currentState = State.WaitingToBeSeen;
+    private readonly NetworkVariable<int> networkState = new NetworkVariable<int>();
+    private readonly NetworkVariable<float> networkCountdown = new NetworkVariable<float>();
+    private int lastVisualState = -1;
+    private float nextStatePublishTime;
+
+    void LateUpdate()
+    {
+        if (!IsSpawned || !IsServer) return;
+        networkState.Value = (int)currentState;
+        if (Time.unscaledTime >= nextStatePublishTime)
+        {
+            networkCountdown.Value = countdownTimer;
+            nextStatePublishTime = Time.unscaledTime + 0.1f;
+        }
+    }
+
+    void ApplyRemotePresentation()
+    {
+        State state = (State)networkState.Value;
+        if (lastVisualState != (int)state)
+        {
+            lastVisualState = (int)state;
+            CleanupVisuals();
+            bool visible = state != State.Leaving && state != State.Cooldown;
+            SetVisible(visible);
+            if (visible) SpawnWarningCircle();
+            if (state == State.Countdown) SetAnimatorTrigger(noticedTrigger);
+            if (state == State.Beam)
+            {
+                SetAnimatorTrigger(beamTrigger);
+                if (beamPrefab != null) beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
+            }
+        }
+        if (agent != null) agent.enabled = false;
+        if (countdownText != null)
+        {
+            countdownText.gameObject.SetActive(state == State.Countdown);
+            countdownText.text = Mathf.Ceil(networkCountdown.Value).ToString();
+        }
+    }
 
     void Start()
     {
@@ -105,6 +146,15 @@ public class TimeCamper : MonoBehaviour
 
     void Update()
     {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            if (!IsSpawned) return;
+            if (!IsServer)
+            {
+                ApplyRemotePresentation();
+                return;
+            }
+        }
         if (!EnemyAuthority.CanRunGameplay())
             return;
 
@@ -457,7 +507,8 @@ public class TimeCamper : MonoBehaviour
             if (EnemySpawner.Instance == null ||
                 !EnemySpawner.Instance.TryGetValidSpawnPosition(out newPos))
             {
-                Destroy(gameObject);
+                if (IsSpawned && IsServer) NetworkObject.Despawn(true);
+                else Destroy(gameObject);
                 return;
             }
         }
@@ -470,6 +521,13 @@ public class TimeCamper : MonoBehaviour
 
     void TeleportTo(Vector3 newPos)
     {
+        var networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+        if (IsSpawned && IsServer && networkTransform != null)
+        {
+            networkTransform.Teleport(newPos, transform.rotation, transform.localScale);
+            if (agent != null && agent.enabled) agent.Warp(newPos);
+            return;
+        }
         if (agent != null && agent.enabled)
             agent.Warp(newPos);
         else
@@ -597,9 +655,11 @@ public class TimeCamper : MonoBehaviour
         return waterContaminationRadius > 0f ? waterContaminationRadius : detectionRadius;
     }
 
-    void OnDestroy()
+    public override void OnDestroy()
     {
         ClearCameraEffect();
+        CleanupVisuals();
+        base.OnDestroy();
     }
 
     void OnDrawGizmosSelected()

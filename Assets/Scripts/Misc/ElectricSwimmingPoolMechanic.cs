@@ -39,6 +39,7 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
     private Coroutine waitForMapRoutine;
 
     public bool IsPowered => powered;
+    public int PoolSyncId => poolObjective != null ? poolObjective.SyncId : 0;
     public int ActiveCableCount
     {
         get
@@ -101,6 +102,13 @@ public class ElectricSwimmingPoolMechanic : MonoBehaviour
         if (poolObjective != null && poolObjective.GetState() == SwimmingPoolObjectiveState.Empty)
             return false;
         return true;
+    }
+
+    public void ApplyRemotePowerState(bool value, float remaining)
+    {
+        if (CanSpawnAuthoritatively()) return;
+        repowerTimer = Mathf.Max(0f, remaining);
+        SetPowered(value);
     }
 
     public void DisablePowerTemporarily()

@@ -19,6 +19,12 @@ public class WaterCannon : MonoBehaviour
     public float sprayParticleRate = 80f;
     public bool autoCreateSprayParticles = true;
 
+    [Header("Water Physics")]
+    [Min(0.1f)] public float waterLaunchSpeed = 7f;
+    [Min(0f)] public float waterGravityMultiplier = 0.6f;
+    [Range(4, 32)] public int waterTrajectorySteps = 12;
+    public LayerMask waterCollisionMask = ~0;
+
     [Header("Network Visuals")]
     public bool syncSprayVisuals = true;
     public float sprayVisualSyncInterval = 0.05f;
@@ -66,6 +72,10 @@ public class WaterCannon : MonoBehaviour
     private readonly HashSet<PoolWaterReactive> poolReactiveHits = new HashSet<PoolWaterReactive>();
     private readonly HashSet<GoldenMouthBehavior> goldenMouthHits = new HashSet<GoldenMouthBehavior>();
     private readonly HashSet<TubaraoBehavior> tubaraoHits = new HashSet<TubaraoBehavior>();
+    private readonly List<RaycastHit> trajectoryHits = new List<RaycastHit>(32);
+    private readonly RaycastHit[] trajectoryBuffer = new RaycastHit[64];
+    private static readonly IComparer<RaycastHit> HitDistanceComparer =
+        Comparer<RaycastHit>.Create((a, b) => a.distance.CompareTo(b.distance));
     private Transform ownerRoot;
     private WaterQuality appliedVisualQuality;
     private bool hasAppliedVisualQuality;
@@ -247,6 +257,20 @@ public class WaterCannon : MonoBehaviour
         var main = sprayParticles.main;
         main.loop = true;
         main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.startSpeed = Mathf.Max(0.1f, waterLaunchSpeed);
+        main.startLifetime = Mathf.Max(0.01f, sprayDistance / Mathf.Max(0.1f, waterLaunchSpeed));
+        main.gravityModifier = waterGravityMultiplier;
+
+        var collision = sprayParticles.collision;
+        collision.enabled = true;
+        collision.type = ParticleSystemCollisionType.World;
+        collision.mode = ParticleSystemCollisionMode.Collision3D;
+        collision.quality = ParticleSystemCollisionQuality.High;
+        collision.collidesWith = waterCollisionMask;
+        collision.lifetimeLoss = 1f;
+        collision.bounce = 0f;
+        collision.sendCollisionMessages = true;
 
         var emission = sprayParticles.emission;
         emission.rateOverTime = sprayParticleRate;
@@ -450,14 +474,9 @@ public class WaterCannon : MonoBehaviour
         bool handledContaminatedDirt = false;
         RaycastHit? contaminationSurfaceHit = null;
 
-        Ray ray = new Ray(sprayOrigin.position, sprayOrigin.forward);
-        RaycastHit[] hits = Physics.SphereCastAll(ray, sprayRadius, sprayDistance, cleanMask, QueryTriggerInteraction.Collide);
-        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        List<RaycastHit> hits = TraceWaterTrajectory();
 
-        if (debugSprayRay)
-            Debug.DrawRay(ray.origin, ray.direction * sprayDistance, Color.cyan);
-
-        for (int i = 0; i < hits.Length; i++)
+        for (int i = 0; i < hits.Count; i++)
         {
             if (ShouldIgnoreHit(hits[i]))
                 continue;
@@ -575,6 +594,52 @@ public class WaterCannon : MonoBehaviour
         if (hit.collider == null) return true;
         if (ownerRoot != null && hit.collider.transform.IsChildOf(ownerRoot)) return true;
         return false;
+    }
+
+    List<RaycastHit> TraceWaterTrajectory()
+    {
+        // Use the same launch speed, lifetime and gravity as the visible spray.
+        // Gameplay stays rate-based, independent of particle count and quality.
+        trajectoryHits.Clear();
+        float duration = Mathf.Max(0f, sprayDistance) / Mathf.Max(0.1f, waterLaunchSpeed);
+        int steps = Mathf.Clamp(waterTrajectorySteps, 4, 32);
+        Vector3 origin = sprayOrigin.position;
+        Vector3 velocity = sprayOrigin.forward * Mathf.Max(0.1f, waterLaunchSpeed);
+        Vector3 gravity = Physics.gravity * waterGravityMultiplier;
+        Vector3 previous = origin;
+        for (int step = 1; step <= steps; step++)
+        {
+            float t = duration * step / steps;
+            Vector3 next = origin + velocity * t + gravity * (0.5f * t * t);
+            Vector3 delta = next - previous;
+            float length = delta.magnitude;
+            if (length <= 0.0001f) continue;
+            var hits = trajectoryBuffer;
+            int count = Physics.SphereCastNonAlloc(previous, Mathf.Max(0.001f, sprayRadius),
+                delta / length, hits, length, cleanMask.value | waterCollisionMask.value,
+                QueryTriggerInteraction.Collide);
+            // A saturated non-alloc query is unordered and may omit the wall.
+            if (count == hits.Length)
+            {
+                hits = Physics.SphereCastAll(previous, Mathf.Max(0.001f, sprayRadius),
+                delta / length, length, cleanMask.value | waterCollisionMask.value,
+                QueryTriggerInteraction.Collide);
+                count = hits.Length;
+            }
+            Array.Sort(hits, 0, count, HitDistanceComparer);
+            for (int i = 0; i < count; i++)
+            {
+                var hit = hits[i];
+                if (ShouldIgnoreHit(hit)) continue;
+                int layer = 1 << hit.collider.gameObject.layer;
+                if ((cleanMask.value & layer) != 0) trajectoryHits.Add(hit);
+                if (!hit.collider.isTrigger && (waterCollisionMask.value & layer) != 0)
+                    return trajectoryHits;
+            }
+            if (debugSprayRay) Debug.DrawLine(previous, next, Color.cyan);
+            previous = next;
+        }
+        return trajectoryHits;
     }
 
     bool IsValidContaminationSurface(RaycastHit hit)

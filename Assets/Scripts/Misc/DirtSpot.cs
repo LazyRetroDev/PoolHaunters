@@ -79,6 +79,110 @@ public class DirtSpot : NetworkBehaviour
     private bool[] nodeIsClean;
     private int totalNodes;
     private int cleanedNodes;
+    // Persistent projected surface mask: rendering and progress read these
+    // same texels, rather than a finite list of independently counted brushes.
+    const int MaskResolution = 128;
+    private Texture2D surfaceMask;
+    private Color32[] surfacePixels;
+    private int surfaceCleanCount;
+    private Bounds surfaceBounds;
+    private int surfaceU, surfaceV, surfaceNormal;
+
+    bool UsesSurfaceMask => useDissolveShader && useLocalizedCleaning && targetRenderer != null;
+
+    void EnsureSurfaceMask()
+    {
+        if (surfaceMask != null || !UsesSurfaceMask) return;
+        surfaceBounds = targetRenderer.localBounds;
+        Vector3 size = surfaceBounds.size;
+        surfaceNormal = size.x <= size.y && size.x <= size.z ? 0 : size.y <= size.z ? 1 : 2;
+        surfaceU = (surfaceNormal + 1) % 3;
+        surfaceV = (surfaceNormal + 2) % 3;
+        surfacePixels = new Color32[MaskResolution * MaskResolution];
+        surfaceMask = new Texture2D(MaskResolution, MaskResolution, TextureFormat.RGBA32, false, true);
+        surfaceMask.name = "Dirt coverage";
+        surfaceMask.filterMode = FilterMode.Point;
+        surfaceMask.wrapMode = TextureWrapMode.Clamp;
+        surfaceMask.SetPixels32(surfacePixels);
+        surfaceMask.Apply(false);
+    }
+
+    bool PaintSurfaceMask(Vector3 worldPoint, float radius, bool clean)
+    {
+        EnsureSurfaceMask();
+        if (surfaceMask == null || radius <= 0f) return false;
+        Transform surface = targetRenderer.transform;
+        Vector3 localHit = surface.InverseTransformPoint(worldPoint);
+        Vector3 nearest = surfaceBounds.ClosestPoint(localHit);
+        if ((surface.TransformPoint(nearest) - worldPoint).sqrMagnitude > radius * radius) return false;
+        bool changed = false;
+        Material material = targetRenderer.sharedMaterial;
+        float softness = material != null && material.HasProperty("_BrushSoftness")
+            ? Mathf.Clamp01(material.GetFloat("_BrushSoftness")) : 0.35f;
+        float noiseScale = material != null && material.HasProperty("_NoiseScale")
+            ? material.GetFloat("_NoiseScale") : 7f;
+        Vector3 a = surface.InverseTransformVector(Vector3.right * radius);
+        Vector3 b = surface.InverseTransformVector(Vector3.up * radius);
+        Vector3 c = surface.InverseTransformVector(Vector3.forward * radius);
+        float ru = Mathf.Sqrt(a[surfaceU] * a[surfaceU] + b[surfaceU] * b[surfaceU] + c[surfaceU] * c[surfaceU]);
+        float rv = Mathf.Sqrt(a[surfaceV] * a[surfaceV] + b[surfaceV] * b[surfaceV] + c[surfaceV] * c[surfaceV]);
+        int minX = Mathf.Clamp(Mathf.FloorToInt((localHit[surfaceU] - ru - surfaceBounds.min[surfaceU]) / Mathf.Max(0.0001f, surfaceBounds.size[surfaceU]) * MaskResolution), 0, MaskResolution - 1);
+        int maxX = Mathf.Clamp(Mathf.CeilToInt((localHit[surfaceU] + ru - surfaceBounds.min[surfaceU]) / Mathf.Max(0.0001f, surfaceBounds.size[surfaceU]) * MaskResolution), 0, MaskResolution - 1);
+        int minY = Mathf.Clamp(Mathf.FloorToInt((localHit[surfaceV] - rv - surfaceBounds.min[surfaceV]) / Mathf.Max(0.0001f, surfaceBounds.size[surfaceV]) * MaskResolution), 0, MaskResolution - 1);
+        int maxY = Mathf.Clamp(Mathf.CeilToInt((localHit[surfaceV] + rv - surfaceBounds.min[surfaceV]) / Mathf.Max(0.0001f, surfaceBounds.size[surfaceV]) * MaskResolution), 0, MaskResolution - 1);
+        for (int y = minY; y <= maxY; y++)
+        for (int x = minX; x <= maxX; x++)
+        {
+            int index = y * MaskResolution + x;
+            byte value = clean ? (byte)255 : (byte)0;
+            if (surfacePixels[index].r == value) continue;
+            Vector3 point = nearest;
+            point[surfaceU] = Mathf.Lerp(surfaceBounds.min[surfaceU], surfaceBounds.max[surfaceU], (x + 0.5f) / MaskResolution);
+            point[surfaceV] = Mathf.Lerp(surfaceBounds.min[surfaceV], surfaceBounds.max[surfaceV], (y + 0.5f) / MaskResolution);
+            float distance = Vector3.Distance(surface.TransformPoint(point), worldPoint);
+            if (distance > radius) continue;
+            if (clean && softness > 0f)
+            {
+                float brush = 1f - Mathf.SmoothStep(0f, 1f,
+                    Mathf.InverseLerp(radius * (1f - softness), radius, distance));
+                if (brush < CoverageNoise(point[surfaceU] * noiseScale, point[surfaceV] * noiseScale)) continue;
+            }
+            surfacePixels[index] = new Color32(value, value, value, 255);
+            surfaceCleanCount += clean ? 1 : -1;
+            changed = true;
+        }
+        if (!changed) return false;
+        surfaceMask.SetPixels32(surfacePixels);
+        surfaceMask.Apply(false);
+        currentCleanPercentage = (float)surfaceCleanCount / surfacePixels.Length;
+        currentDirt = maxDirt * (1f - currentCleanPercentage);
+        UpdateVisualState();
+        if (clean && currentCleanPercentage >= cleanCompletionThreshold && !IsCleaned)
+        {
+            MarkCleaned();
+            StartCoroutine(FadeOutAndDestroy());
+        }
+        return true;
+    }
+
+    static float CoverageNoise(float x, float y)
+    {
+        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+        float tx = Mathf.SmoothStep(0f, 1f, x - ix);
+        float ty = Mathf.SmoothStep(0f, 1f, y - iy);
+        return Mathf.Lerp(Mathf.Lerp(CoverageHash(ix, iy), CoverageHash(ix + 1, iy), tx),
+            Mathf.Lerp(CoverageHash(ix, iy + 1), CoverageHash(ix + 1, iy + 1), tx), ty);
+    }
+
+    static float CoverageHash(int x, int y)
+    {
+        unchecked
+        {
+            uint value = (uint)x * 374761393u + (uint)y * 668265263u;
+            value = (value ^ (value >> 13)) * 1274126177u;
+            return ((value ^ (value >> 16)) & 65535u) / 65535f;
+        }
+    }
 
     private readonly RaycastHit[] adhesionRayHits = new RaycastHit[16];
     private Transform adheredSurface;
@@ -110,6 +214,12 @@ public class DirtSpot : NetworkBehaviour
     {
         if (adhereToSurface)
             TryAttachToNearbySurface();
+    }
+
+    public override void OnDestroy()
+    {
+        if (surfaceMask != null) Destroy(surfaceMask);
+        base.OnDestroy();
     }
 
     void Update()
@@ -403,7 +513,9 @@ public class DirtSpot : NetworkBehaviour
 
         UpdateVisualState();
 
-        if (currentDirt <= 0f && !usePhysicalAreaCheck)
+        // Amount-based cleaning and area coverage are both completion paths.
+        // Never leave a zero-dirt surface visible but rejecting further hits.
+        if (currentDirt <= 0f)
         {
             MarkCleaned();
             StartCoroutine(FadeOutAndDestroy());
@@ -453,6 +565,11 @@ public class DirtSpot : NetworkBehaviour
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
         if (poolObjective != null && poolObjective.IsCleaningLocked) return;
+        if (UsesSurfaceMask)
+        {
+            PaintSurfaceMask(worldPoint, worldRadius, true);
+            return;
+        }
 
         bool areaCleaned = false;
 
@@ -524,6 +641,11 @@ public class DirtSpot : NetworkBehaviour
     void ApplyContaminatedWaterAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float waterAmount)
     {
         if (waterAmount <= 0f || isFadingOut) return;
+        if (UsesSurfaceMask && !createdByContaminatedWater)
+        {
+            PaintSurfaceMask(worldPoint, worldRadius, false);
+            return;
+        }
 
         bool changed = RestoreAtWorldPoint(worldPoint, worldRadius, waterAmount);
         if (createdByContaminatedWater)
@@ -755,7 +877,7 @@ public class DirtSpot : NetworkBehaviour
 
         float dirtPercent = GetDirtPercent();
 
-        if (shrinkWhileCleaning)
+        if (shrinkWhileCleaning && !UsesSurfaceMask)
         {
             float scaleMultiplier = Mathf.Lerp(minimumScaleMultiplier, 1f, dirtPercent);
             transform.localScale = new Vector3(
@@ -768,6 +890,19 @@ public class DirtSpot : NetworkBehaviour
         if (useDissolveShader && targetRenderer != null)
         {
             targetRenderer.GetPropertyBlock(propertyBlock);
+            EnsureSurfaceMask();
+            propertyBlock.SetFloat("_UseCoverageMask", UsesSurfaceMask ? 1f : 0f);
+            if (surfaceMask != null)
+            {
+                Vector3 uAxis = Vector3.zero, vAxis = Vector3.zero;
+                uAxis[surfaceU] = 1f;
+                vAxis[surfaceV] = 1f;
+                propertyBlock.SetTexture("_CoverageMask", surfaceMask);
+                propertyBlock.SetVector("_CoverageU", uAxis);
+                propertyBlock.SetVector("_CoverageV", vAxis);
+                propertyBlock.SetVector("_CoverageBounds", new Vector4(surfaceBounds.min[surfaceU], surfaceBounds.min[surfaceV],
+                    Mathf.Max(0.0001f, surfaceBounds.size[surfaceU]), Mathf.Max(0.0001f, surfaceBounds.size[surfaceV])));
+            }
             propertyBlock.SetFloat(DissolveAmountId, useLocalizedCleaning ? 0f : 1f - dirtPercent);
             propertyBlock.SetFloat(EdgeGlowId, dissolveEdgeGlow);
             propertyBlock.SetFloat(CleanPointCountId, cleanPointCount);
@@ -983,6 +1118,9 @@ public class DirtSpot : NetworkBehaviour
 
     void ResetDirtyState()
     {
+        if (surfaceMask != null) Destroy(surfaceMask);
+        surfaceMask = null;
+        surfaceCleanCount = 0;
         isFadingOut = false;
         IsCleaned = false;
         currentDirt = maxDirt;

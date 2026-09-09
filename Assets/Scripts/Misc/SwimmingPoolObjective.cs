@@ -69,7 +69,7 @@ public class SwimmingPoolObjective : MonoBehaviour
             float dirtProgress = trackedDirtSpots.Count > 0
                 ? CalculateDirtCleanProgress()
                 : cleaned ? 1f : 0f;
-            return Mathf.Max(dirtProgress, GetCleaningZoneProgress());
+            return trackedDirtSpots.Count > 0 ? dirtProgress : GetCleaningZoneProgress();
         }
     }
 
@@ -434,7 +434,7 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     bool IsEveryDirtSpotCleaned()
     {
-        if (IsCleaningZoneComplete())
+        if (trackedDirtSpots.Count == 0 && IsCleaningZoneComplete())
             return true;
 
         if (trackedDirtSpots.Count == 0)

@@ -13,14 +13,14 @@ EditorBuildSettings:
     guid: 99c9720ab356a0642a771bea13969a05
   - enabled: 1
     path: Assets/Scenes/Game 1.unity
-    guid: 16962b5c7bf96e549a9c60e2b366ec6e
+    guid: 00165f6689f868748a8ed4c5670b75c1
   - enabled: 1
     path: Assets/Scenes/Game 2.unity
-    guid: 69ab09be2008390449bec36556c17010
+    guid: aa521865c9001f345a415c48f2c37b30
   - enabled: 1
     path: Assets/Scenes/Shop.unity
     guid: d383abc3f35bfeb49a591407d7affc6c
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/PlayableAd.unity
     guid: ac7470735217e7e43861d35e81f46622
   m_configObjects:

@@ -10,6 +10,8 @@ Shader "PoolHaunters/DirtDissolve"
         _EdgeGlow("Edge Glow", Range(0, 4)) = 0.6
         _NoiseScale("Noise Scale", Range(0.5, 20)) = 7
         _BrushSoftness("Brush Softness", Range(0.01, 1)) = 0.35
+        [HideInInspector] _CoverageMask("Coverage", 2D) = "black" {}
+        [HideInInspector] _UseCoverageMask("Use Coverage", Float) = 0
     }
 
     SubShader
@@ -53,6 +55,11 @@ Shader "PoolHaunters/DirtDissolve"
             
             TEXTURE2D(_MainTex);
             SAMPLER(sampler_MainTex);
+            TEXTURE2D(_CoverageMask);
+            SAMPLER(sampler_CoverageMask);
+            float _UseCoverageMask;
+            float4 _CoverageMask_TexelSize;
+            float4 _CoverageU, _CoverageV, _CoverageBounds;
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST; 
@@ -112,6 +119,22 @@ Shader "PoolHaunters/DirtDissolve"
 
             half4 frag(Varyings input) : SV_Target
             {
+                if (_UseCoverageMask > 0.5)
+                {
+                    float2 surfacePosition = float2(dot(input.positionOS, _CoverageU.xyz), dot(input.positionOS, _CoverageV.xyz));
+                    float2 maskUV = (surfacePosition - _CoverageBounds.xy) / _CoverageBounds.zw;
+                    float coverage = SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV).r;
+                    // The same binary texels count toward completion on the CPU.
+                    clip(0.5 - max(coverage, _DissolveAmount));
+                    float2 offset = _CoverageMask_TexelSize.xy * max(1.0, _EdgeWidth * 32.0);
+                    float border = SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV + float2(offset.x, 0)).r;
+                    border += SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV - float2(offset.x, 0)).r;
+                    border += SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV + float2(0, offset.y)).r;
+                    border += SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV - float2(0, offset.y)).r;
+                    float edge = saturate(border) * lerp(0.6, 1.0, valueNoise(input.positionOS * _NoiseScale));
+                    half3 baseColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv).rgb * _BaseColor.rgb;
+                    return half4(baseColor + _EdgeColor.rgb * edge * _EdgeGlow, 1);
+                }
                 float localDissolve = _DissolveAmount;
 
                 [unroll]

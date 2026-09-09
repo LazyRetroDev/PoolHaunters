@@ -1,4 +1,6 @@
 using UnityEngine;
+using Unity.Netcode;
+using Unity.Collections;
 
 [DisallowMultipleComponent]
 public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
@@ -19,6 +21,66 @@ public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
     private ElectricSwimmingPoolMechanic pool;
     private float wetness;
     private bool powered;
+    private NetworkManager registeredManager;
+    private string messageKey;
+    private float nextPublishTime;
+
+    void Update()
+    {
+        var manager = NetworkManager.Singleton;
+        var obj = GetComponent<NetworkObject>();
+        if (manager == null || !manager.IsListening || obj == null || !obj.IsSpawned) return;
+        if (registeredManager == null)
+        {
+            registeredManager = manager;
+            messageKey = "ElectricPower/" + obj.NetworkObjectId;
+            manager.CustomMessagingManager.RegisterNamedMessageHandler(messageKey, HandlePowerMessage);
+        }
+        if (!manager.IsServer || Time.unscaledTime < nextPublishTime || pool == null) return;
+        nextPublishTime = Time.unscaledTime + 0.25f;
+        using (var writer = new FastBufferWriter(16, Allocator.Temp))
+        {
+            writer.WriteValueSafe(powered);
+            writer.WriteValueSafe(pool.PoolSyncId);
+            writer.WriteValueSafe(pool.PowerReturnSeconds);
+            foreach (ulong clientId in manager.ConnectedClientsIds)
+                if (clientId != NetworkManager.ServerClientId)
+                    manager.CustomMessagingManager.SendNamedMessage(messageKey, clientId, writer, NetworkDelivery.ReliableSequenced);
+        }
+    }
+
+    void HandlePowerMessage(ulong sender, FastBufferReader reader)
+    {
+        if (registeredManager == null || !registeredManager.IsListening) return;
+        if (registeredManager.IsServer)
+        {
+            if (!registeredManager.ConnectedClients.TryGetValue(sender, out var client) || client.PlayerObject == null) return;
+            var inventory = client.PlayerObject.GetComponent<PlayerInventory>();
+            var status = client.PlayerObject.GetComponent<PlayerStatus>();
+            if (inventory == null || status == null || !status.CanAct()) return;
+            if (Vector3.Distance(client.PlayerObject.transform.position, transform.position) > inventory.pickupRange + 1f) return;
+            Interact(inventory);
+            nextPublishTime = 0f;
+            return;
+        }
+        if (sender != NetworkManager.ServerClientId) return;
+        reader.ReadValueSafe(out bool state);
+        reader.ReadValueSafe(out int poolId);
+        reader.ReadValueSafe(out float remaining);
+        SetPowered(state);
+        if (pool == null)
+            foreach (var candidate in FindObjectsByType<ElectricSwimmingPoolMechanic>(FindObjectsInactive.Include))
+            {
+                if (candidate.PoolSyncId == poolId) { pool = candidate; break; }
+            }
+        if (pool != null) pool.ApplyRemotePowerState(state, remaining);
+    }
+
+    void OnDestroy()
+    {
+        if (registeredManager != null && registeredManager.CustomMessagingManager != null && messageKey != null)
+            registeredManager.CustomMessagingManager.UnregisterNamedMessageHandler(messageKey);
+    }
 
     public void BindPool(ElectricSwimmingPoolMechanic owningPool)
     {
@@ -43,6 +105,15 @@ public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
 
     public void Interact(PlayerInventory inventory)
     {
+        if (registeredManager != null && registeredManager.IsListening && !registeredManager.IsServer)
+        {
+            using (var writer = new FastBufferWriter(1, Allocator.Temp))
+            {
+                writer.WriteValueSafe((byte)0);
+                registeredManager.CustomMessagingManager.SendNamedMessage(messageKey, NetworkManager.ServerClientId, writer, NetworkDelivery.ReliableSequenced);
+            }
+            return;
+        }
         if (!powered || pool == null || !pool.CanDisablePower())
             return;
 
