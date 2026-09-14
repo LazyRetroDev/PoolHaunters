@@ -42,6 +42,8 @@ public class SwimmingPoolObjective : MonoBehaviour
         new System.Collections.Generic.List<DirtSpot>();
     private readonly System.Collections.Generic.HashSet<DirtSpot> subscribedDirtSpots =
         new System.Collections.Generic.HashSet<DirtSpot>();
+    private readonly System.Collections.Generic.List<DirtSpot> discoveredDirtSpots =
+        new System.Collections.Generic.List<DirtSpot>();
 
     public event Action<SwimmingPoolObjective> OnPoolStateChanged;
     public event Action<SwimmingPoolObjective> OnPoolCleaned;
@@ -583,10 +585,11 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         if (autoFindDirtSpots)
         {
-            DirtSpot[] found = GetComponentsInChildren<DirtSpot>(true);
+            GetComponentsInChildren<DirtSpot>(true, discoveredDirtSpots);
+            var found = discoveredDirtSpots;
             if (found != null)
             {
-                for (int i = 0; i < found.Length; i++)
+                for (int i = 0; i < found.Count; i++)
                 {
                     DirtSpot ds = found[i];
                     TrackDirtSpot(ds);

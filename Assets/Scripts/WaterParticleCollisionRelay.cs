@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using Unity.Netcode;
 
 [RequireComponent(typeof(ParticleSystem))]
@@ -17,6 +18,8 @@ public class WaterParticleCollisionRelay : MonoBehaviour
     private ParticleSystem.Particle[] particleBuffer;
     private readonly Collider[] colliderBuffer = new Collider[ColliderBufferSize];
     private PlayerMovement ownerMovement;
+    private float nextParticleScan;
+    private readonly HashSet<GameObject> notifiedTargets = new HashSet<GameObject>();
 
     void Awake()
     {
@@ -30,6 +33,9 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         if (!CanProcessGameplayCollision())
             return;
 
+        if (Time.time < nextParticleScan) return;
+        nextParticleScan = Time.time + 0.05f;
+        notifiedTargets.Clear();
         DetectWaterReactiveEnemiesInsideParticles();
     }
 
@@ -56,7 +62,8 @@ public class WaterParticleCollisionRelay : MonoBehaviour
         int particleCount = waterParticles.GetParticles(particleBuffer);
         ParticleSystem.MainModule main = waterParticles.main;
 
-        for (int i = 0; i < particleCount; i++)
+        int stride = Mathf.Max(1, Mathf.CeilToInt(particleCount / 32f));
+        for (int i = 0; i < particleCount; i += stride)
         {
             Vector3 particlePosition = GetWorldPosition(particleBuffer[i], main);
             float radius = particleHitRadius + particleBuffer[i].GetCurrentSize(waterParticles) * 0.5f;
@@ -91,6 +98,14 @@ public class WaterParticleCollisionRelay : MonoBehaviour
     {
         if (hitObject == null)
             return;
+
+        Component reactive = hitObject.GetComponentInParent<RaccoonBehavior>();
+        if (reactive == null) reactive = hitObject.GetComponentInParent<BathroomBlondeBehavior>();
+        if (reactive == null) reactive = hitObject.GetComponentInParent<BathroomBlondeMirror>();
+        if (reactive == null) reactive = hitObject.GetComponentInParent<BathroomBlondeDrain>();
+        if (reactive == null) reactive = hitObject.GetComponentInParent<TubaraoBehavior>();
+        if (reactive == null || !notifiedTargets.Add(reactive.gameObject)) return;
+        hitObject = reactive.gameObject;
 
         if (ownerMovement != null)
         {

@@ -73,15 +73,35 @@ public class HUD : MonoBehaviour
             playerStatus.OnDeath += HandlePlayerDeath;
     }
 
-    public void SetInteractionPrompt(string prompt, bool visible)
+    private ControllerButtonIcon interactionButtonIcon;
+
+    public void SetInteractionPrompt(string prompt, bool visible, bool controller = false)
     {
         EnsureInteractionPrompt();
 
         if (interactionPromptText == null)
             return;
 
-        interactionPromptText.text = visible ? prompt : string.Empty;
+        // The legacy revive prompt includes a hardcoded E prefix.
+        bool legacyKeyPrefix = !string.IsNullOrEmpty(prompt) && prompt.StartsWith("E - ");
+        string description = legacyKeyPrefix ? prompt.Substring(4) : prompt;
+        if (!controller && legacyKeyPrefix)
+            description = GameSettingsManager.GetBinding(System.Array.IndexOf(GameSettingsManager.BindingKeys, "Interact")).ToUpperInvariant() + " - " + description;
+        interactionPromptText.text = visible ? description : string.Empty;
         interactionPromptText.gameObject.SetActive(visible);
+        if (visible && controller)
+        {
+            if (interactionButtonIcon == null)
+            {
+                interactionButtonIcon = ControllerButtonIcon.Create(interactionPromptText.transform);
+                interactionButtonIcon.rectTransform.anchorMin = interactionButtonIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            }
+            interactionButtonIcon.gameObject.SetActive(true);
+            interactionButtonIcon.SetControl(GameSettingsManager.GetControllerBinding(System.Array.IndexOf(GameSettingsManager.ControllerActions, "Interact")));
+            float width = Mathf.Min(interactionPromptText.GetPreferredValues(description).x, interactionPromptText.rectTransform.rect.width);
+            interactionButtonIcon.rectTransform.anchoredPosition = new Vector2(-width * 0.5f - 26f, 0f);
+        }
+        else if (interactionButtonIcon != null) interactionButtonIcon.gameObject.SetActive(false);
     }
 
     void Update()

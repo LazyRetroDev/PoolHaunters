@@ -223,7 +223,7 @@ public class MainMenuOptionsController : MonoBehaviour
         LoadBind(runInputField, "Bind_Run", "LeftShift");
         LoadBind(crouchInputField, "Bind_Crouch", "LeftCtrl");
         LoadBind(interactInputField, "Bind_Interact", "E");
-        LoadBind(useInputField, "Bind_Use", "LeftButton");
+        LoadBind(useInputField, "Bind_Use", "f");
 
         // Player Ops
         if (languageDropDown != null)
@@ -336,6 +336,14 @@ public class MainMenuOptionsController : MonoBehaviour
         bool keyBound = false;
         while (!keyBound)
         {
+            if (!field.gameObject.activeInHierarchy) yield break;
+            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+            {
+                int index = System.Array.IndexOf(GameSettingsManager.BindingKeys, prefKey.Replace("Bind_", ""));
+                if (index >= 0) field.text = FormatKeyName(GameSettingsManager.GetBinding(index));
+                if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
+                yield break;
+            }
             // Check Keyboard
             if (Keyboard.current != null && Keyboard.current.anyKey.wasPressedThisFrame)
             {
@@ -365,8 +373,11 @@ public class MainMenuOptionsController : MonoBehaviour
 
     private void ApplyBind(TMP_InputField field, string prefKey, string systemName)
     {
-        PlayerPrefs.SetString(PrefPrefix + prefKey, systemName);
-        field.text = FormatKeyName(systemName);
+        int index = System.Array.IndexOf(GameSettingsManager.BindingKeys, prefKey.Replace("Bind_", ""));
+        if (index < 0) return;
+        if (GameSettingsManager.SaveBinding(index, systemName, out string error))
+            field.text = FormatKeyName(systemName);
+        else field.text = FormatKeyName(GameSettingsManager.GetBinding(index)) + " (already assigned)";
     }
 
     private string FormatKeyName(string systemName)

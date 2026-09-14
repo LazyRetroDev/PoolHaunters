@@ -146,6 +146,9 @@ public class LevelObjectiveManager : MonoBehaviour
 
         Instance = this;
 
+        if (GetComponent<AdaptiveWaterAssistance>() == null)
+            gameObject.AddComponent<AdaptiveWaterAssistance>();
+
         if (GetComponent<LevelRewardTracker>() == null)
             gameObject.AddComponent<LevelRewardTracker>();
 

@@ -29,6 +29,7 @@ public class PlayerInventory : NetworkBehaviour
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
     private HUD hud;
+    private PlayerInput promptInput;
 
     void Awake()
     {
@@ -139,13 +140,26 @@ public class PlayerInventory : NetworkBehaviour
     public void OnPrevious(InputValue value)
     {
         if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
-        SelectSlot(0);
+        EnsureSlots();
+        SelectSlot((selectedSlot + slots.Length - 1) % slots.Length);
     }
 
     public void OnNext(InputValue value)
     {
         if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked()) return;
-        SelectSlot(1);
+        EnsureSlots();
+        SelectSlot((selectedSlot + 1) % slots.Length);
+    }
+
+    public void OnSlot1(InputValue value) => SelectDirectSlot(value, 0);
+    public void OnSlot2(InputValue value) => SelectDirectSlot(value, 1);
+    public void OnSlot3(InputValue value) => SelectDirectSlot(value, 2);
+    public void OnSlot4(InputValue value) => SelectDirectSlot(value, 3);
+
+    void SelectDirectSlot(InputValue value, int index)
+    {
+        if (!CanHandleLocalInput() || !value.isPressed || IsInventoryLocked() || index >= inventorySize) return;
+        SelectSlot(index);
     }
 
     void Update()
@@ -159,13 +173,7 @@ public class PlayerInventory : NetworkBehaviour
         UpdateInteractionPrompt();
 
         if (IsInventoryLocked()) return;
-        if (Keyboard.current == null) return;
 
-        for (int i = 0; i < inventorySize; i++)
-        {
-            if (Keyboard.current[Key.Digit1 + i].wasPressedThisFrame)
-                SelectSlot(i);
-        }
     }
 
     void CacheReferences()
@@ -255,9 +263,10 @@ public class PlayerInventory : NetworkBehaviour
 
     void SetInteractionPrompt(string prompt, bool visible)
     {
+        if (promptInput == null) promptInput = GetComponent<PlayerInput>();
         HUD boundHud = GetBoundHud();
         if (boundHud != null)
-            boundHud.SetInteractionPrompt(prompt, visible);
+            boundHud.SetInteractionPrompt(prompt, visible, promptInput != null && promptInput.currentControlScheme == "Gamepad");
     }
 
     HUD GetBoundHud()

@@ -85,6 +85,7 @@ public class DirtSpot : NetworkBehaviour
     private Texture2D surfaceMask;
     private Color32[] surfacePixels;
     private int surfaceCleanCount;
+    private bool surfaceUploadPending;
     private Bounds surfaceBounds;
     private int surfaceU, surfaceV, surfaceNormal;
 
@@ -152,11 +153,9 @@ public class DirtSpot : NetworkBehaviour
             changed = true;
         }
         if (!changed) return false;
-        surfaceMask.SetPixels32(surfacePixels);
-        surfaceMask.Apply(false);
+        surfaceUploadPending = true;
         currentCleanPercentage = (float)surfaceCleanCount / surfacePixels.Length;
         currentDirt = maxDirt * (1f - currentCleanPercentage);
-        UpdateVisualState();
         if (clean && currentCleanPercentage >= cleanCompletionThreshold && !IsCleaned)
         {
             MarkCleaned();
@@ -226,6 +225,15 @@ public class DirtSpot : NetworkBehaviour
     {
         UpdateAdheredSurfacePosition();
         UpdateSurfaceAdhesion();
+    }
+
+    void LateUpdate()
+    {
+        // Multiple network brush messages can arrive in one frame. Upload once.
+        if (!surfaceUploadPending || surfaceMask == null) return;
+        surfaceUploadPending = false;
+        surfaceMask.SetPixels32(surfacePixels);
+        surfaceMask.Apply(false);
     }
 
     void GenerateDirtNodes()
@@ -906,7 +914,7 @@ public class DirtSpot : NetworkBehaviour
             propertyBlock.SetFloat(DissolveAmountId, useLocalizedCleaning ? 0f : 1f - dirtPercent);
             propertyBlock.SetFloat(EdgeGlowId, dissolveEdgeGlow);
             propertyBlock.SetFloat(CleanPointCountId, cleanPointCount);
-            propertyBlock.SetVectorArray(CleanPointsId, cleanPoints);
+            if (!UsesSurfaceMask) propertyBlock.SetVectorArray(CleanPointsId, cleanPoints);
             targetRenderer.SetPropertyBlock(propertyBlock);
         }
     }

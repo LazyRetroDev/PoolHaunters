@@ -116,25 +116,31 @@ public class PlayerSpectatorMode : MonoBehaviour
 
     void UpdateLook()
     {
-        if (Mouse.current == null) return;
-
-        Vector2 lookDelta = Mouse.current.delta.ReadValue();
+        Vector2 lookDelta = Mouse.current != null ? Mouse.current.delta.ReadValue() : Vector2.zero;
         yaw += lookDelta.x * lookSensitivity;
         pitch -= lookDelta.y * lookSensitivity;
+        if (Gamepad.current != null)
+        {
+            Vector2 stick = Gamepad.current.rightStick.ReadValue();
+            yaw += stick.x * 120f * Time.deltaTime;
+            pitch -= stick.y * 120f * Time.deltaTime;
+        }
         pitch = Mathf.Clamp(pitch, -85f, 85f);
     }
 
     void UpdateMovement()
     {
-        if (Keyboard.current == null) return;
-
         Vector2 input = Vector2.zero;
-        if (Keyboard.current.wKey.isPressed) input.y += 1f;
-        if (Keyboard.current.sKey.isPressed) input.y -= 1f;
-        if (Keyboard.current.dKey.isPressed) input.x += 1f;
-        if (Keyboard.current.aKey.isPressed) input.x -= 1f;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.wKey.isPressed) input.y += 1f;
+            if (Keyboard.current.sKey.isPressed) input.y -= 1f;
+            if (Keyboard.current.dKey.isPressed) input.x += 1f;
+            if (Keyboard.current.aKey.isPressed) input.x -= 1f;
+        }
+        if (Gamepad.current != null) input += Gamepad.current.leftStick.ReadValue();
 
-        input = input.normalized;
+        input = Vector2.ClampMagnitude(input, 1f);
 
         Quaternion yawRotation = Quaternion.Euler(0f, yaw, 0f);
         Vector3 flatForward = yawRotation * Vector3.forward;
@@ -142,13 +148,27 @@ public class PlayerSpectatorMode : MonoBehaviour
         Vector3 worldMove = (flatForward * input.y + flatRight * input.x) * moveSpeed;
 
         float vertical = 0f;
-        if (Keyboard.current.spaceKey.isPressed || Keyboard.current.eKey.isPressed) vertical += 1f;
-        if (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.qKey.isPressed) vertical -= 1f;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.spaceKey.isPressed || Keyboard.current.eKey.isPressed) vertical += 1f;
+            if (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.qKey.isPressed) vertical -= 1f;
+        }
+        if (SpectatorPadHeld("Jump")) vertical += 1f;
+        if (SpectatorPadHeld("Crouch")) vertical -= 1f;
 
         worldMove += Vector3.up * vertical * verticalMoveSpeed;
 
-        float speedMultiplier = Keyboard.current.leftShiftKey.isPressed ? fastMoveMultiplier : 1f;
+        float speedMultiplier = ((Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed) || SpectatorPadHeld("Sprint")) ? fastMoveMultiplier : 1f;
         transform.position += worldMove * speedMultiplier * Time.deltaTime;
+    }
+
+    bool SpectatorPadHeld(string action)
+    {
+        if (Gamepad.current == null) return false;
+        int index = System.Array.IndexOf(GameSettingsManager.ControllerActions, action);
+        if (index < 0) return false;
+        var button = Gamepad.current[GameSettingsManager.GetControllerBinding(index)] as UnityEngine.InputSystem.Controls.ButtonControl;
+        return button != null && button.isPressed;
     }
 
     void DisableConflictingCameraControllers()

@@ -361,18 +361,16 @@ public class PlayerMovement : NetworkBehaviour
 
     float GetLadderVerticalInput()
     {
-        if (Keyboard.current == null)
+        if (playerInput == null || playerInput.actions == null)
             return 0f;
 
         float vertical = 0f;
-        if (Keyboard.current.leftShiftKey.isPressed ||
-            Keyboard.current.rightShiftKey.isPressed)
+        if (playerInput.actions.FindAction("Player/Sprint")?.IsPressed() == true)
         {
             vertical += 1f;
         }
 
-        if (Keyboard.current.leftCtrlKey.isPressed ||
-            Keyboard.current.rightCtrlKey.isPressed)
+        if (playerInput.actions.FindAction("Player/Crouch")?.IsPressed() == true)
         {
             vertical -= 1f;
         }

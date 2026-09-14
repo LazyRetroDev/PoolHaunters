@@ -92,6 +92,7 @@ public class GhostWaterBehavior : MonoBehaviour
     private bool swallowedWaterCannonWasEnabled;
     private bool swallowedRigidbodyWasKinematic;
     private bool swallowedRigidbodyUsedGravity;
+    private bool victimControlsStored;
     private bool revealEffectPlayed;
     private PlayerMovement effectTargetMovement;
 
@@ -206,7 +207,7 @@ public class GhostWaterBehavior : MonoBehaviour
 
     void BeginSwallow(PlayerStatus victim)
     {
-        if (victim == null || victim.IsDead()) return;
+        if (victim == null || victim.IsDead() || victim.IsKnockedOut() || victim.HasExternalControlLock()) return;
 
         swallowedStatus = victim;
         swallowedPlayer = victim.transform;
@@ -235,7 +236,7 @@ public class GhostWaterBehavior : MonoBehaviour
 
     void UpdateSwallowing()
     {
-        if (swallowedStatus == null || swallowedPlayer == null || swallowedStatus.IsDead())
+        if (swallowedStatus == null || swallowedPlayer == null || (swallowedStatus.IsDead() || swallowedStatus.IsKnockedOut()))
         {
             EndSwallow(false);
             return;
@@ -252,7 +253,9 @@ public class GhostWaterBehavior : MonoBehaviour
         if (contaminatePlayerWaterOnSwallow || contaminatePlayerWater)
             swallowedStatus.ContaminateWater();
 
-        if (swallowTimer <= 0f || swallowedStatus.IsDead())
+        if (swallowedStatus.IsDead() || swallowedStatus.IsKnockedOut())
+            EndSwallow(false);
+        else if (swallowTimer <= 0f)
             EndSwallow(true);
     }
 
@@ -261,7 +264,8 @@ public class GhostWaterBehavior : MonoBehaviour
         PlayerStatus releasedStatus = swallowedStatus;
         Transform releasedPlayer = swallowedPlayer;
 
-        if (teleportVictim && teleportPlayerAfterSwallow && releasedPlayer != null)
+        if (teleportVictim && teleportPlayerAfterSwallow && releasedPlayer != null &&
+            releasedStatus != null && !releasedStatus.IsDead() && !releasedStatus.IsKnockedOut())
             TeleportPlayer(releasedPlayer);
 
         RestoreVictimControls(releasedStatus);
@@ -282,9 +286,7 @@ public class GhostWaterBehavior : MonoBehaviour
     void StoreAndBlockVictimControls()
     {
         if (!blockPlayerControlsWhileSwallowed) return;
-
-        if (swallowedStatus != null)
-            swallowedStatus.AddExternalControlLock();
+        victimControlsStored = true;
 
         if (swallowedMovement != null)
         {
@@ -313,11 +315,16 @@ public class GhostWaterBehavior : MonoBehaviour
             swallowedRigidbody.useGravity = false;
             swallowedRigidbody.isKinematic = true;
         }
+
+        // Capture enabled states before the lock changes them.
+        if (swallowedStatus != null)
+            swallowedStatus.AddExternalControlLock();
     }
 
     void RestoreVictimControls(PlayerStatus releasedStatus)
     {
-        if (!blockPlayerControlsWhileSwallowed) return;
+        if (!victimControlsStored) return;
+        victimControlsStored = false;
 
         if (releasedStatus != null)
             releasedStatus.RemoveExternalControlLock();
@@ -333,7 +340,10 @@ public class GhostWaterBehavior : MonoBehaviour
         if (swallowedWaterCannon != null)
             swallowedWaterCannon.enabled = canRestore && swallowedWaterCannonWasEnabled;
 
-        if (swallowedRigidbody != null && canRestore)
+        // A knockout must release physics too. A dead body's deliberate
+        // spectator/death physics settings belong to PlayerStatus.
+        if (swallowedRigidbody != null &&
+            (releasedStatus == null || !releasedStatus.IsDead() || !releasedStatus.disableGravityOnDeath))
         {
             swallowedRigidbody.isKinematic = swallowedRigidbodyWasKinematic;
             swallowedRigidbody.useGravity = swallowedRigidbodyUsedGravity;
@@ -616,9 +626,11 @@ public class GhostWaterBehavior : MonoBehaviour
             maxIntensity * danger);
     }
 
-    void OnDestroy()
+    void OnDisable()
     {
         RestoreVictimControls(swallowedStatus);
+        ClearSwallowedReferences();
+        state = GhostWaterState.Disguised;
         EnemyPlayerEffects.ClearThreat(ref effectTargetMovement, cameraEffects);
     }
 

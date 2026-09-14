@@ -112,7 +112,9 @@ public class PauseMenuController : MonoBehaviour
 
     void Update()
     {
-        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        if (pendingBinding >= 0) { PollBinding(); KeepCursorUnlocked(); return; }
+        if ((Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) ||
+            (Gamepad.current != null && Gamepad.current.startButton.wasPressedThisFrame))
             TogglePause();
 
         UpdateFpsCounter();
@@ -164,6 +166,7 @@ public class PauseMenuController : MonoBehaviour
 
     void OnDisable()
     {
+        CancelBinding();
         if (paused)
             ResumeGame();
     }
@@ -210,6 +213,7 @@ public class PauseMenuController : MonoBehaviour
 
     public void ResumeGame()
     {
+        CancelBinding();
         if (!paused)
             return;
 
@@ -520,12 +524,150 @@ public class PauseMenuController : MonoBehaviour
 
     void BuildInputPage(Transform root)
     {
-        CreateText(root, "Input remapping and controller binding hooks are reserved here.");
-        CreateToggle(root, "CONTROLLER PROMPTS", PrefPrefix + "ControllerPrompts", false, value => { });
-        CreateCycleControl(root, "CONTROLLER STYLE", new List<string> { "Auto", "Xbox", "PlayStation", "Keyboard" }, PlayerPrefs.GetInt(PrefPrefix + "ControllerStyle", 0), index =>
+        CreateButton(root, "SWITCH KEYBOARD / CONTROLLER", () =>
         {
-            PlayerPrefs.SetInt(PrefPrefix + "ControllerStyle", index);
+            CancelBinding(); controllerBindings = !controllerBindings; bindingPage = 0;
+            RefreshBindingLabels();
         });
+        controllerStyleButton = CreateButton(root, "", () =>
+        {
+            CancelBinding();
+            GameSettingsManager.SetControllerIcons((ControllerIconStyle)(((int)GameSettingsManager.ControllerIcons + 1) % 3));
+            RefreshBindingLabels();
+        });
+        var styleLayout = controllerStyleButton.GetComponent<LayoutElement>();
+        styleLayout.minHeight = styleLayout.preferredHeight = 32f;
+        bindingHelp = CreateText(root, "Keyboard / mouse: select an action to rebind. Escape cancels.");
+        for (int i = 0; i < 6; i++)
+        {
+            int row = i;
+            var button = CreateButton(root, "", () =>
+            {
+                pendingBinding = bindingPage * 6 + row;
+                bindingStartFrame = Time.frameCount;
+                bindingDeadline = Time.unscaledTime + 15f;
+                bindingHelp.text = "Press a key or mouse button. Escape cancels.";
+                RefreshBindingLabels();
+                if (EventSystem.current != null)
+                {
+                    if (!navigationBeforeCapture.HasValue) navigationBeforeCapture = EventSystem.current.sendNavigationEvents;
+                    EventSystem.current.sendNavigationEvents = false;
+                    EventSystem.current.SetSelectedGameObject(null);
+                }
+            });
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minHeight = layout.preferredHeight = 28f;
+            bindingButtons.Add(button);
+            var icon = ControllerButtonIcon.Create(button.transform);
+            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+            icon.rectTransform.anchoredPosition = new Vector2(-32f, 0f);
+            bindingIcons.Add(icon);
+        }
+        CreateButton(root, "NEXT BINDINGS PAGE", () =>
+        {
+            CancelBinding();
+            bindingPage = (bindingPage + 1) % ((BindingCount + 5) / 6);
+            RefreshBindingLabels();
+        });
+        CreateButton(root, "RESTORE THIS DEVICE DEFAULTS", () =>
+        {
+            CancelBinding();
+            if (controllerBindings) GameSettingsManager.ResetControllerBindings();
+            else GameSettingsManager.ResetBindings();
+            RefreshBindingLabels();
+        });
+        RefreshBindingLabels();
+    }
+
+    private bool controllerBindings;
+    private Button controllerStyleButton;
+    private readonly List<ControllerButtonIcon> bindingIcons = new List<ControllerButtonIcon>();
+    private bool? navigationBeforeCapture;
+    private int BindingCount => controllerBindings ? GameSettingsManager.ControllerActions.Length : GameSettingsManager.BindingKeys.Length;
+    private int pendingBinding = -1, bindingStartFrame, bindingPage;
+    private float bindingDeadline;
+    private TMP_Text bindingHelp;
+    private readonly List<Button> bindingButtons = new List<Button>();
+
+    void RefreshBindingLabels()
+    {
+        if (controllerStyleButton != null)
+        {
+            controllerStyleButton.gameObject.SetActive(controllerBindings);
+            controllerStyleButton.GetComponentInChildren<TMP_Text>().text = "BUTTON ICONS: " + GameSettingsManager.ControllerIcons.ToString().ToUpperInvariant();
+        }
+        if (bindingHelp != null && pendingBinding < 0)
+            bindingHelp.text = (controllerBindings ? "Controller (sticks: move / look)" : "Keyboard / mouse") +
+                "  -  page " + (bindingPage + 1) + " / " + ((BindingCount + 5) / 6);
+        for (int i = 0; i < bindingButtons.Count; i++)
+        {
+            int index = bindingPage * 6 + i;
+            bool valid = index < BindingCount;
+            bindingButtons[i].gameObject.SetActive(valid);
+            if (!valid) continue;
+            var label = bindingButtons[i].GetComponentInChildren<TMP_Text>();
+            bool showIcon = controllerBindings && pendingBinding != index;
+            label.text = (controllerBindings ? GameSettingsManager.ControllerLabels[index] : GameSettingsManager.BindingLabels[index]) +
+                (pendingBinding == index ? ": PRESS KEY..." : controllerBindings ? "" : ": " + GameSettingsManager.GetBinding(index).ToUpperInvariant());
+            label.rectTransform.offsetMax = new Vector2(showIcon ? -64f : 0f, 0f);
+            bindingIcons[i].gameObject.SetActive(showIcon);
+            if (showIcon) bindingIcons[i].SetControl(GameSettingsManager.GetControllerBinding(index));
+        }
+    }
+
+    void CancelBinding()
+    {
+        pendingBinding = -1;
+        if (navigationBeforeCapture.HasValue && EventSystem.current != null)
+        {
+            EventSystem.current.sendNavigationEvents = navigationBeforeCapture.Value;
+            navigationBeforeCapture = null;
+            FocusFirst(inputPage);
+        }
+        RefreshBindingLabels();
+
+    }
+
+    void PollBinding()
+    {
+        if (!paused || !inputPage.activeInHierarchy || Time.unscaledTime >= bindingDeadline)
+        { CancelBinding(); return; }
+        if (Time.frameCount <= bindingStartFrame) return;
+        if (controllerBindings)
+        {
+            if ((Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) ||
+                (Gamepad.current != null && Gamepad.current.startButton.wasPressedThisFrame))
+            { CancelBinding(); return; }
+            if (Gamepad.current == null) { bindingHelp.text = "Connect a gamepad; Escape cancels."; return; }
+            foreach (string path in GameSettingsManager.ControllerButtons)
+            {
+                var control = Gamepad.current[path] as UnityEngine.InputSystem.Controls.ButtonControl;
+                if (control == null || !control.wasPressedThisFrame) continue;
+                if (GameSettingsManager.SaveControllerBinding(pendingBinding, path, out string message)) CancelBinding();
+                else bindingHelp.text = message + ". Start / Escape cancels.";
+                break;
+            }
+            return;
+        }
+        string keyName = null;
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.escapeKey.wasPressedThisFrame) { CancelBinding(); return; }
+            foreach (var key in Keyboard.current.allKeys)
+                if (key.wasPressedThisFrame) { keyName = key.name; break; }
+        }
+        if (keyName == null && Mouse.current != null)
+        {
+            var mouse = Mouse.current;
+            if (mouse.leftButton.wasPressedThisFrame) keyName = "leftButton";
+            else if (mouse.rightButton.wasPressedThisFrame) keyName = "rightButton";
+            else if (mouse.middleButton.wasPressedThisFrame) keyName = "middleButton";
+            else if (mouse.forwardButton.wasPressedThisFrame) keyName = "forwardButton";
+            else if (mouse.backButton.wasPressedThisFrame) keyName = "backButton";
+        }
+        if (keyName == null) return;
+        if (GameSettingsManager.SaveBinding(pendingBinding, keyName, out string error)) CancelBinding();
+        else bindingHelp.text = error + ". Choose another key or Escape to cancel.";
     }
 
     void BuildAudioPage(Transform root)
@@ -686,6 +828,7 @@ public class PauseMenuController : MonoBehaviour
             GameLocalization.SetLanguageIndex(index);
         });
 
+        CreateToggle(root, "PHOTOSENSITIVE MODE", GameSettingsManager.PhotosensitivePref, false, GameSettingsManager.SetPhotosensitiveMode);
         CreateToggle(root, "REDUCE FLASHING", PrefPrefix + "ReduceFlashing", false, value => ReduceFlashing = value);
         CreateToggle(root, "REDUCE CAMERA SHAKE", PrefPrefix + "ReduceCameraShake", false, value => ReduceCameraShake = value);
         CreateSlider(root, "MENU SCALE", PrefPrefix + "MenuScale", 0.85f, 0.45f, 1.35f, ApplyMenuScale);
@@ -932,6 +1075,7 @@ public class PauseMenuController : MonoBehaviour
         SetActive(mainPanel, true);
         SetActive(selfDestructConfirmPanel, false);
         SetActive(settingsPanel, false);
+        FocusFirst(mainPanel);
         
         if (isMicTesting)
             StopMicTest();
@@ -942,6 +1086,7 @@ public class PauseMenuController : MonoBehaviour
         SetActive(mainPanel, false);
         SetActive(selfDestructConfirmPanel, true);
         SetActive(settingsPanel, false);
+        FocusFirst(selfDestructConfirmPanel);
     }
 
     void ShowSettingsPanel()
@@ -954,17 +1099,27 @@ public class PauseMenuController : MonoBehaviour
 
     void ShowSettingsPage(GameObject page)
     {
+        CancelBinding();
         SetActive(videoPage, page == videoPage);
         SetActive(inputPage, page == inputPage);
         SetActive(audioPage, page == audioPage);
         SetActive(voicePage, page == voicePage);
         SetActive(playerPage, page == playerPage);
         SetActive(accessibilityPage, page == accessibilityPage);
+        FocusFirst(settingsPanel);
 
         if (page != voicePage && isMicTesting)
         {
             StopMicTest();
         }
+    }
+
+    void FocusFirst(GameObject panel)
+    {
+        if (Gamepad.current == null || EventSystem.current == null || panel == null || !panel.activeInHierarchy) return;
+        foreach (var selectable in panel.GetComponentsInChildren<Selectable>())
+            if (selectable.IsInteractable() && selectable.IsActive())
+            { EventSystem.current.SetSelectedGameObject(selectable.gameObject); break; }
     }
 
     void SetActive(GameObject target, bool active)

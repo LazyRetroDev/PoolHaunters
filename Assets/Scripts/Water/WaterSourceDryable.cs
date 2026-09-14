@@ -18,6 +18,7 @@ public class WaterSourceDryable : MonoBehaviour
     public float waterLossPerSecond = 0.25f;
     public bool canBecomeContaminated = true;
     public float contaminationDelay = 120f;
+    [Min(1f)] public float passiveContaminationDelayMultiplier = 2f;
 
     [Header("Visuals")]
     public GameObject wetVisualRoot;
@@ -65,7 +66,7 @@ public class WaterSourceDryable : MonoBehaviour
         if (!canBecomeContaminated || contaminationDelay <= 0f) return;
         if (waterQuality == WaterQuality.Contaminated) return;
 
-        contaminationTimer -= Time.deltaTime;
+        contaminationTimer -= Time.deltaTime / Mathf.Max(1f, passiveContaminationDelayMultiplier);
         if (contaminationTimer <= 0f)
             Contaminate();
     }
@@ -95,6 +96,8 @@ public class WaterSourceDryable : MonoBehaviour
 
     public void SetQuality(WaterQuality quality)
     {
+        if (waterQuality != quality && quality != WaterQuality.Contaminated)
+            contaminationTimer = contaminationDelay;
         waterQuality = quality;
     }
 

@@ -378,14 +378,16 @@ public class PlayerVignetteEffect : MonoBehaviour
             targetIntensity = Mathf.Max(targetIntensity, lowHealthT * lowHealthIntensity);
         }
 
-        if (useBreathingPulse && targetIntensity > 0.001f)
+        if (useBreathingPulse && !GameSettingsManager.PhotosensitiveMode && !PauseMenuController.ReduceFlashing && targetIntensity > 0.001f)
         {
             float breathingT = (Mathf.Sin(Time.time * breathingSpeed) + 1f) * 0.5f;
             targetIntensity += breathingT * breathingAmount * targetIntensity;
         }
 
         targetIntensity = Mathf.Clamp(targetIntensity, 0f, maxIntensity);
-        float speed = targetIntensity > currentIntensity ? fadeInSpeed : fadeOutSpeed;
+        bool reduced = GameSettingsManager.PhotosensitiveMode || PauseMenuController.ReduceFlashing;
+        if (reduced) targetIntensity = Mathf.Min(targetIntensity * 0.25f, 0.2f);
+        float speed = reduced ? 0.3f : targetIntensity > currentIntensity ? fadeInSpeed : fadeOutSpeed;
         currentIntensity = Mathf.MoveTowards(currentIntensity, targetIntensity, speed * Time.deltaTime);
 
         ApplyVignette(currentIntensity);
@@ -393,7 +395,14 @@ public class PlayerVignetteEffect : MonoBehaviour
 
     void UpdateShake()
     {
-        if (targetCinemachineNoise == null || !enableScreenShake) return;
+        if (targetCinemachineNoise == null) return;
+        if (GameSettingsManager.PhotosensitiveMode || PauseMenuController.ReduceCameraShake || !enableScreenShake)
+        {
+            StopShake();
+            currentShakeAmplitude = 0f;
+            SetFloatMemberValue(targetCinemachineNoise, "AmplitudeGain", 0f);
+            return;
+        }
 
         if (shakeTimer > 0f)
             shakeTimer -= Time.deltaTime;

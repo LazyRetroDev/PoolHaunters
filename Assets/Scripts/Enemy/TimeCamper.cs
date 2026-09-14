@@ -17,6 +17,7 @@ public class TimeCamper : NetworkBehaviour
     public float targetEyeHeight = 1.2f;
 
     [Header("Countdown")]
+    public bool countdownOnSpawn = true;
     public float minCountdown = 10f;
     public float maxCountdown = 10f;
 
@@ -93,6 +94,7 @@ public class TimeCamper : NetworkBehaviour
     State currentState = State.WaitingToBeSeen;
     private readonly NetworkVariable<int> networkState = new NetworkVariable<int>();
     private readonly NetworkVariable<float> networkCountdown = new NetworkVariable<float>();
+    private readonly NetworkVariable<float> networkCountdownDuration = new NetworkVariable<float>();
     private int lastVisualState = -1;
     private float nextStatePublishTime;
 
@@ -103,6 +105,7 @@ public class TimeCamper : NetworkBehaviour
         if (Time.unscaledTime >= nextStatePublishTime)
         {
             networkCountdown.Value = countdownTimer;
+            networkCountdownDuration.Value = countdownDuration;
             nextStatePublishTime = Time.unscaledTime + 0.1f;
         }
     }
@@ -124,6 +127,8 @@ public class TimeCamper : NetworkBehaviour
                 if (beamPrefab != null) beamInstance = Instantiate(beamPrefab, transform.position, Quaternion.identity);
             }
         }
+        SetAnimatorFloat(countdownIntensityFloat, state == State.Countdown
+            ? 1f - Mathf.Clamp01(networkCountdown.Value / Mathf.Max(0.01f, networkCountdownDuration.Value)) : 0f);
         if (agent != null) agent.enabled = false;
         if (countdownText != null)
         {
@@ -164,6 +169,7 @@ public class TimeCamper : NetworkBehaviour
         switch (currentState)
         {
             case State.WaitingToBeSeen:
+                if (countdownOnSpawn) { StartCountdown(); break; }
                 teleportTimer -= Time.deltaTime;
                 if (TryGetObservingPlayer(out playerStatus, out player))
                     StartCountdown();
@@ -343,7 +349,7 @@ public class TimeCamper : NetworkBehaviour
     void StartCountdown()
     {
         currentState = State.Countdown;
-        countdownTimer = Random.Range(minCountdown, maxCountdown);
+        countdownTimer = Mathf.Max(0.1f, Random.Range(Mathf.Min(minCountdown, maxCountdown), Mathf.Max(minCountdown, maxCountdown)));
         countdownDuration = Mathf.Max(0.01f, countdownTimer);
         eventWasTriggered = true;
         SetAnimatorTrigger(noticedTrigger);
@@ -507,8 +513,9 @@ public class TimeCamper : NetworkBehaviour
             if (EnemySpawner.Instance == null ||
                 !EnemySpawner.Instance.TryGetValidSpawnPosition(out newPos))
             {
-                if (IsSpawned && IsServer) NetworkObject.Despawn(true);
-                else Destroy(gameObject);
+                // Procedural NavMesh may be rebuilding. Retry without losing this encounter.
+                cooldownTimer = Random.Range(2f, 4f);
+                currentState = State.Cooldown;
                 return;
             }
         }
@@ -623,6 +630,8 @@ public class TimeCamper : NetworkBehaviour
 
     void LeaveContaminationMark()
     {
+        if (IsSpawned && IsServer)
+            ShowContaminationMarkClientRpc(transform.position);
         GameObject mark = null;
 
         if (contaminationPrefab != null)
@@ -648,6 +657,17 @@ public class TimeCamper : NetworkBehaviour
         zone.contaminateInterval = waterContaminationInterval;
         zone.lifetime = markContaminationLifetime;
         zone.playerMask = playerContaminationMask;
+    }
+
+    [ClientRpc]
+    void ShowContaminationMarkClientRpc(Vector3 position)
+    {
+        if (IsServer || contaminationPrefab == null) return;
+        var mark = Instantiate(contaminationPrefab, position + Vector3.up * 0.05f, Quaternion.identity);
+        // The server's zone applies gameplay. This is only the shared visual.
+        foreach (var zone in mark.GetComponentsInChildren<WaterContaminationZone>(true))
+            zone.enabled = false;
+        if (markContaminationLifetime > 0f) Destroy(mark, markContaminationLifetime);
     }
 
     float GetContaminationRadius()

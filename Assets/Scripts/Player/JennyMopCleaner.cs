@@ -449,7 +449,7 @@ public class JennyMopCleaner : MonoBehaviour
         if (abilityAction != null && abilityAction.WasPressedThisFrame())
             return true;
 
-        return Keyboard.current != null &&
+        return abilityAction == null && Keyboard.current != null &&
             fallbackDashKey != Key.None &&
             Keyboard.current[fallbackDashKey].wasPressedThisFrame;
     }
@@ -500,7 +500,7 @@ public class JennyMopCleaner : MonoBehaviour
             return true;
         }
 
-        return useRightMouseFallbackForSplash &&
+        return splashAction == null && useRightMouseFallbackForSplash &&
             Mouse.current != null &&
             Mouse.current.rightButton.wasPressedThisFrame;
     }

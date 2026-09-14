@@ -224,7 +224,8 @@ public class EnemySpawner : MonoBehaviour
         float distance = Random.Range(minDistance, maxDistance);
 
         Vector3 direction;
-        if (attempt < Mathf.Max(1, timeCamperNearPlayerAttempts / 2))
+        if (timeCamperPrefab != null && timeCamperPrefab.TryGetComponent<TimeCamper>(out var camper) &&
+            !camper.countdownOnSpawn && attempt < Mathf.Max(1, timeCamperNearPlayerAttempts / 2))
         {
             direction = GetDirectionOutsidePlayerView(viewTransform);
         }
