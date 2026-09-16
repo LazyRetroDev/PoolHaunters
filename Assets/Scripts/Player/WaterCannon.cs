@@ -67,6 +67,8 @@ public class WaterCannon : MonoBehaviour
     private PlayerStatus playerStatus;
     private PlayerPetrify playerPetrify;
     private InputAction attackAction;
+    private float pendingSprayWater, pendingSprayClean, sprayEffectTime;
+    private WaterQuality pendingSprayQuality;
     private readonly HashSet<DirtSpot> dirtHits = new HashSet<DirtSpot>();
     private readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
     private readonly HashSet<PoolWaterReactive> poolReactiveHits = new HashSet<PoolWaterReactive>();
@@ -82,6 +84,7 @@ public class WaterCannon : MonoBehaviour
     private float waterUsageMultiplier = 1f;
     private float waterUsageMultiplierTimer;
     private DirtSpot dirtTemplate;
+    private Material runtimeWaterMaterial;
     private bool publishedSprayPlaying;
     private WaterQuality publishedSprayQuality;
     private Vector3 lastPublishedSprayPosition;
@@ -116,8 +119,11 @@ public class WaterCannon : MonoBehaviour
             aimCamera = Camera.main;
     }
 
+    bool IsRemoteReplica => playerMovement != null && playerMovement.IsSpawned && !playerMovement.IsOwner;
+
     void Update()
     {
+        if (IsRemoteReplica) return;
         UpdateTimedWaterUsageMultiplier();
         UpdateSprayColor();
 
@@ -149,18 +155,29 @@ public class WaterCannon : MonoBehaviour
 
         float qualityMultiplier = GetCleaningMultiplierForQuality(sprayedWaterQuality);
         StartSpray(sprayedWaterQuality);
-        ApplySprayEffects(sprayedWaterQuality, cleanPowerPerSecond * qualityMultiplier * Time.deltaTime, waterThisFrame);
+        if (pendingSprayWater > 0f && pendingSprayQuality != sprayedWaterQuality) FlushSprayEffects();
+        pendingSprayQuality = sprayedWaterQuality;
+        pendingSprayWater += waterThisFrame;
+        pendingSprayClean += cleanPowerPerSecond * qualityMultiplier * Time.deltaTime;
+        sprayEffectTime += Time.deltaTime;
+        if (sprayEffectTime >= 0.05f) FlushSprayEffects();
     }
 
     void LateUpdate()
     {
+        if (IsRemoteReplica) return;
         if (followTarget != null)
             transform.position = followTarget.TransformPoint(positionOffset);
 
         AimTowardMouse();
 
-        if (sprayParticles != null && sprayParticles.isPlaying && playerStatus != null)
-            PublishSprayVisualIfNeeded(true, playerStatus.GetWaterQuality());
+        if (sprayParticles != null && playerStatus != null)
+            PublishSprayVisualIfNeeded(sprayParticles.isPlaying, playerStatus.GetWaterQuality());
+    }
+
+    void OnDestroy()
+    {
+        if (runtimeWaterMaterial != null) Destroy(runtimeWaterMaterial);
     }
 
     void OnDisable()
@@ -247,6 +264,12 @@ public class WaterCannon : MonoBehaviour
         shape.radius = 0.02f;
         shape.length = 0.1f;
 
+        var shader = Resources.Load<Shader>("PoolHauntersWater");
+        if (shader != null)
+        {
+            runtimeWaterMaterial = new Material(shader);
+            particles.GetComponent<ParticleSystemRenderer>().sharedMaterial = runtimeWaterMaterial;
+        }
         return particles;
     }
 
@@ -321,6 +344,7 @@ public class WaterCannon : MonoBehaviour
 
     void StopSpray()
     {
+        FlushSprayEffects();
         if (sprayParticles != null && sprayParticles.isPlaying)
             sprayParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
 
@@ -348,7 +372,11 @@ public class WaterCannon : MonoBehaviour
         }
 
         if (sprayOrigin != null)
-            sprayOrigin.SetPositionAndRotation(originPosition, originRotation);
+        {
+            // Rotate the whole cannon, preserving its authored muzzle offset.
+            transform.rotation = originRotation * Quaternion.Inverse(sprayOrigin.rotation) * transform.rotation;
+            transform.position += originPosition - sprayOrigin.position;
+        }
 
         ApplySprayColor(quality, force: true);
 
@@ -419,7 +447,7 @@ public class WaterCannon : MonoBehaviour
             return true;
 
         if (!isSpraying)
-            return false;
+            return !hasPublishedSprayPose || Time.time >= nextSprayVisualSyncTime;
 
         if (publishedSprayQuality != quality)
             return true;
@@ -553,6 +581,14 @@ public class WaterCannon : MonoBehaviour
 
         if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
             CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    void FlushSprayEffects()
+    {
+        if (pendingSprayWater <= 0f) return;
+        float water = pendingSprayWater, clean = pendingSprayClean;
+        pendingSprayWater = pendingSprayClean = sprayEffectTime = 0f;
+        ApplySprayEffects(pendingSprayQuality, clean, water);
     }
 
     void ApplyWaterToTubarao(TubaraoBehavior tubarao, Vector3 sourcePosition)

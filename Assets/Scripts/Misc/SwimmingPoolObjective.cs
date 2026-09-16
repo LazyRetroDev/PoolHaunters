@@ -199,6 +199,7 @@ public class SwimmingPoolObjective : MonoBehaviour
         out int dirtSpotIndex)
     {
         RefreshDirtSpots();
+        if (!trackedDirtSpots.Contains(dirtSpot)) RefreshDirtSpots(true);
 
         for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
@@ -223,6 +224,7 @@ public class SwimmingPoolObjective : MonoBehaviour
             return;
 
         RefreshDirtSpots();
+        if (dirtSpotIndex >= trackedDirtSpots.Count) RefreshDirtSpots(true);
 
         if (dirtSpotIndex < 0 ||
             dirtSpotIndex >= trackedDirtSpots.Count ||
@@ -271,7 +273,7 @@ public class SwimmingPoolObjective : MonoBehaviour
         for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
             DirtSpot dirt = trackedDirtSpots[i];
-            if (dirt == null || dirt.IsCleaned)
+            if (dirt == null || dirt.IsCleaned || !dirt.CanBrushReach(worldPoint, worldRadius))
                 continue;
 
             float previousDirtPercent = dirt.GetDirtPercent();
@@ -581,8 +583,12 @@ public class SwimmingPoolObjective : MonoBehaviour
         }
     }
 
-    void RefreshDirtSpots()
+    private int lastDirtDiscoveryFrame = -1;
+
+    void RefreshDirtSpots(bool force = false)
     {
+        if (!force && lastDirtDiscoveryFrame == Time.frameCount) return;
+        lastDirtDiscoveryFrame = Time.frameCount;
         if (autoFindDirtSpots)
         {
             GetComponentsInChildren<DirtSpot>(true, discoveredDirtSpots);

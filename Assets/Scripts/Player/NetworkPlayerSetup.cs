@@ -274,7 +274,7 @@ public class NetworkPlayerSetup : NetworkBehaviour
             playerRigidbody.isKinematic = isOwner ? originalRigidbodyKinematic : true;
 
         if (disableRemoteWaterCannon)
-            SetEnabled(waterCannons, canUseWaterCannon);
+            SetEnabled(waterCannons, CanPlayerUseWaterCannon());
 
         if (disableRemoteCameraBehaviours)
         {

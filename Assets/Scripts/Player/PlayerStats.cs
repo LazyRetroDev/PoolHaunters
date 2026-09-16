@@ -134,9 +134,8 @@ public class PlayerStatus : NetworkBehaviour
     {
         if (IsClientReplica())
         {
-            if (IsOwner)
-                UpdateOwnerPredictedWaterFill();
-
+            // Refills are awarded by the server from its source/valve state.
+            // Predicting via AddWater also sent refill RPCs and bypassed dry sources.
             return;
         }
 
@@ -287,6 +286,8 @@ public class PlayerStatus : NetworkBehaviour
 
     void FillFromCurrentWaterSource(float amount)
     {
+        if (IsClientReplica()) return;
+        if (LevelObjectiveManager.Instance != null && !LevelObjectiveManager.Instance.WaterValveActivated) return;
         if (activeWaterZone != null)
         {
             activeWaterZone.TryFillPlayer(

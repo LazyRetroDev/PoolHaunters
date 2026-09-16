@@ -396,19 +396,8 @@ public class MainMenuOptionsController : MonoBehaviour
         return char.ToUpper(systemName[0]) + systemName.Substring(1);
     }
 
-    private void ApplyDisplayMode(int mode)
-    {
-        PlayerPrefs.SetInt(PrefPrefix + "DisplayMode", mode);
-        FullScreenMode fsMode = mode == 0 ? FullScreenMode.ExclusiveFullScreen : (mode == 1 ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed);
-        Screen.fullScreenMode = fsMode;
-    }
-
-    private void ApplyResolution(int index)
-    {
-        PlayerPrefs.SetInt(PrefPrefix + "ResolutionIndex", index);
-        Vector2Int res = CommonResolutions[Mathf.Clamp(index, 0, CommonResolutions.Length - 1)];
-        Screen.SetResolution(res.x, res.y, Screen.fullScreenMode);
-    }
+    private void ApplyDisplayMode(int mode) => GameSettingsManager.SaveDisplayMode(mode);
+    private void ApplyResolution(int index) => GameSettingsManager.SaveResolution(index);
 
     private void Update()
     {

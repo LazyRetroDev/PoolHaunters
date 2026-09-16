@@ -26,8 +26,8 @@ public class CursorLockController : MonoBehaviour
             return;
         }
 
-        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-            SetCursorLocked(false);
+        // Menus own Escape and request unlocking explicitly. Handling it here
+        // would undo ResumeGame's cursor lock later in the same frame.
 
         if (relockOnLeftClick && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
             SetCursorLocked(true);

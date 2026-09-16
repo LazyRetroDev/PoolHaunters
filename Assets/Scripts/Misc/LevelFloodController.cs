@@ -1,4 +1,5 @@
 using Unity.Netcode;
+using Unity.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -64,6 +65,55 @@ public class LevelFloodController : MonoBehaviour
     private Vector3 floodCenter;
     private float playerCheckTimer;
     private bool dangerLoopPlaying;
+    private NetworkManager syncManager;
+    private float nextSnapshot;
+    private string SnapshotName => "PH.FloodState." + gameObject.scene.name;
+
+    void UpdateNetworkState()
+    {
+        var manager = NetworkManager.Singleton;
+        if (syncManager != manager || (syncManager != null && !syncManager.IsListening)) UnbindSync();
+        if (manager == null || !manager.IsListening || manager.CustomMessagingManager == null) return;
+        if (syncManager == null)
+        {
+            syncManager = manager;
+            syncManager.CustomMessagingManager.RegisterNamedMessageHandler(SnapshotName, ReceiveSnapshot);
+        }
+        if (!manager.IsServer || Time.unscaledTime < nextSnapshot) return;
+        nextSnapshot = Time.unscaledTime + 0.2f;
+        using (var writer = new FastBufferWriter(80, Allocator.Temp))
+        {
+            writer.WriteValueSafe(flooding);
+            writer.WriteValueSafe(startHeight); writer.WriteValueSafe(maxHeight);
+            writer.WriteValueSafe(currentFloodHeight); writer.WriteValueSafe(floodCenter);
+            writer.WriteValueSafe(visualSize);
+            writer.WriteValueSafe(objectiveManager != null && objectiveManager.WaterValveActivated);
+            foreach (ulong client in manager.ConnectedClientsIds)
+                if (client != NetworkManager.ServerClientId)
+                    manager.CustomMessagingManager.SendNamedMessage(SnapshotName, client, writer, NetworkDelivery.UnreliableSequenced);
+        }
+    }
+
+    void ReceiveSnapshot(ulong sender, FastBufferReader reader)
+    {
+        if (syncManager == null || syncManager.IsServer || sender != NetworkManager.ServerClientId) return;
+        bool wasFlooding = flooding;
+        reader.ReadValueSafe(out flooding);
+        reader.ReadValueSafe(out startHeight); reader.ReadValueSafe(out maxHeight);
+        reader.ReadValueSafe(out currentFloodHeight); reader.ReadValueSafe(out floodCenter);
+        reader.ReadValueSafe(out visualSize); reader.ReadValueSafe(out bool valveOpen);
+        if (valveOpen && objectiveManager != null && !objectiveManager.WaterValveActivated) objectiveManager.ActivateWaterValve();
+        ApplyFloodVisualPosition(); ApplyWarningUi();
+        if (flooding && !wasFlooding) PlayFloodStartedAudio();
+        if (!flooding) StopDangerLoop(); else UpdateWarningAudio();
+    }
+
+    void UnbindSync()
+    {
+        if (syncManager != null && syncManager.CustomMessagingManager != null)
+            syncManager.CustomMessagingManager.UnregisterNamedMessageHandler(SnapshotName);
+        syncManager = null;
+    }
 
     public bool IsFlooding => flooding;
     public float CurrentFloodHeight => currentFloodHeight;
@@ -99,12 +149,14 @@ public class LevelFloodController : MonoBehaviour
 
     void OnDisable()
     {
+        UnbindSync();
         UnregisterObjectiveEvents();
         StopDangerLoop();
     }
 
     void Update()
     {
+        UpdateNetworkState();
         ApplyWarningUi();
 
         if (!flooding)
@@ -124,6 +176,7 @@ public class LevelFloodController : MonoBehaviour
 
     public void StartFlood()
     {
+        if (!CanRunFlood()) return;
         if (flooding)
             return;
 
@@ -169,9 +222,6 @@ public class LevelFloodController : MonoBehaviour
 
     bool CanRunFlood()
     {
-        if (!runOnlyOnServer)
-            return true;
-
         NetworkManager networkManager = NetworkManager.Singleton;
         return networkManager == null ||
             !networkManager.IsListening ||
@@ -248,9 +298,9 @@ public class LevelFloodController : MonoBehaviour
 
     Material CreateFloodMaterial()
     {
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        Shader shader = Resources.Load<Shader>("PoolHauntersWater");
         if (shader == null)
-            shader = Shader.Find("Standard");
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null)
             return null;
 

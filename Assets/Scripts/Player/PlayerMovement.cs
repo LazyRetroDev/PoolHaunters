@@ -211,6 +211,8 @@ public class PlayerMovement : NetworkBehaviour
         if (!acceptsInput)
         {
             UpdateLocalLocomotionState(false, false);
+            // Removing a supporting item need not wake a sleeping body.
+            if (rb != null && !rb.isKinematic && rb.useGravity) rb.WakeUp();
             return;
         }
         if (playerStatus != null && playerStatus.IsDead())

@@ -81,6 +81,8 @@ public class GameSettingsManager : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void Initialize()
     {
+        requestedWidth = requestedHeight = 0;
+        requestedMode = -1;
         ControllerIcons = (ControllerIconStyle)Mathf.Clamp(PlayerPrefs.GetInt("PH_ControllerIcons", 0), 0, 2);
         PhotosensitiveMode = PlayerPrefs.GetInt(PhotosensitivePref, 0) == 1;
         GameObject go = new GameObject("[GameSettingsManager]");
@@ -116,14 +118,36 @@ public class GameSettingsManager : MonoBehaviour
         // 2. Graphics (Vsync / Display / Brightness)
         QualitySettings.vSyncCount = PlayerPrefs.GetInt(PrefPrefix + "Vsync", 0);
         
-        int displayMode = PlayerPrefs.GetInt(PrefPrefix + "DisplayMode", 1);
-        FullScreenMode fsMode = displayMode == 0 ? FullScreenMode.ExclusiveFullScreen : (displayMode == 1 ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed);
-        Screen.fullScreenMode = fsMode;
+        ApplyDisplaySettings();
 
         ApplyBrightness();
 
         // 3. Player Ops
         IsLeftHanded = PlayerPrefs.GetInt(PrefPrefix + "LeftHanded", 0) == 1;
+    }
+
+    private static int requestedWidth, requestedHeight, requestedMode = -1;
+    public static int DisplayModeIndex => Mathf.Clamp(PlayerPrefs.GetInt("PH_DisplayMode", 1), 0, 2);
+    public static int ResolutionIndex => Mathf.Clamp(PlayerPrefs.GetInt("PH_ResolutionIndex", 3), 0, 5);
+    private static readonly Vector2Int[] DisplayResolutions = { new Vector2Int(1280,720), new Vector2Int(1366,768), new Vector2Int(1600,900), new Vector2Int(1920,1080), new Vector2Int(2560,1440), new Vector2Int(3840,2160) };
+
+    public static void SaveDisplayMode(int mode)
+    {
+        PlayerPrefs.SetInt("PH_DisplayMode", Mathf.Clamp(mode, 0, 2));
+        PlayerPrefs.Save(); ApplyDisplaySettings();
+    }
+    public static void SaveResolution(int index)
+    {
+        PlayerPrefs.SetInt("PH_ResolutionIndex", Mathf.Clamp(index, 0, 5));
+        PlayerPrefs.Save(); ApplyDisplaySettings();
+    }
+    public static void ApplyDisplaySettings()
+    {
+        Vector2Int size = DisplayResolutions[ResolutionIndex];
+        int mode = DisplayModeIndex;
+        if (requestedWidth == size.x && requestedHeight == size.y && requestedMode == mode) return;
+        requestedWidth = size.x; requestedHeight = size.y; requestedMode = mode;
+        Screen.SetResolution(size.x, size.y, mode == 0 ? FullScreenMode.ExclusiveFullScreen : mode == 1 ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed);
     }
 
     public static void ApplyBrightness()

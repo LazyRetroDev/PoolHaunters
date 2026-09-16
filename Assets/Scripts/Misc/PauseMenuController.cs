@@ -258,6 +258,7 @@ public class PauseMenuController : MonoBehaviour
 
     public void LoadMainMenu()
     {
+        NetworkSessionExitHandler.BeginIntentionalLeave();
         Time.timeScale = 1f;
         UnlockCursorForMenuScene();
 
@@ -841,7 +842,7 @@ public class PauseMenuController : MonoBehaviour
         Application.targetFrameRate = PlayerPrefs.GetInt(PrefPrefix + "FpsCap", Application.targetFrameRate);
         ApplyQualityPreset(PlayerPrefs.GetInt(PrefPrefix + "Quality", 2));
         ApplyHudScale(PlayerPrefs.GetFloat(PrefPrefix + "HudScale", 1f));
-        ApplyDisplayMode(PlayerPrefs.GetInt(PrefPrefix + "DisplayMode", GetSavedDisplayModeIndex()));
+        GameSettingsManager.ApplyDisplaySettings();
         ApplyBrightness(PlayerPrefs.GetFloat(PrefPrefix + "Brightness", 1f));
         EffectScale = PlayerPrefs.GetFloat(PrefPrefix + "EffectScale", 1f);
         AudioListener.volume = PlayerPrefs.GetFloat(PrefPrefix + "MasterVolume", 1f);
@@ -983,24 +984,8 @@ public class PauseMenuController : MonoBehaviour
         QualitySettings.SetQualityLevel(qualityLevel, true);
     }
 
-    void ApplyDisplayMode(int index)
-    {
-        FullScreenMode mode = FullScreenMode.FullScreenWindow;
-        if (index == 1)
-            mode = FullScreenMode.MaximizedWindow;
-        else if (index == 2)
-            mode = FullScreenMode.Windowed;
-
-        Screen.fullScreenMode = mode;
-        PlayerPrefs.SetInt(PrefPrefix + "DisplayMode", index);
-    }
-
-    void ApplyResolution(int index)
-    {
-        Vector2Int resolution = CommonResolutions[Mathf.Clamp(index, 0, CommonResolutions.Length - 1)];
-        Screen.SetResolution(resolution.x, resolution.y, Screen.fullScreenMode);
-        PlayerPrefs.SetInt(PrefPrefix + "ResolutionIndex", index);
-    }
+    void ApplyDisplayMode(int index) => GameSettingsManager.SaveDisplayMode(index);
+    void ApplyResolution(int index) => GameSettingsManager.SaveResolution(index);
 
     int GetSavedFpsIndex()
     {
@@ -1019,22 +1004,9 @@ public class PauseMenuController : MonoBehaviour
         return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "Quality", 2), 0, 3);
     }
 
-    int GetSavedDisplayModeIndex()
-    {
-        int saved = PlayerPrefs.GetInt(PrefPrefix + "DisplayMode", -1);
-        if (saved >= 0)
-            return saved;
+    int GetSavedDisplayModeIndex() => GameSettingsManager.DisplayModeIndex;
+    int GetSavedResolutionIndex() => GameSettingsManager.ResolutionIndex;
 
-        if (Screen.fullScreenMode == FullScreenMode.Windowed)
-            return 2;
-
-        return Screen.fullScreen ? 0 : 1;
-    }
-
-    int GetSavedResolutionIndex()
-    {
-        return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "ResolutionIndex", 3), 0, CommonResolutions.Length - 1);
-    }
 
     List<string> BuildFpsOptions()
     {

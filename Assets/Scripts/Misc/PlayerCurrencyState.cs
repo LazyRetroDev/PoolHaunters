@@ -53,6 +53,12 @@ public static class PlayerCurrencyState
         LastRunWasTransformed = wasTransformed;
     }
 
+    public static void BeginNewRun()
+    {
+        ResetGerms();
+        SetLastRunReward(0, 0f, 0f, 0f, 0, 0, false);
+    }
+
     public static void ResetGerms()
     {
         Germs = 0;

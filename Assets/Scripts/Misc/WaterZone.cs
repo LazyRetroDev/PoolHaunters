@@ -33,6 +33,8 @@ public class WaterZone : MonoBehaviour
         bool drainSource = true)
     {
         if (status == null || requestedAmount <= 0f) return false;
+        if (LevelObjectiveManager.Instance != null && !LevelObjectiveManager.Instance.WaterValveActivated) return false;
+        if (waterSource != null && !waterSource.HasWater) return false;
 
         float neededWater = Mathf.Min(requestedAmount, status.GetWaterSpace());
         if (neededWater <= 0f) return false;

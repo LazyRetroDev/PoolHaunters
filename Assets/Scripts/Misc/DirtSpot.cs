@@ -113,6 +113,7 @@ public class DirtSpot : NetworkBehaviour
         EnsureSurfaceMask();
         if (surfaceMask == null || radius <= 0f) return false;
         Transform surface = targetRenderer.transform;
+        Matrix4x4 localToWorld = surface.localToWorldMatrix;
         Vector3 localHit = surface.InverseTransformPoint(worldPoint);
         Vector3 nearest = surfaceBounds.ClosestPoint(localHit);
         if ((surface.TransformPoint(nearest) - worldPoint).sqrMagnitude > radius * radius) return false;
@@ -140,7 +141,7 @@ public class DirtSpot : NetworkBehaviour
             Vector3 point = nearest;
             point[surfaceU] = Mathf.Lerp(surfaceBounds.min[surfaceU], surfaceBounds.max[surfaceU], (x + 0.5f) / MaskResolution);
             point[surfaceV] = Mathf.Lerp(surfaceBounds.min[surfaceV], surfaceBounds.max[surfaceV], (y + 0.5f) / MaskResolution);
-            float distance = Vector3.Distance(surface.TransformPoint(point), worldPoint);
+            float distance = Vector3.Distance(localToWorld.MultiplyPoint3x4(point), worldPoint);
             if (distance > radius) continue;
             if (clean && softness > 0f)
             {
@@ -541,7 +542,7 @@ public class DirtSpot : NetworkBehaviour
         float amount,
         PlayerStatus cleaner)
     {
-        if (IsPoolCleaningLocked())
+        if (IsPoolCleaningLocked() || !CanBrushReach(worldPoint, worldRadius))
             return;
 
         if (ShouldRequestServerStateChange())
@@ -553,6 +554,7 @@ public class DirtSpot : NetworkBehaviour
         float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
         float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        if (cleanedFraction <= 0f) return;
         LevelRewardTracker.RecordCleaning(cleaner, cleanedFraction);
 
         if (ShouldBroadcastNetworkState())
@@ -567,6 +569,12 @@ public class DirtSpot : NetworkBehaviour
         float amount)
     {
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
+    }
+
+    public bool CanBrushReach(Vector3 point, float radius)
+    {
+        return !IsCleaned && radius > 0f && (targetRenderer == null ||
+            targetRenderer.bounds.SqrDistance(point) <= radius * radius);
     }
 
     void CleanAtWorldPointLocal(Vector3 worldPoint, float worldRadius, float amount)
@@ -764,6 +772,7 @@ public class DirtSpot : NetworkBehaviour
         float previousDirtPercent = GetDirtPercent();
         CleanAtWorldPointLocal(worldPoint, worldRadius, amount);
         float cleanedFraction = Mathf.Max(0f, previousDirtPercent - GetDirtPercent());
+        if (cleanedFraction <= 0f) return;
         LevelRewardTracker.RecordCleaningByClientId(
             rpcParams.Receive.SenderClientId,
             cleanedFraction);
