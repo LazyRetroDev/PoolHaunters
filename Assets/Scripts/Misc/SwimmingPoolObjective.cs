@@ -67,6 +67,8 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         get
         {
+            if (cleaned)
+                return 1f;
             RefreshDirtSpots();
             float dirtProgress = trackedDirtSpots.Count > 0
                 ? CalculateDirtCleanProgress()
@@ -438,11 +440,8 @@ public class SwimmingPoolObjective : MonoBehaviour
 
     bool IsEveryDirtSpotCleaned()
     {
-        if (trackedDirtSpots.Count == 0 && IsCleaningZoneComplete())
-            return true;
-
         if (trackedDirtSpots.Count == 0)
-            return true;
+            return IsCleaningZoneComplete();
 
         for (int i = 0; i < trackedDirtSpots.Count; i++)
         {
@@ -458,6 +457,12 @@ public class SwimmingPoolObjective : MonoBehaviour
     {
         if (cleaningLocked)
             return false;
+
+        RefreshDirtSpots();
+        if (trackedDirtSpots.Count == 0)
+            return IsCleaningZoneComplete() ||
+                (useCleaningZoneProgress && poolCleaningZone != null &&
+                 GetCleaningZoneProgress() >= poolCleanCompletionThreshold);
 
         if (IsEveryDirtSpotCleaned())
             return true;

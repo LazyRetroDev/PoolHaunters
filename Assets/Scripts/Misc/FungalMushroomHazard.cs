@@ -31,6 +31,7 @@ public class FungalMushroomHazard : PoolWaterReactive
         new Dictionary<PlayerStatus, float>();
     private readonly Dictionary<PlayerStatus, float> nextInfectionTicks =
         new Dictionary<PlayerStatus, float>();
+    private readonly List<PlayerStatus> infectedPlayers = new List<PlayerStatus>();
 
     private FungalSwimmingPoolMechanic owningPool;
     private float currentHealth;
@@ -214,11 +215,13 @@ public class FungalMushroomHazard : PoolWaterReactive
             PlayerStatus player = hits[i] != null
                 ? hits[i].GetComponentInParent<PlayerStatus>()
                 : null;
-            if (player == null)
+            if (player == null || !player.CanAct() || infectionDuration <= 0f)
                 continue;
 
+            // Exposure refreshes the debuff, not its damage cadence.
+            if (!infectionTimers.ContainsKey(player))
+                nextInfectionTicks[player] = Time.time;
             infectionTimers[player] = infectionDuration;
-            nextInfectionTicks[player] = Time.time;
         }
     }
 
@@ -227,21 +230,17 @@ public class FungalMushroomHazard : PoolWaterReactive
         if (infectionTimers.Count == 0)
             return;
 
-        List<PlayerStatus> finished = null;
-        List<PlayerStatus> players = new List<PlayerStatus>(infectionTimers.Keys);
-        for (int i = 0; i < players.Count; i++)
+        infectedPlayers.Clear();
+        infectedPlayers.AddRange(infectionTimers.Keys);
+        for (int i = 0; i < infectedPlayers.Count; i++)
         {
-            PlayerStatus player = players[i];
-            if (player == null || !infectionTimers.ContainsKey(player))
-                continue;
-
+            PlayerStatus player = infectedPlayers[i];
             float remaining = infectionTimers[player] - Time.deltaTime;
 
             if (player == null || remaining <= 0f || !player.CanAct())
             {
-                if (finished == null)
-                    finished = new List<PlayerStatus>();
-                finished.Add(player);
+                infectionTimers.Remove(player);
+                nextInfectionTicks.Remove(player);
                 continue;
             }
 
@@ -251,21 +250,12 @@ public class FungalMushroomHazard : PoolWaterReactive
             if (Time.time < nextTick)
                 continue;
 
-            player.TakeDamage(infectionDamagePerSecond * infectionTickInterval);
-            nextInfectionTicks[player] = Time.time + infectionTickInterval;
+            float tickInterval = Mathf.Max(0.05f, infectionTickInterval);
+            if (!IsNetworkSessionRunning() || NetworkManager.Singleton.IsServer)
+                player.TakeDamage(infectionDamagePerSecond * tickInterval);
+            nextInfectionTicks[player] = Time.time + tickInterval;
         }
-
-        if (finished == null)
-            return;
-
-        for (int i = 0; i < finished.Count; i++)
-        {
-            if (object.ReferenceEquals(finished[i], null))
-                continue;
-
-            infectionTimers.Remove(finished[i]);
-            nextInfectionTicks.Remove(finished[i]);
-        }
+        infectedPlayers.Clear();
     }
 
     private void RemoveMushroom(bool waitForInfection = false)

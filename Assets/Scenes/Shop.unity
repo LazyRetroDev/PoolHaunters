@@ -2743,7 +2743,6 @@ GameObject:
   - component: {fileID: 705977133}
   - component: {fileID: 705977132}
   - component: {fileID: 705977131}
-  - component: {fileID: 705977130}
   - component: {fileID: 705977129}
   m_Layer: 0
   m_Name: CleanWaterBottle (3)
@@ -2793,7 +2792,7 @@ MonoBehaviour:
   spawnInFrontDistance: 1
   cannotReceiveText: No room
   sessionUpgradeType: 2
-  sessionUpgradeAmount: 25
+  sessionUpgradeAmount: 50
   upgradeUnavailableText: Upgrade unavailable
   label: {fileID: 0}
   availableFormat: '{0}
@@ -2809,23 +2808,6 @@ MonoBehaviour:
   highlightRoot: {fileID: 1778285940}
   highlightStationWhilePanelOpen: 1
   purchased: 0
---- !u!114 &705977130
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 705977127}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 45c6e3deb98fd784ab9e68777b3f3624, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WaterItem
-  waterAmount: 80
-  waterQuality: 2
-  replaceExistingWaterQuality: 1
-  useImmediatelyOnPickup: 1
-  destroyAfterUse: 1
 --- !u!114 &705977131
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5545,7 +5527,7 @@ MonoBehaviour:
   spawnInFrontDistance: 1
   cannotReceiveText: No room
   sessionUpgradeType: 1
-  sessionUpgradeAmount: 25
+  sessionUpgradeAmount: 30
   upgradeUnavailableText: Upgrade unavailable
   label: {fileID: 0}
   availableFormat: '{0}

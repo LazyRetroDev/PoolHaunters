@@ -129,7 +129,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Find the water valve" },
         { "objective.turnValve", "Turn the water valve to start cleaning" },
-        { "objective.cleanPools", "Clean the required pools" },
+        { "objective.cleanPools", "Clean any pools to reach the target" },
         { "objective.complete", "Objectives complete" },
         { "objective.returnToSubmarine", "Return to the Submarine Room" },
         { "objective.exitFound", "Exit found" },
@@ -153,7 +153,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Encontre a valvula de agua" },
         { "objective.turnValve", "Acione a valvula para iniciar a limpeza" },
-        { "objective.cleanPools", "Limpe as piscinas obrigatorias" },
+        { "objective.cleanPools", "Limpe quaisquer piscinas para atingir a meta" },
         { "objective.complete", "Objetivos concluidos" },
         { "objective.returnToSubmarine", "Volte para a Sala do Submarino" },
         { "objective.exitFound", "Saida encontrada" },
@@ -177,7 +177,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Encuentra la valvula de agua" },
         { "objective.turnValve", "Activa la valvula de agua para empezar a limpiar" },
-        { "objective.cleanPools", "Limpia las piscinas obligatorias" },
+        { "objective.cleanPools", "Limpia cualquier piscina hasta alcanzar la meta" },
         { "objective.complete", "Objetivos completados" },
         { "objective.returnToSubmarine", "Vuelve a la sala del submarino" },
         { "objective.exitFound", "Salida encontrada" },
@@ -201,7 +201,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Найдите водяной клапан" },
         { "objective.turnValve", "Поверните водяной клапан, чтобы начать уборку" },
-        { "objective.cleanPools", "Очистите обязательные бассейны" },
+        { "objective.cleanPools", "Очистите любые бассейны до достижения цели" },
         { "objective.complete", "Цели выполнены" },
         { "objective.returnToSubmarine", "Вернитесь в комнату подлодки" },
         { "objective.exitFound", "Выход найден" },
@@ -222,7 +222,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Trouvez la vanne d'eau" },
         { "objective.turnValve", "Activez la vanne d'eau pour commencer le nettoyage" },
-        { "objective.cleanPools", "Nettoyez les piscines obligatoires" },
+        { "objective.cleanPools", "Nettoyez les piscines de votre choix pour atteindre l'objectif" },
         { "objective.complete", "Objectifs termines" },
         { "objective.returnToSubmarine", "Retournez a la salle du sous-marin" },
         { "objective.exitFound", "Sortie trouvee" },
@@ -246,7 +246,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "Finde das Wasserventil" },
         { "objective.turnValve", "Drehe das Wasserventil auf, um mit der Reinigung zu beginnen" },
-        { "objective.cleanPools", "Reinige die erforderlichen Becken" },
+        { "objective.cleanPools", "Reinige beliebige Becken, bis das Ziel erreicht ist" },
         { "objective.complete", "Ziele abgeschlossen" },
         { "objective.returnToSubmarine", "Kehre zum U-Boot-Raum zuruck" },
         { "objective.exitFound", "Ausgang gefunden" },
@@ -270,7 +270,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "水栓を探す" },
         { "objective.turnValve", "水栓を開いて清掃を始める" },
-        { "objective.cleanPools", "必要なプールを清掃する" },
+        { "objective.cleanPools", "好きなプールを清掃して目標数を達成する" },
         { "objective.complete", "目標達成" },
         { "objective.returnToSubmarine", "潜水艦ルームへ戻る" },
         { "objective.exitFound", "出口発見" },
@@ -291,7 +291,7 @@ public static class GameLocalization
     {
         { "objective.findValve", "找到水阀" },
         { "objective.turnValve", "打开水阀开始清洁" },
-        { "objective.cleanPools", "清洁必需的泳池" },
+        { "objective.cleanPools", "清洁任意泳池以达到目标数量" },
         { "objective.complete", "目标完成" },
         { "objective.returnToSubmarine", "返回潜艇房间" },
         { "objective.exitFound", "已找到出口" },

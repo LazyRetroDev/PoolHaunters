@@ -21,6 +21,7 @@ public class LevelRewardTracker : MonoBehaviour
     public int personalCleaningGerms = 60;
     public int teamCleaningGerms = 40;
     public int timeBonusGerms = 35;
+    [Min(0)] public int optionalPoolBonusGerms = 25;
     public int knockoutPenaltyGerms = 8;
     public int deathPenaltyGerms = 20;
     [Range(0f, 1f)] public float transformedDeathMultiplier = 0.25f;
@@ -40,16 +41,18 @@ public class LevelRewardTracker : MonoBehaviour
     [SerializeField] private float lastPersonalCleaningPercent;
     [SerializeField] private float lastTeamCleaningPercent;
     [SerializeField] private float lastTimePercent;
+    [SerializeField] private int rewardedOptionalPoolCount;
+    [SerializeField] private int lastOptionalPoolBonusGerms;
 
     private readonly Dictionary<int, PlayerRunStats> statsByPlayerKey =
         new Dictionary<int, PlayerRunStats>();
     private readonly HashSet<PlayerStatus> subscribedPlayers =
         new HashSet<PlayerStatus>();
-    private LevelObjectiveManager objectiveManager;
     private float startTime;
     private float playerRefreshTimer;
 
     public int LastAwardedGerms => lastAwardedGerms;
+    public float ElapsedSeconds => Mathf.Max(0f, Time.time - startTime);
 
     void Awake()
     {
@@ -65,15 +68,11 @@ public class LevelRewardTracker : MonoBehaviour
 
     void OnEnable()
     {
-        BindObjectiveManager();
         RefreshPlayers();
     }
 
     void OnDisable()
     {
-        if (objectiveManager != null)
-            objectiveManager.OnLevelCompleted -= HandleLevelCompleted;
-
         foreach (PlayerStatus player in subscribedPlayers)
             UnsubscribePlayer(player);
 
@@ -88,7 +87,8 @@ public class LevelRewardTracker : MonoBehaviour
 
     void Update()
     {
-        runElapsedSeconds = Time.time - startTime;
+        if (!rewardGranted)
+            runElapsedSeconds = ElapsedSeconds;
 
         if (!autoFindPlayers)
             return;
@@ -98,7 +98,6 @@ public class LevelRewardTracker : MonoBehaviour
             return;
 
         playerRefreshTimer = Mathf.Max(0.1f, playerRefreshInterval);
-        BindObjectiveManager();
         RefreshPlayers();
     }
 
@@ -148,21 +147,6 @@ public class LevelRewardTracker : MonoBehaviour
         stats.cleanedDirtFractions += Mathf.Max(0f, cleanedFraction);
     }
 
-    void BindObjectiveManager()
-    {
-        LevelObjectiveManager nextManager = LevelObjectiveManager.Instance;
-        if (objectiveManager == nextManager)
-            return;
-
-        if (objectiveManager != null)
-            objectiveManager.OnLevelCompleted -= HandleLevelCompleted;
-
-        objectiveManager = nextManager;
-
-        if (objectiveManager != null)
-            objectiveManager.OnLevelCompleted += HandleLevelCompleted;
-    }
-
     void RefreshPlayers()
     {
         PlayerStatus[] players =
@@ -203,12 +187,16 @@ public class LevelRewardTracker : MonoBehaviour
         stats.transformedDeath |= player != null && player.IsTransformed();
     }
 
-    void HandleLevelCompleted()
+    // Called by the confirmed submarine departure, before player objects unload.
+    public void FinalizeLevelReward(float teamCleaningPercent, int extraPools, float elapsedSeconds)
     {
         if (rewardGranted)
             return;
 
         rewardGranted = true;
+        runElapsedSeconds = Mathf.Max(0f, elapsedSeconds);
+        lastTeamCleaningPercent = Mathf.Clamp01(teamCleaningPercent);
+        rewardedOptionalPoolCount = Mathf.Max(0, extraPools);
         RefreshPlayers();
         AwardLocalPlayerReward();
     }
@@ -219,15 +207,14 @@ public class LevelRewardTracker : MonoBehaviour
         PlayerRunStats stats = player != null ? GetStats(player) : new PlayerRunStats();
         int totalDirtCount = Mathf.Max(1, CountKnownDirtSpots());
 
-        lastTeamCleaningPercent = objectiveManager != null
-            ? objectiveManager.CurrentCleanPercent
-            : 1f;
         lastPersonalCleaningPercent = Mathf.Clamp01(
             stats.cleanedDirtFractions / totalDirtCount);
         lastTimePercent = CalculateTimeRewardPercent();
+        float poolBonus = rewardedOptionalPoolCount * (float)Mathf.Max(0, optionalPoolBonusGerms);
 
         float reward =
             baseCompletionGerms +
+            poolBonus +
             personalCleaningGerms * lastPersonalCleaningPercent +
             teamCleaningGerms * Mathf.Clamp01(lastTeamCleaningPercent) +
             timeBonusGerms * lastTimePercent -
@@ -235,8 +222,12 @@ public class LevelRewardTracker : MonoBehaviour
             deathPenaltyGerms * stats.deaths;
 
         if (stats.transformedDeath)
-            reward *= transformedDeathMultiplier;
+        {
+            reward *= Mathf.Clamp01(transformedDeathMultiplier);
+            poolBonus *= Mathf.Clamp01(transformedDeathMultiplier);
+        }
 
+        lastOptionalPoolBonusGerms = Mathf.Max(0, Mathf.RoundToInt(poolBonus));
         lastAwardedGerms = Mathf.Max(0, Mathf.RoundToInt(reward));
         PlayerCurrencyState.SetLastRunReward(
             lastAwardedGerms,
@@ -245,7 +236,8 @@ public class LevelRewardTracker : MonoBehaviour
             lastTimePercent,
             stats.knockouts,
             stats.deaths,
-            stats.transformedDeath);
+            stats.transformedDeath,
+            lastOptionalPoolBonusGerms);
         PlayerCurrencyState.AddGerms(lastAwardedGerms);
 
         Debug.Log(

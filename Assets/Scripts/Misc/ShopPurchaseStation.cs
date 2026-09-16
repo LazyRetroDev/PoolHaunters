@@ -1,5 +1,4 @@
 using TMPro;
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -397,28 +396,6 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     SessionUpgradeType GetEffectiveSessionUpgradeType()
     {
-        if (!string.IsNullOrWhiteSpace(itemName))
-        {
-            if (itemName.IndexOf("stamina", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                itemName.IndexOf("sprint", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return SessionUpgradeType.MaxStamina;
-            }
-
-            if (itemName.IndexOf("water", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                itemName.IndexOf("agua", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return SessionUpgradeType.MaxWater;
-            }
-
-            if (itemName.IndexOf("health", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                itemName.IndexOf("life", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                itemName.IndexOf("vida", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return SessionUpgradeType.MaxHealth;
-            }
-        }
-
         return sessionUpgradeType;
     }
 

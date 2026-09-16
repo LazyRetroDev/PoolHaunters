@@ -76,7 +76,7 @@ public class LevelObjectiveManager : MonoBehaviour
     public float poolCleanGoalHideDelay = 2.0f;
     public string findWaterValveObjectiveLabel = "Find the water valve";
     public string findWaterValveProgressLabel = "Turn the water valve to start cleaning";
-    public string activeObjectiveLabel = "Clean the required pools";
+    public string activeObjectiveLabel = "Clean any pools to reach the target";
     public string completedObjectiveLabel = "Objectives complete";
     public string returnToSubmarineObjectiveLabel = "Return to the Submarine Room";
     public string cleaningProgressFormat = "Total Cleaning: {0}%";
@@ -132,6 +132,14 @@ public class LevelObjectiveManager : MonoBehaviour
     public float CurrentCleanPercent => currentCleanPercent;
     public int RequiredPoolCount => requiredPoolCount;
     public int CleanedRequiredPoolCount => cleanedRequiredPoolCount;
+    public int CleanedOptionalPoolCount
+    {
+        get
+        {
+            UpdatePoolDebugCounts();
+            return Mathf.Max(0, cleanedRequiredPoolCount - requiredPoolCount);
+        }
+    }
     public float CurrentPoolCleanPercent => currentPoolCleanPercent;
     public bool LevelCompleted => levelCompleted;
     public IReadOnlyList<RoomDefinition> DiscoveredRooms => discoveredRooms;
@@ -477,7 +485,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
         foreach (SwimmingPoolObjective pool in registeredPools)
         {
-            if (pool != null && pool.RequiredForLevelCompletion)
+            if (pool != null)
                 pool.ForceClean();
         }
 
@@ -663,15 +671,14 @@ public class LevelObjectiveManager : MonoBehaviour
 
         foreach (SwimmingPoolObjective pool in registeredPools)
         {
-            if (pool == null || !pool.RequiredForLevelCompletion)
+            if (pool == null)
                 continue;
 
             pool.RefreshAndEvaluateCleanState();
-            if (!pool.IsCleaned)
-                return false;
         }
 
-        return true;
+        UpdatePoolDebugCounts();
+        return cleanedRequiredPoolCount >= requiredPoolCount;
     }
 
     void RegisterKnownPoolObjectives()
@@ -689,10 +696,12 @@ public class LevelObjectiveManager : MonoBehaviour
 
         foreach (SwimmingPoolObjective pool in registeredPools)
         {
-            if (pool == null || !pool.RequiredForLevelCompletion)
+            if (pool == null)
                 continue;
 
-            requiredPoolCount++;
+            // Existing phase flags define the quota, not which pools must be cleaned.
+            if (pool.RequiredForLevelCompletion)
+                requiredPoolCount++;
             if (pool.IsCleaned)
                 cleanedRequiredPoolCount++;
         }
@@ -702,21 +711,24 @@ public class LevelObjectiveManager : MonoBehaviour
     {
         RegisterKnownPoolObjectives();
 
-        float cleanAmount = 0f;
-        int requiredCount = 0;
+        List<float> progress = new List<float>();
 
         foreach (SwimmingPoolObjective pool in registeredPools)
         {
-            if (pool == null || !pool.RequiredForLevelCompletion)
+            if (pool == null)
                 continue;
 
             pool.RefreshAndEvaluateCleanState();
-            requiredCount++;
-            cleanAmount += pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress);
+            progress.Add(pool.IsCleaned ? 1f : Mathf.Clamp01(pool.CleanProgress));
         }
 
         UpdatePoolDebugCounts();
-        return requiredCount > 0 ? Mathf.Clamp01(cleanAmount / requiredCount) : 0f;
+        progress.Sort();
+        float cleanAmount = 0f;
+        int count = Mathf.Min(requiredPoolCount, progress.Count);
+        for (int i = 0; i < count; i++)
+            cleanAmount += progress[progress.Count - 1 - i];
+        return requiredPoolCount > 0 ? Mathf.Clamp01(cleanAmount / requiredPoolCount) : 0f;
     }
 
     float CalculateCurrentPoolCleanPercent()
@@ -791,7 +803,6 @@ public class LevelObjectiveManager : MonoBehaviour
     bool CanUseFocusedPool(SwimmingPoolObjective pool)
     {
         return pool != null &&
-            pool.RequiredForLevelCompletion &&
             !pool.IsCleaned;
     }
 

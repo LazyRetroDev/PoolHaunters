@@ -6,6 +6,7 @@ public static class PlayerCurrencyState
 
     public static int Germs { get; private set; } = LoadGerms();
     public static int LastRunEarnedGerms { get; private set; }
+    public static int LastRunOptionalPoolGerms { get; private set; }
     public static float LastRunPersonalCleaningPercent { get; private set; }
     public static float LastRunTeamCleaningPercent { get; private set; }
     public static float LastRunTimePercent { get; private set; }
@@ -42,9 +43,11 @@ public static class PlayerCurrencyState
         float timePercent,
         int knockouts,
         int deaths,
-        bool wasTransformed)
+        bool wasTransformed,
+        int optionalPoolGerms = 0)
     {
         LastRunEarnedGerms = Mathf.Max(0, earnedGerms);
+        LastRunOptionalPoolGerms = Mathf.Max(0, optionalPoolGerms);
         LastRunPersonalCleaningPercent = Mathf.Clamp01(personalCleaningPercent);
         LastRunTeamCleaningPercent = Mathf.Clamp01(teamCleaningPercent);
         LastRunTimePercent = Mathf.Clamp01(timePercent);

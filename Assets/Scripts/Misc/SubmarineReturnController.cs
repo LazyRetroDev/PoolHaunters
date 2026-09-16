@@ -63,6 +63,10 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
     private bool registeredConfirmRequestHandler;
     private bool registeredConfirmStateHandler;
     private bool registeredNextPhaseStateHandler;
+    private bool departureRewardEligible;
+    private float departureTeamCleaning;
+    private int departureExtraPools;
+    private float departureElapsedSeconds;
 
     void Reset()
     {
@@ -184,6 +188,17 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
         transitionStarted = true;
         selectedNextScene = nextScene.sceneName;
         selectedDestinationScene = GetDestinationSceneName(nextScene);
+
+        LevelObjectiveManager objectives = LevelObjectiveManager.Instance;
+        if (objectives != null)
+            objectives.RefreshObjectiveState();
+        departureRewardEligible = objectives != null && objectives.LevelCompleted;
+        departureTeamCleaning = objectives != null ? objectives.CurrentCleanPercent : 0f;
+        departureExtraPools = objectives != null ? objectives.CleanedOptionalPoolCount : 0;
+        LevelRewardTracker rewards = LevelRewardTracker.Instance;
+        departureElapsedSeconds = rewards != null ? rewards.ElapsedSeconds : 0f;
+        if (departureRewardEligible && rewards != null)
+            rewards.FinalizeLevelReward(departureTeamCleaning, departureExtraPools, departureElapsedSeconds);
 
         RegionRunState.SelectNextPhaseRegion(
             string.IsNullOrWhiteSpace(nextScene.regionName)
@@ -542,6 +557,10 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
             writer.WriteValueSafe(ToFixedString(RegionRunState.RelayConnectionType));
             writer.WriteValueSafe(RegionRunState.RelayMaxConnections);
             writer.WriteValueSafe((int)RegionRunState.DifficultyMode);
+            writer.WriteValueSafe(departureRewardEligible);
+            writer.WriteValueSafe(departureTeamCleaning);
+            writer.WriteValueSafe(departureExtraPools);
+            writer.WriteValueSafe(departureElapsedSeconds);
 
             networkManager.CustomMessagingManager.SendNamedMessage(
                 NextPhaseStateMessageName,
@@ -565,6 +584,13 @@ public class SubmarineReturnController : MonoBehaviour, IPlayerInteractable
         reader.ReadValueSafe(out FixedString128Bytes relayConnectionType);
         reader.ReadValueSafe(out int relayMaxConnections);
         reader.ReadValueSafe(out int difficultyIndex);
+        reader.ReadValueSafe(out bool rewardEligible);
+        reader.ReadValueSafe(out float teamCleaning);
+        reader.ReadValueSafe(out int extraPools);
+        reader.ReadValueSafe(out float elapsedSeconds);
+
+        if (rewardEligible && LevelRewardTracker.Instance != null)
+            LevelRewardTracker.Instance.FinalizeLevelReward(teamCleaning, extraPools, elapsedSeconds);
 
         RegionRunState.SelectSyncedMultiplayerPhase(
             regionName.ToString(),
