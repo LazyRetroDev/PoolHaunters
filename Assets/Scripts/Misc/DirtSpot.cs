@@ -95,10 +95,17 @@ public class DirtSpot : NetworkBehaviour
     {
         if (surfaceMask != null || !UsesSurfaceMask) return;
         surfaceBounds = targetRenderer.localBounds;
-        Vector3 size = surfaceBounds.size;
-        surfaceNormal = size.x <= size.y && size.x <= size.z ? 0 : size.y <= size.z ? 1 : 2;
-        surfaceU = (surfaceNormal + 1) % 3;
-        surfaceV = (surfaceNormal + 2) % 3;
+        Vector3 localSize = surfaceBounds.size;
+        Vector3 lossyScale = targetRenderer.transform.lossyScale;
+        Vector3 worldSize = new Vector3(
+            Mathf.Abs(localSize.x * lossyScale.x),
+            Mathf.Abs(localSize.y * lossyScale.y),
+            Mathf.Abs(localSize.z * lossyScale.z));
+
+        int fallbackNormal = worldSize.x <= worldSize.y && worldSize.x <= worldSize.z
+            ? 0
+            : worldSize.y <= worldSize.z ? 1 : 2;
+        SetSurfaceProjectionAxis(fallbackNormal);
         surfacePixels = new Color32[MaskResolution * MaskResolution];
         surfaceMask = new Texture2D(MaskResolution, MaskResolution, TextureFormat.RGBA32, false, true);
         surfaceMask.name = "Dirt coverage";
@@ -115,6 +122,12 @@ public class DirtSpot : NetworkBehaviour
         Transform surface = targetRenderer.transform;
         Matrix4x4 localToWorld = surface.localToWorldMatrix;
         Vector3 localHit = surface.InverseTransformPoint(worldPoint);
+
+        // Pool dirt tiles are often unscaled cubes, so their thinnest axis is
+        // ambiguous. The first water contact tells us which face is exposed.
+        if (surfaceCleanCount == 0 && AlignSurfaceProjectionToHit(localHit, surface))
+            UpdateVisualState();
+
         Vector3 nearest = surfaceBounds.ClosestPoint(localHit);
         if ((surface.TransformPoint(nearest) - worldPoint).sqrMagnitude > radius * radius) return false;
         bool changed = false;
@@ -162,6 +175,35 @@ public class DirtSpot : NetworkBehaviour
             MarkCleaned();
             StartCoroutine(FadeOutAndDestroy());
         }
+        return true;
+    }
+
+    void SetSurfaceProjectionAxis(int normalAxis)
+    {
+        surfaceNormal = Mathf.Clamp(normalAxis, 0, 2);
+        surfaceU = (surfaceNormal + 1) % 3;
+        surfaceV = (surfaceNormal + 2) % 3;
+    }
+
+    bool AlignSurfaceProjectionToHit(Vector3 localHit, Transform surface)
+    {
+        Vector3 scale = surface.lossyScale;
+        float distanceX = Mathf.Min(
+            Mathf.Abs(localHit.x - surfaceBounds.min.x),
+            Mathf.Abs(surfaceBounds.max.x - localHit.x)) * Mathf.Abs(scale.x);
+        float distanceY = Mathf.Min(
+            Mathf.Abs(localHit.y - surfaceBounds.min.y),
+            Mathf.Abs(surfaceBounds.max.y - localHit.y)) * Mathf.Abs(scale.y);
+        float distanceZ = Mathf.Min(
+            Mathf.Abs(localHit.z - surfaceBounds.min.z),
+            Mathf.Abs(surfaceBounds.max.z - localHit.z)) * Mathf.Abs(scale.z);
+
+        int hitNormal = distanceX <= distanceY && distanceX <= distanceZ
+            ? 0
+            : distanceY <= distanceZ ? 1 : 2;
+        if (hitNormal == surfaceNormal) return false;
+
+        SetSurfaceProjectionAxis(hitNormal);
         return true;
     }
 
