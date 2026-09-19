@@ -93,24 +93,55 @@ public class DirtSpot : NetworkBehaviour
     bool UsesSurfaceMask => useDissolveShader && useLocalizedCleaning && targetRenderer != null;
     bool UsesSharedPoolMask => UsesSurfaceMask && ResolveSharedPoolMask() != null;
 
+    bool BelongsToSharedDirtSurface()
+    {
+        if (createdByContaminatedWater)
+            return false;
+
+        return ResolveSharedPoolMask() != null;
+    }
+
     PoolDirtSharedMask ResolveSharedPoolMask()
     {
         if (createdByContaminatedWater)
             return null;
 
-        if (poolObjective == null)
-            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
-        if (poolObjective == null)
-            return null;
-
         if (sharedPoolMask == null)
         {
-            sharedPoolMask = poolObjective.GetComponent<PoolDirtSharedMask>();
+            if (poolObjective == null)
+                poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+
+            Transform sharedRoot = poolObjective != null
+                ? poolObjective.transform
+                : FindNamedSharedSurfaceRoot();
+            if (sharedRoot == null)
+                return null;
+
+            sharedPoolMask = sharedRoot.GetComponent<PoolDirtSharedMask>();
             if (sharedPoolMask == null)
-                sharedPoolMask = poolObjective.gameObject.AddComponent<PoolDirtSharedMask>();
+                sharedPoolMask = sharedRoot.gameObject.AddComponent<PoolDirtSharedMask>();
         }
 
-        return sharedPoolMask.IsReady ? sharedPoolMask : null;
+        return sharedPoolMask.Register(this) ? sharedPoolMask : null;
+    }
+
+    Transform FindNamedSharedSurfaceRoot()
+    {
+        Transform current = transform.parent;
+        while (current != null)
+        {
+            string groupName = current.name;
+            bool namedDirtGroup =
+                groupName.Equals("Sujeiras", StringComparison.OrdinalIgnoreCase) ||
+                groupName.Equals("Dirtspots", StringComparison.OrdinalIgnoreCase) ||
+                groupName.Equals("DirtSpots", StringComparison.OrdinalIgnoreCase);
+            if (namedDirtGroup && current.GetComponentsInChildren<DirtSpot>(true).Length > 1)
+                return current;
+
+            current = current.parent;
+        }
+
+        return null;
     }
 
     void EnsureSurfaceMask()
@@ -943,7 +974,7 @@ public class DirtSpot : NetworkBehaviour
         UpdateVisualState();
 
         if (hideRendererWhenClean && targetRenderer != null)
-            targetRenderer.enabled = UsesSharedPoolMask;
+            targetRenderer.enabled = false;
 
         if (targetCollider != null)
             targetCollider.enabled = false;
@@ -989,6 +1020,12 @@ public class DirtSpot : NetworkBehaviour
             if (poolMask != null)
             {
                 poolMask.ApplyToPropertyBlock(propertyBlock);
+            }
+            else if (BelongsToSharedDirtSurface())
+            {
+                // Shared pieces must never expose their individual square mask.
+                // Until the shared mask is ready, leave the piece fully dirty.
+                propertyBlock.SetFloat("_UseCoverageMask", 0f);
             }
             else if (surfaceMask != null)
             {
@@ -1244,10 +1281,10 @@ public class DirtSpot : NetworkBehaviour
         MarkCleaned();
         if (targetCollider != null) targetCollider.enabled = false;
 
-        if (UsesSharedPoolMask)
+        if (BelongsToSharedDirtSurface())
         {
-            // The pool owns one continuous visual mask. Keep each tile visible
-            // until the whole pool is clean so tile borders can never appear.
+            // The shared surface owns the visual mask; individual pieces keep
+            // only their cleaning state and colliders.
             isFadingOut = true;
             yield break;
         }

@@ -499,6 +499,10 @@ public class SwimmingPoolObjective : MonoBehaviour
         SetActive(cleanWaterVisualRoot, filled && (cleaned || !hasDedicatedContaminatedVisual));
         SetActive(dirtSpotRoot, filled && showContaminated);
 
+        PoolDirtSharedMask sharedMask = GetComponent<PoolDirtSharedMask>();
+        if (sharedMask != null)
+            sharedMask.SetVisualActive(showContaminated);
+
         if (hideDirtSpotsWhenClean && cleaned && dirtSpotRoot != null)
             dirtSpotRoot.SetActive(false);
     }

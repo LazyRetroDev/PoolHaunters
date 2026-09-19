@@ -24,23 +24,38 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _CoverageMask:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DirtNormalMap:
+        m_Texture: {fileID: 2800000, guid: 7f6e7bae52d620d45b9ba0a26804de9f, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _DirtTexture:
         m_Texture: {fileID: 2800000, guid: 2f1773ec21d621d49b7120fc29553a99, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 2543ff20282f9c34890b03b72cd4f7c2, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _BrushSoftness: 0.579
-    - _DissolveAmount: 0.31
-    - _EdgeGlow: 2.3
-    - _EdgeWidth: 0.145
-    - _NoiseScale: 18
+    - _BrushSoftness: 0.46
+    - _CoverageWorldSpace: 0
+    - _DirtLightingInfluence: 1
+    - _DirtNormalStrength: 0.8
+    - _DirtPatternStrength: 1
+    - _DirtTextureScale: 1
+    - _DirtWetness: 0.19
+    - _DissolveAmount: 0
+    - _EdgeGlow: 0
+    - _EdgeWidth: 0.001
+    - _NoiseScale: 17.04
+    - _UseCoverageMask: 0
     m_Colors:
-    - _BaseColor: {r: 0.2304169, g: 0.3301886, b: 0.110582, a: 1}
-    - _EdgeColor: {r: 0.108735286, g: 0.25471696, b: 0.09251509, a: 0}
+    - _BaseColor: {r: 0.042274818, g: 0.4716981, b: 0.11843014, a: 1}
+    - _EdgeColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

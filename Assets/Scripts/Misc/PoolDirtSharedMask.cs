@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(1000)]
 public sealed class PoolDirtSharedMask : MonoBehaviour
 {
     static readonly int CoverageMaskId = Shader.PropertyToID("_CoverageMask");
@@ -19,6 +20,9 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
     bool initialized;
     bool uploadPending;
     Matrix4x4 lastWorldToLocalMatrix;
+    Mesh sharedVisualMesh;
+    MeshRenderer sharedVisualRenderer;
+    bool visualRequested = true;
 
     public bool IsReady
     {
@@ -29,15 +33,50 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         }
     }
 
+    public bool Register(DirtSpot spot)
+    {
+        if (spot == null || spot.createdByContaminatedWater)
+            return false;
+
+        Renderer dirtRenderer = spot.targetRenderer != null
+            ? spot.targetRenderer
+            : spot.GetComponentInChildren<Renderer>(true);
+        if (dirtRenderer == null)
+            return false;
+
+        EnsureInitialized();
+        if (coverageMask != null && dirtRenderers.Contains(dirtRenderer))
+            return true;
+
+        // Pool variants can add their dirt prefab after this component awakes.
+        // Rebuild before cleaning starts so late pieces share the same mask.
+        initialized = false;
+        RebuildMask();
+        return coverageMask != null && dirtRenderers.Contains(dirtRenderer);
+    }
+
     public void EnsureInitialized()
     {
-        if (initialized)
+        if (initialized && coverageMask != null)
             return;
 
+        RebuildMask();
+    }
+
+    void RebuildMask()
+    {
+        if (coverageMask != null)
+            Destroy(coverageMask);
+
         initialized = true;
+        coverageMask = null;
+        pixels = null;
+        uploadPending = false;
+        dirtRenderers.Clear();
         DirtSpot[] spots = GetComponentsInChildren<DirtSpot>(true);
         Bounds combinedBounds = default;
         bool hasBounds = false;
+        Material sharedMaterial = null;
 
         for (int i = 0; i < spots.Length; i++)
         {
@@ -52,11 +91,16 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
                 continue;
 
             dirtRenderers.Add(dirtRenderer);
+            if (sharedMaterial == null)
+                sharedMaterial = dirtRenderer.sharedMaterial;
             EncapsulateRendererBounds(dirtRenderer, ref combinedBounds, ref hasBounds);
         }
 
         if (!hasBounds)
+        {
+            initialized = false;
             return;
+        }
 
         float sizeX = Mathf.Max(0.001f, combinedBounds.size.x);
         float sizeZ = Mathf.Max(0.001f, combinedBounds.size.z);
@@ -77,6 +121,8 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         coverageMask.SetPixels32(pixels);
         coverageMask.Apply(false);
         lastWorldToLocalMatrix = transform.worldToLocalMatrix;
+        BuildSharedVisual(combinedBounds, sharedMaterial);
+        ApplyToAllRenderers();
     }
 
     public bool Paint(Vector3 worldPoint, float worldRadius, bool clean, float softness, float noiseScale)
@@ -142,8 +188,17 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         propertyBlock.SetMatrix(CoverageWorldToLocalId, transform.worldToLocalMatrix);
     }
 
+    public void SetVisualActive(bool active)
+    {
+        visualRequested = active;
+        if (sharedVisualRenderer != null)
+            sharedVisualRenderer.gameObject.SetActive(active);
+    }
+
     void LateUpdate()
     {
+        DisableSourceRenderers();
+        bool shouldReapply = uploadPending;
         if (uploadPending && coverageMask != null)
         {
             uploadPending = false;
@@ -152,27 +207,98 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         }
 
         Matrix4x4 currentWorldToLocal = transform.worldToLocalMatrix;
-        if (currentWorldToLocal == lastWorldToLocalMatrix)
+        if (currentWorldToLocal != lastWorldToLocalMatrix)
+        {
+            lastWorldToLocalMatrix = currentWorldToLocal;
+            shouldReapply = true;
+        }
+
+        if (!shouldReapply)
             return;
 
-        lastWorldToLocalMatrix = currentWorldToLocal;
+        ApplyToAllRenderers();
+    }
+
+    void ApplyToAllRenderers()
+    {
+        DisableSourceRenderers();
+        if (sharedVisualRenderer == null)
+            return;
+
         MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+        sharedVisualRenderer.GetPropertyBlock(propertyBlock);
+        ApplyToPropertyBlock(propertyBlock);
+        propertyBlock.SetFloat("_DissolveAmount", 0f);
+        sharedVisualRenderer.SetPropertyBlock(propertyBlock);
+    }
+
+    void DisableSourceRenderers()
+    {
         for (int i = 0; i < dirtRenderers.Count; i++)
         {
             Renderer dirtRenderer = dirtRenderers[i];
             if (dirtRenderer == null)
                 continue;
 
-            dirtRenderer.GetPropertyBlock(propertyBlock);
-            ApplyToPropertyBlock(propertyBlock);
-            dirtRenderer.SetPropertyBlock(propertyBlock);
+            dirtRenderer.forceRenderingOff = true;
+            if (dirtRenderer.enabled)
+                dirtRenderer.enabled = false;
         }
+    }
+
+    void BuildSharedVisual(Bounds combinedBounds, Material sharedMaterial)
+    {
+        if (sharedVisualRenderer != null)
+            Destroy(sharedVisualRenderer.gameObject);
+        if (sharedVisualMesh != null)
+            Destroy(sharedVisualMesh);
+
+        GameObject visual = new GameObject("SharedPoolDirtVisual");
+        visual.transform.SetParent(transform, false);
+
+        MeshFilter meshFilter = visual.AddComponent<MeshFilter>();
+        sharedVisualRenderer = visual.AddComponent<MeshRenderer>();
+        sharedVisualRenderer.sharedMaterial = sharedMaterial;
+        sharedVisualRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        sharedVisualRenderer.receiveShadows = false;
+
+        float minX = combinedBounds.min.x;
+        float maxX = combinedBounds.max.x;
+        float minZ = combinedBounds.min.z;
+        float maxZ = combinedBounds.max.z;
+        float surfaceY = combinedBounds.max.y + 0.002f;
+
+        sharedVisualMesh = new Mesh { name = "Shared pool dirt surface" };
+        sharedVisualMesh.vertices = new[]
+        {
+            new Vector3(minX, surfaceY, minZ),
+            new Vector3(maxX, surfaceY, minZ),
+            new Vector3(maxX, surfaceY, maxZ),
+            new Vector3(minX, surfaceY, maxZ)
+        };
+        sharedVisualMesh.normals = new[]
+        {
+            Vector3.up, Vector3.up, Vector3.up, Vector3.up
+        };
+        sharedVisualMesh.uv = new[]
+        {
+            new Vector2(0f, 0f),
+            new Vector2(1f, 0f),
+            new Vector2(1f, 1f),
+            new Vector2(0f, 1f)
+        };
+        sharedVisualMesh.triangles = new[] { 0, 2, 1, 0, 3, 2 };
+        sharedVisualMesh.RecalculateBounds();
+        meshFilter.sharedMesh = sharedVisualMesh;
+        visual.SetActive(visualRequested);
     }
 
     void OnDestroy()
     {
         if (coverageMask != null)
             Destroy(coverageMask);
+        if (sharedVisualMesh != null)
+            Destroy(sharedVisualMesh);
     }
 
     void EncapsulateRendererBounds(Renderer dirtRenderer, ref Bounds combinedBounds, ref bool hasBounds)

@@ -1449,7 +1449,7 @@ MonoBehaviour:
     weight: 1
   - label: Fungica
     prefab: {fileID: 4456091574275649116, guid: 4a7140a8fbcc8bc4497f27708f480a6d, type: 3}
-    weight: 1
+    weight: 0
   - label: Normal
     prefab: {fileID: 4456091574275649116, guid: dece44367e26fd0429e13d69235ba9f7, type: 3}
     weight: 1

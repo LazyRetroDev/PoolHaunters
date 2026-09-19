@@ -10,6 +10,12 @@ Shader "PoolHaunters/DirtDissolve"
         _EdgeGlow("Edge Glow", Range(0, 4)) = 0.6
         _NoiseScale("Noise Scale", Range(0.5, 20)) = 7
         _BrushSoftness("Brush Softness", Range(0.01, 1)) = 0.35
+        [Normal] _DirtNormalMap("Dirt Normal Map", 2D) = "bump" {}
+        _DirtTextureScale("Dirt Texture Scale", Range(0.05, 4)) = 0.6
+        _DirtNormalStrength("Dirt Relief", Range(0, 2)) = 0.8
+        _DirtLightingInfluence("Relief Lighting", Range(0, 1)) = 0.75
+        _DirtPatternStrength("Visible Pattern", Range(0, 1)) = 0.65
+        _DirtWetness("Wet Shine", Range(0, 1)) = 0.45
         [HideInInspector] _CoverageMask("Coverage", 2D) = "black" {}
         [HideInInspector] _UseCoverageMask("Use Coverage", Float) = 0
         [HideInInspector] _CoverageWorldSpace("World Space Coverage", Float) = 0
@@ -35,6 +41,7 @@ Shader "PoolHaunters/DirtDissolve"
             AlphaToMask Off
 
             HLSLPROGRAM
+            #pragma target 4.5
             #pragma vertex vert
             #pragma fragment frag
 
@@ -59,6 +66,8 @@ Shader "PoolHaunters/DirtDissolve"
             SAMPLER(sampler_MainTex);
             TEXTURE2D(_CoverageMask);
             SAMPLER(sampler_CoverageMask);
+            TEXTURE2D(_DirtNormalMap);
+            SAMPLER(sampler_DirtNormalMap);
             float _UseCoverageMask;
             float _CoverageWorldSpace;
             float4 _CoverageMask_TexelSize;
@@ -75,10 +84,12 @@ Shader "PoolHaunters/DirtDissolve"
                 float _NoiseScale;
                 float _BrushSoftness;
                 float _CleanPointCount;
+                float _DirtTextureScale;
+                float _DirtNormalStrength;
+                float _DirtLightingInfluence;
+                float _DirtPatternStrength;
+                float _DirtWetness;
             CBUFFER_END
-
-            #define MAX_CLEAN_POINTS 512
-            float4 _CleanPoints[MAX_CLEAN_POINTS];
 
             float hash31(float3 p)
             {
@@ -111,6 +122,30 @@ Shader "PoolHaunters/DirtDissolve"
                 return lerp(n0, n1, f.z);
             }
 
+            half3 ApplyDirtSurfaceDetail(half3 baseColor, float2 dirtUV)
+            {
+                half3 detailNormal = UnpackNormalScale(
+                    SAMPLE_TEXTURE2D(_DirtNormalMap, sampler_DirtNormalMap, dirtUV),
+                    _DirtNormalStrength);
+                half3 stylizedLightDirection = normalize(half3(-0.35h, 0.4h, 0.85h));
+                half diffuse = saturate(dot(detailNormal, stylizedLightDirection));
+                half reliefLighting = lerp(
+                    1.0h,
+                    0.68h + diffuse * 0.5h,
+                    _DirtLightingInfluence);
+                half pattern = saturate(
+                    0.5h + detailNormal.x * 0.42h + detailNormal.y * 0.28h);
+                half patternLighting = lerp(0.68h, 1.3h, pattern);
+                half3 shineDirection = normalize(half3(0.25h, -0.2h, 0.95h));
+                half wetHighlight = pow(
+                    saturate(dot(detailNormal, shineDirection)),
+                    18.0h) * _DirtWetness;
+
+                return baseColor * reliefLighting *
+                    lerp(1.0h, patternLighting, _DirtPatternStrength) +
+                    half3(wetHighlight, wetHighlight, wetHighlight);
+            }
+
             Varyings vert(Attributes input)
             {
                 Varyings output;
@@ -139,31 +174,23 @@ Shader "PoolHaunters/DirtDissolve"
                     border += SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV + float2(0, offset.y)).r;
                     border += SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV - float2(0, offset.y)).r;
                     float edge = saturate(border) * lerp(0.6, 1.0, valueNoise(input.positionOS * _NoiseScale));
-                    half3 baseColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv).rgb * _BaseColor.rgb;
-                    return half4(baseColor + _EdgeColor.rgb * edge * _EdgeGlow, 1);
+                    float2 dirtUV = input.positionWS.xz * _DirtTextureScale;
+                    half3 baseColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv).rgb *
+                        _BaseColor.rgb;
+                    half3 finalColor = ApplyDirtSurfaceDetail(baseColor, dirtUV) +
+                        _EdgeColor.rgb * edge * _EdgeGlow;
+                    return half4(finalColor, 1);
                 }
                 float localDissolve = _DissolveAmount;
-
-                [unroll]
-                for (int i = 0; i < MAX_CLEAN_POINTS; i++)
-                {
-                    if (i >= (int)_CleanPointCount)
-                        break;
-
-                    float3 cleanPoint = _CleanPoints[i].xyz;
-                    float cleanRadius = _CleanPoints[i].w;
-                    float distanceToBrush = distance(input.positionOS, cleanPoint);
-                    float innerRadius = cleanRadius * saturate(1.0 - _BrushSoftness);
-                    float brushMask = 1.0 - smoothstep(innerRadius, cleanRadius, distanceToBrush);
-                    localDissolve = max(localDissolve, brushMask);
-                }
 
                 float noise = valueNoise(input.positionOS * _NoiseScale);
                 clip(noise - localDissolve);
 
                 half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv);
 
-                half3 finalBaseColor = texColor.rgb * _BaseColor.rgb;
+                half3 finalBaseColor = ApplyDirtSurfaceDetail(
+                    texColor.rgb * _BaseColor.rgb,
+                    input.positionWS.xz * _DirtTextureScale);
 
                 float edgeMask = 1.0 - smoothstep(localDissolve, localDissolve + _EdgeWidth, noise);
                 
