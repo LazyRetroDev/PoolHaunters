@@ -74,6 +74,7 @@ public class DirtSpot : NetworkBehaviour
     private float lastHitTime = -1f;
     private bool isFadingOut = false;
     private SwimmingPoolObjective poolObjective;
+    private PoolDirtSharedMask sharedPoolMask;
 
     private Vector3[] dirtNodes;
     private bool[] nodeIsClean;
@@ -90,6 +91,27 @@ public class DirtSpot : NetworkBehaviour
     private int surfaceU, surfaceV, surfaceNormal;
 
     bool UsesSurfaceMask => useDissolveShader && useLocalizedCleaning && targetRenderer != null;
+    bool UsesSharedPoolMask => UsesSurfaceMask && ResolveSharedPoolMask() != null;
+
+    PoolDirtSharedMask ResolveSharedPoolMask()
+    {
+        if (createdByContaminatedWater)
+            return null;
+
+        if (poolObjective == null)
+            poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        if (poolObjective == null)
+            return null;
+
+        if (sharedPoolMask == null)
+        {
+            sharedPoolMask = poolObjective.GetComponent<PoolDirtSharedMask>();
+            if (sharedPoolMask == null)
+                sharedPoolMask = poolObjective.gameObject.AddComponent<PoolDirtSharedMask>();
+        }
+
+        return sharedPoolMask.IsReady ? sharedPoolMask : null;
+    }
 
     void EnsureSurfaceMask()
     {
@@ -136,6 +158,13 @@ public class DirtSpot : NetworkBehaviour
             ? Mathf.Clamp01(material.GetFloat("_BrushSoftness")) : 0.35f;
         float noiseScale = material != null && material.HasProperty("_NoiseScale")
             ? material.GetFloat("_NoiseScale") : 7f;
+        PoolDirtSharedMask poolMask = ResolveSharedPoolMask();
+        bool sharedChanged = poolMask != null && poolMask.Paint(
+            worldPoint,
+            radius,
+            clean,
+            softness,
+            noiseScale);
         Vector3 a = surface.InverseTransformVector(Vector3.right * radius);
         Vector3 b = surface.InverseTransformVector(Vector3.up * radius);
         Vector3 c = surface.InverseTransformVector(Vector3.forward * radius);
@@ -154,19 +183,22 @@ public class DirtSpot : NetworkBehaviour
             Vector3 point = nearest;
             point[surfaceU] = Mathf.Lerp(surfaceBounds.min[surfaceU], surfaceBounds.max[surfaceU], (x + 0.5f) / MaskResolution);
             point[surfaceV] = Mathf.Lerp(surfaceBounds.min[surfaceV], surfaceBounds.max[surfaceV], (y + 0.5f) / MaskResolution);
-            float distance = Vector3.Distance(localToWorld.MultiplyPoint3x4(point), worldPoint);
+            Vector3 worldMaskPoint = localToWorld.MultiplyPoint3x4(point);
+            float distance = Vector3.Distance(worldMaskPoint, worldPoint);
             if (distance > radius) continue;
             if (clean && softness > 0f)
             {
                 float brush = 1f - Mathf.SmoothStep(0f, 1f,
                     Mathf.InverseLerp(radius * (1f - softness), radius, distance));
-                if (brush < CoverageNoise(point[surfaceU] * noiseScale, point[surfaceV] * noiseScale)) continue;
+                float noiseU = worldMaskPoint.x + worldMaskPoint.z * 0.7548777f;
+                float noiseV = worldMaskPoint.y + worldMaskPoint.z * 0.5698403f;
+                if (brush < CoverageNoise(noiseU * noiseScale, noiseV * noiseScale)) continue;
             }
             surfacePixels[index] = new Color32(value, value, value, 255);
             surfaceCleanCount += clean ? 1 : -1;
             changed = true;
         }
-        if (!changed) return false;
+        if (!changed) return sharedChanged;
         surfaceUploadPending = true;
         currentCleanPercentage = (float)surfaceCleanCount / surfacePixels.Length;
         currentDirt = maxDirt * (1f - currentCleanPercentage);
@@ -238,6 +270,7 @@ public class DirtSpot : NetworkBehaviour
         if (targetRenderer == null) targetRenderer = GetComponentInChildren<Renderer>();
         if (targetCollider == null) targetCollider = GetComponent<Collider>();
         poolObjective = GetComponentInParent<SwimmingPoolObjective>();
+        ResolveSharedPoolMask();
         if (poolObjective != null && disableAdhesionWhenInPoolObjective)
         {
             adhereToSurface = false;
@@ -910,7 +943,7 @@ public class DirtSpot : NetworkBehaviour
         UpdateVisualState();
 
         if (hideRendererWhenClean && targetRenderer != null)
-            targetRenderer.enabled = false;
+            targetRenderer.enabled = UsesSharedPoolMask;
 
         if (targetCollider != null)
             targetCollider.enabled = false;
@@ -951,7 +984,13 @@ public class DirtSpot : NetworkBehaviour
             targetRenderer.GetPropertyBlock(propertyBlock);
             EnsureSurfaceMask();
             propertyBlock.SetFloat("_UseCoverageMask", UsesSurfaceMask ? 1f : 0f);
-            if (surfaceMask != null)
+            propertyBlock.SetFloat("_CoverageWorldSpace", 0f);
+            PoolDirtSharedMask poolMask = ResolveSharedPoolMask();
+            if (poolMask != null)
+            {
+                poolMask.ApplyToPropertyBlock(propertyBlock);
+            }
+            else if (surfaceMask != null)
             {
                 Vector3 uAxis = Vector3.zero, vAxis = Vector3.zero;
                 uAxis[surfaceU] = 1f;
@@ -1202,9 +1241,18 @@ public class DirtSpot : NetworkBehaviour
 
     private IEnumerator FadeOutAndDestroy()
     {
-        isFadingOut = true;
         MarkCleaned();
         if (targetCollider != null) targetCollider.enabled = false;
+
+        if (UsesSharedPoolMask)
+        {
+            // The pool owns one continuous visual mask. Keep each tile visible
+            // until the whole pool is clean so tile borders can never appear.
+            isFadingOut = true;
+            yield break;
+        }
+
+        isFadingOut = true;
 
         float fadeDuration = 0.5f;
         float elapsed = 0f;

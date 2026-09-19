@@ -12,6 +12,7 @@ Shader "PoolHaunters/DirtDissolve"
         _BrushSoftness("Brush Softness", Range(0.01, 1)) = 0.35
         [HideInInspector] _CoverageMask("Coverage", 2D) = "black" {}
         [HideInInspector] _UseCoverageMask("Use Coverage", Float) = 0
+        [HideInInspector] _CoverageWorldSpace("World Space Coverage", Float) = 0
     }
 
     SubShader
@@ -49,7 +50,8 @@ Shader "PoolHaunters/DirtDissolve"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionOS : TEXCOORD0;
-                float2 uv : TEXCOORD1; 
+                float2 uv : TEXCOORD1;
+                float3 positionWS : TEXCOORD2;
             };
 
             
@@ -58,8 +60,10 @@ Shader "PoolHaunters/DirtDissolve"
             TEXTURE2D(_CoverageMask);
             SAMPLER(sampler_CoverageMask);
             float _UseCoverageMask;
+            float _CoverageWorldSpace;
             float4 _CoverageMask_TexelSize;
             float4 _CoverageU, _CoverageV, _CoverageBounds;
+            float4x4 _CoverageWorldToLocal;
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST; 
@@ -112,6 +116,7 @@ Shader "PoolHaunters/DirtDissolve"
                 Varyings output;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.positionOS = input.positionOS.xyz;
+                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 
                 output.uv = TRANSFORM_TEX(input.uv, _MainTex); 
                 return output;
@@ -121,7 +126,9 @@ Shader "PoolHaunters/DirtDissolve"
             {
                 if (_UseCoverageMask > 0.5)
                 {
-                    float2 surfacePosition = float2(dot(input.positionOS, _CoverageU.xyz), dot(input.positionOS, _CoverageV.xyz));
+                    float2 localSurfacePosition = float2(dot(input.positionOS, _CoverageU.xyz), dot(input.positionOS, _CoverageV.xyz));
+                    float2 sharedSurfacePosition = mul(_CoverageWorldToLocal, float4(input.positionWS, 1)).xz;
+                    float2 surfacePosition = lerp(localSurfacePosition, sharedSurfacePosition, saturate(_CoverageWorldSpace));
                     float2 maskUV = (surfacePosition - _CoverageBounds.xy) / _CoverageBounds.zw;
                     float coverage = SAMPLE_TEXTURE2D(_CoverageMask, sampler_CoverageMask, maskUV).r;
                     // The same binary texels count toward completion on the CPU.

@@ -86,6 +86,10 @@ public class SwimmingPoolObjective : MonoBehaviour
     void Awake()
     {
         AutoBindReferences();
+        PoolDirtSharedMask sharedMask = GetComponent<PoolDirtSharedMask>();
+        if (sharedMask == null)
+            sharedMask = gameObject.AddComponent<PoolDirtSharedMask>();
+        sharedMask.EnsureInitialized();
         RefreshDirtSpots();
     }
 

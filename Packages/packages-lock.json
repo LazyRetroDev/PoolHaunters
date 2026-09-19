@@ -321,7 +321,7 @@
       }
     },
     "com.unity.test-framework.performance": {
-      "version": "3.2.0",
+      "version": "3.3.0",
       "depth": 2,
       "source": "registry",
       "dependencies": {
@@ -343,7 +343,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.transport": {
-      "version": "2.7.1",
+      "version": "2.7.2",
       "depth": 1,
       "source": "registry",
       "dependencies": {

@@ -513,6 +513,11 @@ public class WaterCannon : MonoBehaviour
             PoolCleaningZone pool = hits[i].collider.GetComponentInParent<PoolCleaningZone>();
             PoolWaterReactive poolReactive = hits[i].collider.GetComponentInParent<PoolWaterReactive>();
 
+            // Pool dirt pieces and the cleaning zone are siblings. Resolve the
+            // zone from a direct dirt hit so one brush can cross tile borders.
+            if (pool == null && dirtSpot != null)
+                pool = ResolveOwningPoolCleaningZone(dirtSpot);
+
             if (poolReactive != null && !poolReactiveHits.Contains(poolReactive))
             {
                 poolReactiveHits.Add(poolReactive);
@@ -539,7 +544,7 @@ public class WaterCannon : MonoBehaviour
 
             if (waterQuality == WaterQuality.Contaminated)
             {
-                if (dirtSpot != null)
+                if (dirtSpot != null && pool == null)
                 {
                     if (!dirtHits.Contains(dirtSpot))
                     {
@@ -554,7 +559,7 @@ public class WaterCannon : MonoBehaviour
                     contaminationSurfaceHit = hits[i];
                 }
             }
-            else if (dirtSpot != null && !dirtHits.Contains(dirtSpot))
+            else if (dirtSpot != null && pool == null && !dirtHits.Contains(dirtSpot))
             {
                 dirtHits.Add(dirtSpot);
                 dirtSpot.CleanAtWorldPoint(
@@ -581,6 +586,17 @@ public class WaterCannon : MonoBehaviour
 
         if (waterQuality == WaterQuality.Contaminated && !handledContaminatedDirt && contaminationSurfaceHit.HasValue)
             CreateOrGrowContaminatedDirt(contaminationSurfaceHit.Value, waterAmount);
+    }
+
+    static PoolCleaningZone ResolveOwningPoolCleaningZone(DirtSpot dirtSpot)
+    {
+        if (dirtSpot == null) return null;
+
+        SwimmingPoolObjective objective =
+            dirtSpot.GetComponentInParent<SwimmingPoolObjective>();
+        return objective != null
+            ? objective.GetComponentInChildren<PoolCleaningZone>(true)
+            : null;
     }
 
     void FlushSprayEffects()

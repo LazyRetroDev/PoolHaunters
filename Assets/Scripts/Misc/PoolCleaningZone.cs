@@ -11,6 +11,7 @@ public class PoolCleaningZone : MonoBehaviour
     public bool startsContaminated = true;
     public bool forwardWaterToPoolDirtSpots = true;
     [Min(1f)] public float forwardedDirtRadiusMultiplier = 1.4f;
+    [Min(0.01f)] public float minimumForwardedDirtRadius = 0.7f;
 
     [Header("Water Effects")]
     public bool contaminatedWaterDirtiesPool = true;
@@ -121,7 +122,9 @@ public class PoolCleaningZone : MonoBehaviour
 
         poolObjective.ApplyWaterAtWorldPoint(
             worldPoint,
-            Mathf.Max(0.01f, contactRadius * forwardedDirtRadiusMultiplier),
+            Mathf.Max(
+                minimumForwardedDirtRadius,
+                contactRadius * forwardedDirtRadiusMultiplier),
             amount,
             waterQuality,
             cleaner);
