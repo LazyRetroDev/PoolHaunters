@@ -284,6 +284,49 @@ public class PlayerStatus : NetworkBehaviour
     public bool HasContaminatedWater() =>
         currentWater > 0f && currentWaterQuality == WaterQuality.Contaminated;
 
+    private float nextCannonSuctionTime;
+
+    public void RequestCannonSuction(Vector3 origin, Vector3 direction)
+    {
+        if (IsClientReplica()) CannonSuctionServerRpc(origin, direction);
+        else ApplyCannonSuction(origin, direction);
+    }
+
+    [ServerRpc]
+    void CannonSuctionServerRpc(Vector3 origin, Vector3 direction)
+    {
+        ApplyCannonSuction(origin, direction);
+    }
+
+    void ApplyCannonSuction(Vector3 origin, Vector3 direction)
+    {
+        var loadout = GetComponent<PlayerAgentLoadout>();
+        if (!CanAct() || loadout == null || loadout.currentAgent != PlayerAgentType.SecretAgent ||
+            GetWaterSpace() <= 0f || Time.time < nextCannonSuctionTime) return;
+        if (float.IsNaN(origin.sqrMagnitude) || float.IsInfinity(origin.sqrMagnitude) ||
+            float.IsNaN(direction.sqrMagnitude) || float.IsInfinity(direction.sqrMagnitude) ||
+            direction.sqrMagnitude < 0.001f || Vector3.Distance(origin, transform.position) > 3f) return;
+        if (LevelObjectiveManager.Instance != null && !LevelObjectiveManager.Instance.WaterValveActivated) return;
+        nextCannonSuctionTime = Time.time + 0.18f;
+        // The server selects the visible source and caps each transfer, rather than trusting a client amount.
+        RaycastHit[] hits = Physics.RaycastAll(origin, direction.normalized, 6f, ~0, QueryTriggerInteraction.Collide);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        foreach (var hit in hits)
+        {
+            if (hit.transform.IsChildOf(transform)) continue;
+            var zone = hit.collider.GetComponentInParent<WaterZone>();
+            if (zone != null) { zone.TryFillPlayer(this, 3f, true); return; }
+            var source = hit.collider.GetComponentInParent<WaterSourceDryable>();
+            if (source != null)
+            {
+                float amount = source.DrainWater(Mathf.Min(3f, GetWaterSpace()), out WaterQuality quality);
+                if (amount > 0f) AddWater(amount, quality, source.replacePlayerWaterQuality);
+                return;
+            }
+            if (!hit.collider.isTrigger) return;
+        }
+    }
+
     void FillFromCurrentWaterSource(float amount)
     {
         if (IsClientReplica()) return;

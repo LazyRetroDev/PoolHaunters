@@ -19,6 +19,20 @@ public class WaterCannon : MonoBehaviour
     public float sprayParticleRate = 80f;
     public bool autoCreateSprayParticles = true;
 
+    [Header("Secret Agent Pressure Stream")]
+    public float pressureReach = 12f;
+    public float pressureSpeed = 35f;
+    public float pressureBrushRadius = 0.45f;
+    private bool appliedPressureProfile;
+    private float nextSuctionTime;
+    private InputAction suctionAction;
+    bool UsesPressureStream => ownerRoot != null &&
+        ownerRoot.GetComponent<PlayerAgentLoadout>() != null &&
+        ownerRoot.GetComponent<PlayerAgentLoadout>().currentAgent == PlayerAgentType.SecretAgent;
+    float EffectiveReach => UsesPressureStream ? Mathf.Max(1f, pressureReach) : sprayDistance;
+    float EffectiveSpeed => UsesPressureStream ? Mathf.Max(1f, pressureSpeed) : waterLaunchSpeed;
+    float EffectiveGravity => UsesPressureStream ? 0f : waterGravityMultiplier;
+
     [Header("Water Physics")]
     [Min(0.1f)] public float waterLaunchSpeed = 7f;
     [Min(0f)] public float waterGravityMultiplier = 0.6f;
@@ -114,6 +128,7 @@ public class WaterCannon : MonoBehaviour
     void Start()
     {
         attackAction = playerInput != null ? playerInput.actions["Attack"] : null;
+        suctionAction = playerInput != null ? playerInput.actions.FindAction("RightClick", false) : null;
 
         if (aimCamera == null)
             aimCamera = Camera.main;
@@ -123,7 +138,15 @@ public class WaterCannon : MonoBehaviour
 
     void Update()
     {
+        if (appliedPressureProfile != UsesPressureStream)
+        {
+            appliedPressureProfile = UsesPressureStream;
+            ApplyParticleSettings();
+        }
         if (IsRemoteReplica) return;
+        if (followTarget != null)
+            transform.position = followTarget.TransformPoint(positionOffset);
+        AimTowardMouse();
         UpdateTimedWaterUsageMultiplier();
         UpdateSprayColor();
 
@@ -136,6 +159,19 @@ public class WaterCannon : MonoBehaviour
         if (playerStatus == null || attackAction == null)
         {
             StopSpray();
+            return;
+        }
+
+        bool sucking = UsesPressureStream && (suctionAction != null ? suctionAction.IsPressed() :
+            Mouse.current != null && Mouse.current.rightButton.isPressed);
+        if (sucking)
+        {
+            StopSpray();
+            if (Time.time >= nextSuctionTime && sprayOrigin != null)
+            {
+                nextSuctionTime = Time.time + 0.2f;
+                playerStatus.RequestCannonSuction(sprayOrigin.position, sprayOrigin.forward);
+            }
             return;
         }
 
@@ -169,8 +205,6 @@ public class WaterCannon : MonoBehaviour
         if (followTarget != null)
             transform.position = followTarget.TransformPoint(positionOffset);
 
-        AimTowardMouse();
-
         if (sprayParticles != null && playerStatus != null)
             PublishSprayVisualIfNeeded(sprayParticles.isPlaying, playerStatus.GetWaterQuality());
     }
@@ -188,6 +222,7 @@ public class WaterCannon : MonoBehaviour
 
     bool CanOwnerUseWaterCannon()
     {
+        if (playerMovement != null && !playerMovement.AcceptsInput) return false;
         if (playerStatus != null && !playerStatus.CanAct()) return false;
         return playerPetrify == null || !playerPetrify.IsPetrified();
     }
@@ -281,9 +316,9 @@ public class WaterCannon : MonoBehaviour
         main.loop = true;
         main.playOnAwake = false;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
-        main.startSpeed = Mathf.Max(0.1f, waterLaunchSpeed);
-        main.startLifetime = Mathf.Max(0.01f, sprayDistance / Mathf.Max(0.1f, waterLaunchSpeed));
-        main.gravityModifier = waterGravityMultiplier;
+        main.startSpeed = Mathf.Max(0.1f, EffectiveSpeed);
+        main.startLifetime = Mathf.Max(0.01f, EffectiveReach / Mathf.Max(0.1f, EffectiveSpeed));
+        main.gravityModifier = EffectiveGravity;
 
         var collision = sprayParticles.collision;
         collision.enabled = true;
@@ -485,12 +520,13 @@ public class WaterCannon : MonoBehaviour
         if (direction.sqrMagnitude <= 0.001f) return;
 
         Quaternion targetRotation = Quaternion.LookRotation(direction.normalized) * Quaternion.Euler(rotationOffset);
-        float blend = 1f - Mathf.Exp(-aimRotationSharpness * Time.deltaTime);
+        float blend = UsesPressureStream ? 1f : 1f - Mathf.Exp(-aimRotationSharpness * Time.deltaTime);
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, blend);
     }
 
     void ApplySprayEffects(WaterQuality waterQuality, float cleanAmount, float waterAmount)
     {
+        float cleanContactRadius = UsesPressureStream ? Mathf.Max(0.01f, pressureBrushRadius) : this.cleanContactRadius;
         if (sprayOrigin == null || waterAmount <= 0f) return;
 
         dirtHits.Clear();
@@ -653,11 +689,11 @@ public class WaterCannon : MonoBehaviour
         // Use the same launch speed, lifetime and gravity as the visible spray.
         // Gameplay stays rate-based, independent of particle count and quality.
         trajectoryHits.Clear();
-        float duration = Mathf.Max(0f, sprayDistance) / Mathf.Max(0.1f, waterLaunchSpeed);
-        int steps = Mathf.Clamp(waterTrajectorySteps, 4, 32);
+        float duration = Mathf.Max(0f, EffectiveReach) / Mathf.Max(0.1f, EffectiveSpeed);
+        int steps = UsesPressureStream ? 1 : Mathf.Clamp(waterTrajectorySteps, 4, 32);
         Vector3 origin = sprayOrigin.position;
-        Vector3 velocity = sprayOrigin.forward * Mathf.Max(0.1f, waterLaunchSpeed);
-        Vector3 gravity = Physics.gravity * waterGravityMultiplier;
+        Vector3 velocity = sprayOrigin.forward * Mathf.Max(0.1f, EffectiveSpeed);
+        Vector3 gravity = Physics.gravity * EffectiveGravity;
         Vector3 previous = origin;
         for (int step = 1; step <= steps; step++)
         {
@@ -880,7 +916,7 @@ public class WaterCannon : MonoBehaviour
 
     Vector3 GetAimPoint(Ray aimRay)
     {
-        if (!aimAtWorldHitPoint)
+        if (!aimAtWorldHitPoint && !UsesPressureStream)
             return aimRay.GetPoint(aimPointDistance);
 
         RaycastHit[] hits = Physics.RaycastAll(aimRay, aimMaxDistance, aimMask, QueryTriggerInteraction.Ignore);

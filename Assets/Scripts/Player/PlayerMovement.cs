@@ -958,6 +958,30 @@ public class PlayerMovement : NetworkBehaviour
             waterAmount);
     }
 
+    public void PublishLouiseRod(bool visible, Vector3 rod, Quaternion rotation, Vector3 tip, Vector3 lure)
+    {
+        if (!IsSpawned || !IsOwner) return;
+        if (IsServer) LouiseRodClientRpc(visible, rod, rotation, tip, lure);
+        else LouiseRodServerRpc(visible, rod, rotation, tip, lure);
+    }
+
+    [ServerRpc]
+    void LouiseRodServerRpc(bool visible, Vector3 rod, Quaternion rotation, Vector3 tip, Vector3 lure)
+    {
+        if (!IsFiniteVector3(rod) || !IsFiniteVector3(tip) || !IsFiniteVector3(lure) ||
+            Vector3.Distance(rod, transform.position) > 4f || Vector3.Distance(rod, lure) > 50f) return;
+        LouiseRodClientRpc(visible, rod, rotation, tip, lure);
+    }
+
+    [ClientRpc]
+    void LouiseRodClientRpc(bool visible, Vector3 rod, Quaternion rotation, Vector3 tip, Vector3 lure)
+    {
+        if (IsOwner) return;
+        var visual = GetComponent<LouiseRodReplica>();
+        if (visual == null && visible) visual = gameObject.AddComponent<LouiseRodReplica>();
+        if (visual != null) visual.SetPose(visible, rod, rotation, tip, lure);
+    }
+
     public void PublishWaterSprayVisual(
         bool isSpraying,
         WaterQuality quality,

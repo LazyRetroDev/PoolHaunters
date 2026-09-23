@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 [DisallowMultipleComponent]
 public class RunWaterSystemController : MonoBehaviour
@@ -18,6 +19,7 @@ public class RunWaterSystemController : MonoBehaviour
 
     private float refreshTimer;
     private LevelObjectiveManager objectiveManager;
+    private readonly HashSet<WaterSourceDryable> activatedSources = new HashSet<WaterSourceDryable>();
 
     void OnEnable()
     {
@@ -122,7 +124,7 @@ public class RunWaterSystemController : MonoBehaviour
         for (int i = 0; i < sources.Length; i++)
         {
             WaterSourceDryable source = sources[i];
-            if (source == null)
+            if (source == null || !activatedSources.Add(source))
                 continue;
 
             source.startsDry = false;

@@ -29,7 +29,12 @@ public class GameSettingsManager : MonoBehaviour
     private readonly Dictionary<Renderer, float[]> retroMaterials = new Dictionary<Renderer, float[]>();
     private float nextRetroRefresh;
     private bool retroReductionApplied;
-    private readonly MaterialPropertyBlock retroBlock = new MaterialPropertyBlock();
+    private MaterialPropertyBlock retroBlock;
+
+    private void Awake()
+    {
+        retroBlock = new MaterialPropertyBlock();
+    }
 
     private void Update()
     {

@@ -380,6 +380,7 @@ public class RoomGenerator : MonoBehaviour
     private bool pendingInitialTimeCamperSpawn;
     private bool mapConsolidated;
     private bool isGeneratingFullMap;
+    private int plannedPoolTarget;
     private FullMapGenerationReport currentGenerationReport;
     private FullMapGenerationReport lastCompletedGenerationReport;
     private BranchGenerationReport currentBranchReport;
@@ -846,9 +847,11 @@ public class RoomGenerator : MonoBehaviour
             ? Mathf.Max(1, fullMapGenerationAttempts)
             : 1;
         MapValidationResult lastValidation = null;
+        var generationTimer = System.Diagnostics.Stopwatch.StartNew();
 
         for (int attempt = 0; attempt < attempts; attempt++)
         {
+            var attemptTimer = System.Diagnostics.Stopwatch.StartNew();
             if (attempt > 0)
                 ClearGeneratedMapForRetry();
 
@@ -871,6 +874,7 @@ public class RoomGenerator : MonoBehaviour
             lastValidation = ValidateGeneratedMap(stats);
             bool accepted = !validateFullMapAfterGeneration || lastValidation.IsValid;
             FinishFullMapGenerationReport(stats, lastValidation, accepted);
+            Debug.Log($"[Map loading] Attempt {attempt + 1}/{attempts}: {attemptTimer.Elapsed.TotalSeconds:F2}s, pools {CountRoomsInCategory(RoomCategory.Pool)}/{minimumRequiredPoolRooms}, accepted={accepted}.");
 
             if (accepted)
             {
@@ -883,9 +887,10 @@ public class RoomGenerator : MonoBehaviour
                 if (logGenerationReport && !string.IsNullOrWhiteSpace(lastGenerationReport))
                     Debug.Log(lastGenerationReport);
 
+                NotifyGeneratedMapSnapshotReady();
                 TrySpawnWaterValve();
                 TrySpawnInitialTimeCamper();
-                NotifyGeneratedMapSnapshotReady();
+                Debug.Log($"[Map loading] Ready in {generationTimer.Elapsed.TotalSeconds:F2}s after {attempt + 1} attempt(s), including room content.");
                 return;
             }
 
@@ -957,6 +962,14 @@ public class RoomGenerator : MonoBehaviour
                 branchStart,
                 branchRoomCount,
                 futureBranchStartsNeeded);
+
+            // Reserve a share of the outstanding pool quota before filling this branch.
+            int existingPools = CountRoomsInCategory(RoomCategory.Pool);
+            int remainingBranches = Mathf.Max(1, stats.requestedBranchCount - stats.completedBranchCount);
+            int missingPools = requirePoolRoomsInFullMap
+                ? Mathf.Max(0, minimumRequiredPoolRooms - existingPools)
+                : 0;
+            plannedPoolTarget = existingPools + Mathf.CeilToInt((float)missingPools / remainingBranches);
 
             bool branchCompleted = GenerateBranch(
                 branchStart,
@@ -2184,6 +2197,28 @@ public class RoomGenerator : MonoBehaviour
         List<GameObject> rejectedPrefabs,
         RoomGenerationRole role)
     {
+        if (isGeneratingFullMap && role == RoomGenerationRole.BranchMiddle &&
+            CountRoomsInCategory(RoomCategory.Pool) < plannedPoolTarget)
+        {
+            GameObject pool = ChooseRoomPrefabForRole(
+                expansionConnector, rejectedPrefabs, role, true, true);
+            if (pool == null)
+                pool = ChooseRoomPrefabForRole(
+                    expansionConnector, rejectedPrefabs, role, true, false);
+            if (pool != null)
+                return pool;
+        }
+
+        return ChooseRoomPrefabForRole(expansionConnector, rejectedPrefabs, role, false, true);
+    }
+
+    GameObject ChooseRoomPrefabForRole(
+        RoomConnector expansionConnector,
+        List<GameObject> rejectedPrefabs,
+        RoomGenerationRole role,
+        bool poolsOnly,
+        bool respectPoolSpacing)
+    {
         float totalWeight = 0f;
 
         for (int i = 0; i < roomPrefabs.Length; i++)
@@ -2191,7 +2226,8 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
-            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
+            if (poolsOnly && !IsRoomPrefabCategory(prefab, RoomCategory.Pool)) continue;
+            if (respectPoolSpacing && ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
             totalWeight += GetRoomPrefabWeight(prefab);
         }
@@ -2205,7 +2241,8 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
-            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
+            if (poolsOnly && !IsRoomPrefabCategory(prefab, RoomCategory.Pool)) continue;
+            if (respectPoolSpacing && ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
 
             roll -= GetRoomPrefabWeight(prefab);
@@ -2633,6 +2670,67 @@ public class RoomGenerator : MonoBehaviour
         placementsByRoom[placement.room] = placement;
         if (useGridOccupancy)
             placementsByCell[placement.cell] = placement;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        ReportRoomVisuals(placement.room, false);
+#endif
+    }
+
+    [ContextMenu("Diagnose Generated Room Visibility")]
+    public void DiagnoseGeneratedRoomVisibility()
+    {
+        foreach (GameObject room in spawnedRooms)
+        {
+            if (room != null)
+                ReportRoomVisuals(room, true);
+        }
+    }
+
+    void ReportRoomVisuals(GameObject room, bool includeHealthy)
+    {
+        int meshCount = 0;
+        int visibleCount = 0;
+        bool hasBounds = false;
+        Bounds geometryBounds = default;
+        StringBuilder details = new StringBuilder();
+        Camera camera = Camera.main;
+        foreach (Renderer renderer in room.GetComponentsInChildren<Renderer>(true))
+        {
+            // Doors, pickups and particles must not make an empty room appear healthy.
+            if (renderer.GetComponentInParent<RoomConnector>() != null ||
+                renderer.GetComponentInParent<DoorTrigger>() != null ||
+                renderer.GetComponentInParent<Item>() != null ||
+                renderer is ParticleSystemRenderer)
+                continue;
+
+            MeshFilter filter = renderer.GetComponent<MeshFilter>();
+            SkinnedMeshRenderer skinned = renderer as SkinnedMeshRenderer;
+            Mesh mesh = skinned != null ? skinned.sharedMesh : filter != null ? filter.sharedMesh : null;
+            if (mesh == null)
+                continue;
+            meshCount++;
+            bool active = renderer.enabled && renderer.gameObject.activeInHierarchy && !renderer.forceRenderingOff;
+            bool cameraIncludesLayer = camera == null || (camera.cullingMask & (1 << renderer.gameObject.layer)) != 0;
+            bool hasMaterial = renderer.sharedMaterial != null;
+            if (active && cameraIncludesLayer && hasMaterial)
+                visibleCount++;
+            if (!hasBounds)
+                geometryBounds = renderer.bounds;
+            else
+                geometryBounds.Encapsulate(renderer.bounds);
+            hasBounds = true;
+            details.AppendLine($"  {renderer.name}: active={active}, cameraLayer={cameraIncludesLayer}, material={hasMaterial}, bounds={renderer.bounds}");
+        }
+        RoomDefinition definition = GetRoomDefinition(room);
+        bool outsideRoom = hasBounds && definition != null && !definition.GetWorldBounds().Intersects(geometryBounds);
+        bool suspicious = meshCount == 0 || visibleCount == 0 || outsideRoom;
+        if (!includeHealthy && !suspicious)
+            return;
+        string report = $"[Room visibility] Seed {seed}, {room.name}, position {room.transform.position}: meshes={meshCount}, renderable={visibleCount}, geometryOutsideRoom={outsideRoom}.\n{details}";
+        if (suspicious)
+            Debug.LogWarning(report, room);
+        else
+            Debug.Log(report, room);
     }
 
     void UnregisterRoomPlacement(GameObject room)
@@ -3150,6 +3248,7 @@ public class RoomGenerator : MonoBehaviour
         poolPrefab = null;
         failureReason = "no pool room prefab can replace this room";
         float totalWeight = 0f;
+        var candidates = new List<GameObject>();
 
         for (int i = 0; i < roomPrefabs.Length; i++)
         {
@@ -3157,6 +3256,7 @@ public class RoomGenerator : MonoBehaviour
             if (!CanPoolPrefabReplaceRoom(prefab, room, placement, out failureReason))
                 continue;
 
+            candidates.Add(prefab);
             totalWeight += Mathf.Max(0.01f, GetRoomPrefabWeight(prefab));
         }
 
@@ -3164,11 +3264,10 @@ public class RoomGenerator : MonoBehaviour
             return false;
 
         float roll = Random.Range(0f, totalWeight);
-        for (int i = 0; i < roomPrefabs.Length; i++)
+        // Compatibility creates a preview room; reuse the result for the weighted draw.
+        for (int i = 0; i < candidates.Count; i++)
         {
-            GameObject prefab = roomPrefabs[i];
-            if (!CanPoolPrefabReplaceRoom(prefab, room, placement, out failureReason))
-                continue;
+            GameObject prefab = candidates[i];
 
             roll -= Mathf.Max(0.01f, GetRoomPrefabWeight(prefab));
             if (roll <= 0f)
@@ -4264,6 +4363,10 @@ public class RoomGenerator : MonoBehaviour
 
     bool CanSpawnRoomContentNow()
     {
+        // Rejected layouts must not instantiate gameplay content or enemies.
+        if (generateFullMapOnStart && !generatedMapSnapshotReady)
+            return false;
+
         bool multiplayerRun =
             RegionRunState.HasSelectedRegion &&
             RegionRunState.IsMultiplayer;

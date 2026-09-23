@@ -10,6 +10,7 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
     [SerializeField] private TMP_Text label;
     [SerializeField] private string readyLabel = "START NEXT LEVEL";
     [SerializeField] private string missingLevelLabel = "NO LEVEL SELECTED";
+    [SerializeField] private string loadingLabel = "LOADING...";
     [SerializeField] private bool onlyHostCanStart = true;
     [SerializeField] private bool allowFallbackSceneWhenNoRunState = true;
     [SerializeField] private string fallbackSceneName = "Game";
@@ -37,6 +38,8 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
             return;
 
         transitionStarted = true;
+        if (label != null)
+            label.text = loadingLabel;
         string sceneName = GetNextSceneName();
         StartCoroutine(LoadSceneAfterInteractionFrame(sceneName));
     }
@@ -59,12 +62,31 @@ public class ShopStartNextLevelStation : MonoBehaviour, IPlayerInteractable
                 Debug.LogWarning(
                     $"ShopStartNextLevelStation could not load scene '{sceneName}'. Scene event status: {status}.");
                 transitionStarted = false;
+                RefreshLabel();
             }
 
             yield break;
         }
 
-        SceneManager.LoadScene(sceneName);
+        AsyncOperation operation = null;
+        try
+        {
+            operation = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+        }
+        catch (System.Exception exception)
+        {
+            Debug.LogException(exception, this);
+        }
+
+        if (operation == null)
+        {
+            transitionStarted = false;
+            RefreshLabel();
+            yield break;
+        }
+
+        while (!operation.isDone)
+            yield return null;
     }
 
     bool CanStart()

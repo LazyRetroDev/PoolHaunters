@@ -82,6 +82,10 @@ public class RoomResourceSpawner : MonoBehaviour
     [Min(0f)]
     public float fallbackFloorOffset = 0.08f;
 
+    [Min(0.1f), Tooltip("Height above the room bounds bottom to search for interior floors. Use explicit spawn points for upper floors.")]
+    public float fallbackInteriorRayHeight = 3f;
+    [Min(1)] public int fallbackPlacementRetries = 8;
+
     public LayerMask fallbackGroundLayers = ~0;
 
     [Header("Ground Placement")]
@@ -113,6 +117,9 @@ public class RoomResourceSpawner : MonoBehaviour
     public void SpawnResourcesForRoom(GameObject room, int roomIndex, int runSeed)
     {
         if (room == null || !CanSpawnAuthoritatively()) return;
+
+        // Generated rooms have just moved; floor queries must see their final collider poses.
+        Physics.SyncTransforms();
 
         RoomDefinition definition = GetRoomDefinition(room);
         RoomContentProfile contentProfile =
@@ -226,14 +233,19 @@ public class RoomResourceSpawner : MonoBehaviour
                 continue;
             }
 
-            Vector3 position;
-            Quaternion rotation;
-            if (!TryGetFallbackSpawnPose(
-                definition,
-                random,
-                out position,
-                out rotation))
+            Vector3 position = Vector3.zero;
+            Quaternion rotation = Quaternion.identity;
+            bool foundPosition = false;
+            for (int attempt = 0; attempt < Mathf.Max(1, fallbackPlacementRetries); attempt++)
             {
+                if (!TryGetFallbackSpawnPose(definition, random, out position, out rotation))
+                    continue;
+                foundPosition = true;
+                break;
+            }
+            if (!foundPosition)
+            {
+                Debug.LogWarning($"[Room resources] Skipped '{selected.label}' in {room.name}: no verified interior floor after {fallbackPlacementRetries} attempts. Add RoomResourceSpawnPoint markers for this room.", room);
                 continue;
             }
 
@@ -241,7 +253,8 @@ public class RoomResourceSpawner : MonoBehaviour
                 selected,
                 position,
                 rotation,
-                room);
+                room,
+                verifiedFloor: true);
             if (instance != null)
                 spawnedResources.Add(instance);
         }
@@ -265,11 +278,13 @@ public class RoomResourceSpawner : MonoBehaviour
             halfZ,
             (float)random.NextDouble());
 
+        // Start below the roof, including when floor and roof share one mesh collider.
+        float searchHeight = Mathf.Min(Mathf.Max(0.1f, fallbackInteriorRayHeight), size.y * 0.5f);
         Vector3 localTop = definition.boundsCenter +
-            new Vector3(localX, size.y * 0.5f + 1f, localZ);
+            new Vector3(localX, -size.y * 0.5f + searchHeight, localZ);
         Vector3 rayOrigin = definition.transform.TransformPoint(localTop);
         Vector3 down = -definition.transform.up;
-        float rayDistance = Mathf.Max(3f, size.y + 3f);
+        float rayDistance = definition.transform.TransformVector(Vector3.up * searchHeight).magnitude;
         RaycastHit[] hits = Physics.RaycastAll(
             rayOrigin,
             down,
@@ -311,12 +326,9 @@ public class RoomResourceSpawner : MonoBehaviour
         }
         else
         {
-            Vector3 localFloor = definition.boundsCenter +
-                new Vector3(
-                    localX,
-                    -size.y * 0.5f + fallbackFloorOffset,
-                    localZ);
-            position = definition.transform.TransformPoint(localFloor);
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            return false;
         }
 
         float yaw = (float)random.NextDouble() * 360f;
@@ -417,13 +429,22 @@ public class RoomResourceSpawner : MonoBehaviour
         ResourceSelection selection,
         Vector3 position,
         Quaternion rotation,
-        GameObject room)
+        GameObject room,
+        bool verifiedFloor = false)
     {
         if (selection.prefab == null)
             return null;
 
         GameObject instance = Instantiate(selection.prefab, position, rotation);
-        SnapResourceToGround(instance, room);
+        if (verifiedFloor && snapSpawnedResourcesToGround)
+        {
+            Vector3 up = room.transform.up;
+            if (TryGetResourceBounds(instance, out Bounds itemBounds))
+                instance.transform.position += up *
+                    (Vector3.Dot(position, up) - fallbackFloorOffset + groundContactOffset - GetMinProjection(itemBounds, up));
+        }
+        else
+            SnapResourceToGround(instance, room);
 
         NetworkManager networkManager = NetworkManager.Singleton;
         bool online = networkManager != null && networkManager.IsListening;
@@ -551,6 +572,10 @@ public class RoomResourceSpawner : MonoBehaviour
             if (Vector3.Dot(hit.normal, up) < 0.5f)
                 continue;
 
+            // Ground snapping must not lift an interior item onto a roof above it.
+            if (Vector3.Dot(hit.point - instance.transform.position, up) > 0.25f)
+                continue;
+
             if (hit.distance >= closestDistance)
                 continue;
 
@@ -571,11 +596,12 @@ public class RoomResourceSpawner : MonoBehaviour
         if (instance == null)
             return false;
 
-        bool hasBounds = TryGetColliderBounds(instance, out bounds);
+        // Pickup colliders can be larger than the object players actually see.
+        bool hasBounds = TryGetRendererBounds(instance, out bounds);
         if (hasBounds)
             return true;
 
-        return TryGetRendererBounds(instance, out bounds);
+        return TryGetColliderBounds(instance, out bounds);
     }
 
     bool TryGetColliderBounds(GameObject instance, out Bounds bounds)
@@ -587,7 +613,7 @@ public class RoomResourceSpawner : MonoBehaviour
         for (int i = 0; i < colliders.Length; i++)
         {
             Collider collider = colliders[i];
-            if (collider == null || !collider.enabled || collider.isTrigger)
+            if (collider == null || !collider.enabled || collider.isTrigger || !collider.gameObject.activeInHierarchy)
                 continue;
 
             if (!hasBounds)
@@ -613,7 +639,9 @@ public class RoomResourceSpawner : MonoBehaviour
         for (int i = 0; i < renderers.Length; i++)
         {
             Renderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled)
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy ||
+                renderer.forceRenderingOff || renderer is ParticleSystemRenderer ||
+                renderer is TrailRenderer || renderer is LineRenderer)
                 continue;
 
             if (!hasBounds)

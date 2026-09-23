@@ -218,6 +218,7 @@ public class JennyMopCleaner : MonoBehaviour
         Vector3 center = GetMopWorldPosition();
         Quaternion rotation = GetMopWorldRotation();
         Vector3 halfExtents = IsDashing() ? dashMopHalfExtents : mopHalfExtents;
+        float contactRadius = GetSweepContactRadius(IsDashing());
 
         if (waterQuality == WaterQuality.Contaminated)
             StampContaminatedMopTrail(center, rotation, halfExtents, waterThisFrame);
@@ -235,12 +236,13 @@ public class JennyMopCleaner : MonoBehaviour
             if (hit == null || hit.transform.IsChildOf(transform))
                 continue;
 
-            Vector3 contactPoint = hit.ClosestPoint(center);
-            if (!IsFinite(contactPoint))
-                contactPoint = center;
-
             DirtSpot dirt = hit.GetComponentInParent<DirtSpot>();
             PoolWaterReactive poolReactive = hit.GetComponentInParent<PoolWaterReactive>();
+            PoolCleaningZone pool = hit.GetComponentInParent<PoolCleaningZone>();
+            if (dirt == null && poolReactive == null && pool == null)
+                continue;
+            if (!TryGetMopContactPoint(hit, center, halfExtents.magnitude + contactRadius, out Vector3 contactPoint))
+                continue;
             if (poolReactive != null && !poolReactiveHits.Contains(poolReactive))
             {
                 poolReactiveHits.Add(poolReactive);
@@ -257,25 +259,24 @@ public class JennyMopCleaner : MonoBehaviour
                 {
                     dirt.ApplyContaminatedWaterAtWorldPoint(
                         contactPoint,
-                        cleanContactRadius,
+                        contactRadius,
                         waterThisFrame);
                 }
                 else
                 {
                     dirt.CleanAtWorldPoint(
                         contactPoint,
-                        cleanContactRadius,
+                        contactRadius,
                         cleanPowerPerSecond * cleanMultiplier * Time.deltaTime,
                         playerStatus);
                 }
             }
 
-            PoolCleaningZone pool = hit.GetComponentInParent<PoolCleaningZone>();
             if (pool != null && !poolHits.Contains(pool))
             {
                 poolHits.Add(pool);
                 float poolContactRadius = Mathf.Max(
-                    cleanContactRadius,
+                    contactRadius,
                     Mathf.Max(halfExtents.x, halfExtents.z));
 
                 pool.ApplyWaterAtWorldPoint(
@@ -287,6 +288,40 @@ public class JennyMopCleaner : MonoBehaviour
                     playerStatus);
             }
         }
+    }
+
+    float GetSweepContactRadius(bool dashing)
+    {
+        float radius = Mathf.Max(0.01f, cleanContactRadius);
+        if (!dashing)
+            return radius;
+
+        // Scale the painted brush along with the detection box and mop visual.
+        float widthScale = Mathf.Abs(dashMopHalfExtents.x) / Mathf.Max(0.01f, Mathf.Abs(mopHalfExtents.x));
+        float lengthScale = Mathf.Abs(dashMopHalfExtents.z) / Mathf.Max(0.01f, Mathf.Abs(mopHalfExtents.z));
+        return radius * Mathf.Max(1f, Mathf.Max(widthScale, lengthScale));
+    }
+
+    bool TryGetMopContactPoint(Collider collider, Vector3 center, float reach, out Vector3 point)
+    {
+        MeshCollider mesh = collider as MeshCollider;
+        if (collider is BoxCollider || collider is SphereCollider || collider is CapsuleCollider ||
+            (mesh != null && mesh.convex))
+        {
+            point = collider.ClosestPoint(center);
+            return IsFinite(point);
+        }
+
+        // Concave room meshes do not support ClosestPoint. Test the actual floor face.
+        reach = Mathf.Max(0.1f, reach);
+        Ray ray = new Ray(center + transform.up * reach, -transform.up);
+        if (collider.Raycast(ray, out RaycastHit hit, reach * 2f))
+        {
+            point = hit.point;
+            return IsFinite(point);
+        }
+        point = default;
+        return false;
     }
 
     void StampContaminatedMopTrail(

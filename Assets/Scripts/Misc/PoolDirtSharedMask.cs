@@ -23,6 +23,10 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
     Mesh sharedVisualMesh;
     MeshRenderer sharedVisualRenderer;
     bool visualRequested = true;
+    int lastPaintFrame = -1;
+    Vector3 lastPaintPoint;
+    float lastPaintRadius, lastPaintSoftness, lastPaintNoiseScale;
+    bool lastPaintClean;
 
     public bool IsReady
     {
@@ -65,6 +69,7 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
 
     void RebuildMask()
     {
+        lastPaintFrame = -1;
         if (coverageMask != null)
             Destroy(coverageMask);
 
@@ -130,6 +135,19 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         EnsureInitialized();
         if (coverageMask == null || worldRadius <= 0f)
             return false;
+
+        // Every dirt tile still updates its own completion mask, but their shared
+        // visual only needs this identical deterministic stamp once per frame.
+        if (lastPaintFrame == Time.frameCount && lastPaintPoint.Equals(worldPoint) &&
+            lastPaintRadius == worldRadius && lastPaintClean == clean &&
+            lastPaintSoftness == softness && lastPaintNoiseScale == noiseScale)
+            return false;
+        lastPaintFrame = Time.frameCount;
+        lastPaintPoint = worldPoint;
+        lastPaintRadius = worldRadius;
+        lastPaintClean = clean;
+        lastPaintSoftness = softness;
+        lastPaintNoiseScale = noiseScale;
 
         Vector3 localPoint = transform.InverseTransformPoint(worldPoint);
         float localRadius = GetLocalRadius(worldRadius);

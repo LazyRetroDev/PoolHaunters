@@ -55,7 +55,7 @@ public static class AgentSelectionState
             case PlayerAgentType.SecretAgent:
                 return "Field Agent";
             case PlayerAgentType.Louise:
-                return "Field Agent";
+                return "Fishing Rod Specialist";
             default:
                 return "Agent";
         }
@@ -70,9 +70,9 @@ public static class AgentSelectionState
             case PlayerAgentType.Sylvian:
                 return "Uses the standard water cannon and item slots. Unique abilities can be added later.";
             case PlayerAgentType.SecretAgent:
-                return "Uses the standard water cannon and item slots. Unique abilities can be added later.";
+                return "Uses a long-range pressure stream. Hold right-click to recover water from a nearby visible source.";
             case PlayerAgentType.Louise:
-                return "Uses the standard water cannon and item slots. Unique abilities can be added later.";
+                return "Charge a cast, attach a cleaning lure to surfaces, and keep moving while it spends water to clean. Recall with right-click.";
             default:
                 return string.Empty;
         }
@@ -84,6 +84,10 @@ public static class AgentSelectionState
         {
             case PlayerAgentType.JennyPie:
                 return "Loadout: mop cleaner, mop dash, water splash. Water cannon disabled.";
+            case PlayerAgentType.Louise:
+                return "Loadout: cleaning fishing rod and inventory items. Water cannon disabled.";
+            case PlayerAgentType.SecretAgent:
+                return "Loadout: pressure cannon, water suction and inventory items.";
             default:
                 return "Loadout: water cannon and inventory items.";
         }

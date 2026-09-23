@@ -14,6 +14,9 @@ public class PlayerAgentLoadout : MonoBehaviour
     public bool enforceToolState = true;
     public JennyMopCleaner jennyMop;
 
+    [Header("Louise")]
+    public LouiseFishingCleaner louiseRod;
+
     [Header("Optional UI")]
     public TMP_Text agentNameText;
 
@@ -64,28 +67,33 @@ public class PlayerAgentLoadout : MonoBehaviour
     void ApplyToolState()
     {
         bool isJenny = currentAgent == PlayerAgentType.JennyPie;
+        bool isLouise = currentAgent == PlayerAgentType.Louise;
+        if (isLouise && louiseRod == null)
+            louiseRod = gameObject.AddComponent<LouiseFishingCleaner>();
+        if (louiseRod != null && louiseRod.enabled != isLouise)
+            louiseRod.enabled = isLouise;
 
         if (jennyMop != null && jennyMop.enabled != isJenny)
             jennyMop.enabled = isJenny;
 
-        if (waterCannons == null || !jennyUsesMopInsteadOfWaterCannon)
+        if (waterCannons == null)
             return;
 
         for (int i = 0; i < waterCannons.Length; i++)
         {
             if (waterCannons[i] == null) continue;
 
-            bool shouldEnable = !isJenny;
+            bool shouldEnable = !ShouldDisableWaterCannon();
             if (waterCannons[i].enabled != shouldEnable)
                 waterCannons[i].enabled = shouldEnable;
 
-            if (!hideWaterCannonObjectForJenny ||
+            if ((!hideWaterCannonObjectForJenny && !isLouise) ||
                 waterCannons[i].gameObject == gameObject)
             {
                 continue;
             }
 
-            bool shouldBeActive = !isJenny;
+            bool shouldBeActive = shouldEnable;
             if (waterCannons[i].gameObject.activeSelf != shouldBeActive)
                 waterCannons[i].gameObject.SetActive(shouldBeActive);
         }
@@ -95,6 +103,8 @@ public class PlayerAgentLoadout : MonoBehaviour
     {
         if (jennyMop == null)
             jennyMop = GetComponent<JennyMopCleaner>();
+        if (louiseRod == null)
+            louiseRod = GetComponent<LouiseFishingCleaner>();
 
         waterCannons = GetComponentsInChildren<WaterCannon>(true);
         if (originalWaterCannonObjectStates == null ||
@@ -111,8 +121,8 @@ public class PlayerAgentLoadout : MonoBehaviour
 
     public bool ShouldDisableWaterCannon()
     {
-        return jennyUsesMopInsteadOfWaterCannon &&
-            currentAgent == PlayerAgentType.JennyPie;
+        return currentAgent == PlayerAgentType.Louise ||
+            (jennyUsesMopInsteadOfWaterCannon && currentAgent == PlayerAgentType.JennyPie);
     }
 
     public static bool ShouldDisableWaterCannonFor(GameObject player)
