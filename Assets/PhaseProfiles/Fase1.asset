@@ -12,13 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a9d3f4b8c2e14a7f9b6c0d2e3f4a5b6c, type: 3}
   m_Name: Fase1
   m_EditorClassIdentifier: Assembly-CSharp::RunPhaseProfile
-  minimumBranchCount: 2
-  maximumBranchCount: 2
-  minimumRoomsPerBranch: 4
-  maximumRoomsPerBranch: 4
+  minimumBranchCount: 16
+  maximumBranchCount: 16
+  minimumRoomsPerBranch: 10
+  maximumRoomsPerBranch: 10
   requirePoolRoomsInFullMap: 1
   minimumPoolRoomsInMap: 1
   randomizeMandatoryPools: 1
   guaranteedMandatoryPools: 1
   guaranteedOptionalPools: 1
-  extraPoolMandatoryChance: 0
+  extraPoolMandatoryChance: 0.215

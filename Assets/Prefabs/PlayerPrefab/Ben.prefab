@@ -1546,6 +1546,16 @@ MonoBehaviour:
   waterUsagePerSecond: 10
   sprayParticleRate: 80
   autoCreateSprayParticles: 1
+  pressureReach: 12
+  pressureSpeed: 35
+  pressureBrushRadius: 0.45
+  waterLaunchSpeed: 7
+  waterGravityMultiplier: 0.6
+  waterTrajectorySteps: 12
+  waterCollisionMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  waterPassThroughTag: WaterCannonPassThrough
   syncSprayVisuals: 1
   sprayVisualSyncInterval: 0.05
   sprayVisualPositionThreshold: 0.03
@@ -1556,7 +1566,7 @@ MonoBehaviour:
   cleanPowerPerSecond: 35
   sprayDistance: 4
   sprayRadius: 0.2
-  cleanContactRadius: 0.22
+  cleanContactRadius: 0.5
   cleanMask:
     serializedVersion: 2
     m_Bits: 4294967295

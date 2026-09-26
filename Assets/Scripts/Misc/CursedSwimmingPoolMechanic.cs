@@ -6,6 +6,15 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class CursedSwimmingPoolMechanic : MonoBehaviour
 {
+    private static readonly HashSet<CursedSwimmingPoolMechanic> ActiveMechanics =
+        new HashSet<CursedSwimmingPoolMechanic>();
+    private static readonly HashSet<int> ProcessedFogRoomIndices = new HashSet<int>();
+    private static readonly HashSet<GameObject> ActiveGlobalFogs = new HashSet<GameObject>();
+    private static RoomGenerator fogDistributionGenerator;
+    private static CursedSwimmingPoolMechanic fogSettingsSource;
+    private static bool fullMapFogPassComplete;
+    private static bool globalFogCleanupStarted;
+
     [Header("Pool")]
     [SerializeField] private SwimmingPoolObjective poolObjective;
     [SerializeField] private PoolCleanBoxItemConsumer cleanBox;
@@ -36,8 +45,6 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
     private Vector3 cachedHolyWaterUp;
     private Quaternion cachedHolyWaterRot;
     private Coroutine waitForMapRoutine;
-    private List<GameObject> activeFogs = new List<GameObject>();
-
     private void Awake()
     {
         AutoBindReferences();
@@ -58,6 +65,7 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
 
     private void OnEnable()
     {
+        ActiveMechanics.Add(this);
         AutoBindReferences();
 
         if (cleanBox != null)
@@ -92,7 +100,12 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             waitForMapRoutine = null;
         }
         
-        ClearCursedFogs();
+        ActiveMechanics.Remove(this);
+        if (ActiveMechanics.Count == 0)
+        {
+            DespawnGlobalFogsImmediately();
+            ResetGlobalFogState();
+        }
     }
 
     private bool CheckCanConsume(Item item)
@@ -118,26 +131,14 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         if (poolObjective != null)
             poolObjective.SetCleaningLocked(false);
 
-        ClearCursedFogs();
+        ClearGlobalFogsWhenAllPoolsAreBlessed();
     }
 
     private void HandleGeneratedMapReady(RoomGenerator generator)
     {
         TrySpawnHolyWater(generator);
 
-        if (!onlyInDiscoveredRooms)
-        {
-            List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
-            for (int i = 0; i < rooms.Count; i++)
-            {
-                if (rooms[i] == null) continue;
-                RoomDefinition roomDef = rooms[i].GetComponent<RoomDefinition>();
-                if (roomDef != null)
-                {
-                    TrySpawnFogInRoom(roomDef, i);
-                }
-            }
-        }
+        TrySpawnGlobalFogMap(generator);
     }
 
     private IEnumerator WaitForExistingGeneratedMap()
@@ -508,47 +509,82 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
 
     private void HandleRoomDiscovered(RoomDefinition room, int index)
     {
-        if (!onlyInDiscoveredRooms)
+        CursedSwimmingPoolMechanic settings = GetFogSettingsSource();
+        if (settings == null || !settings.onlyInDiscoveredRooms)
             return;
-            
-        TrySpawnFogInRoom(room, index);
+
+        RoomGenerator generator = FindAnyObjectByType<RoomGenerator>();
+        TrySpawnGlobalFogInRoom(generator, room, index);
     }
     
-    private void TrySpawnFogInRoom(RoomDefinition room, int index)
+    private static void TrySpawnGlobalFogMap(RoomGenerator generator)
     {
-        if (blessed || cursedFogPrefab == null || room == null)
+        if (generator == null || !CanSpawnAuthoritatively())
             return;
 
-        // Skip submarine/start room and pool room itself
-        if (room.category == RoomCategory.SubmarineSpawn)
-            return;
-            
-        RoomDefinition ownRoom = GetComponentInParent<RoomDefinition>();
-        if (avoidCurrentPoolRoom && ownRoom != null && room == ownRoom)
-            return;
-            
-        if (avoidPoolRooms && room.category == RoomCategory.Pool)
+        PrepareGlobalFogMap(generator);
+        CursedSwimmingPoolMechanic settings = GetFogSettingsSource();
+        if (settings == null || settings.onlyInDiscoveredRooms || fullMapFogPassComplete)
             return;
 
-        // Determine if it should spawn authoritatively or locally
-        bool isNetworked = cursedFogPrefab.GetComponent<NetworkObject>() != null;
-        if (isNetworked && !CanSpawnAuthoritatively())
-            return; // Server will spawn it and netcode will sync it
+        fullMapFogPassComplete = true;
+        List<GameObject> rooms = generator.GetSpawnedRoomsSnapshot();
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            GameObject roomObject = rooms[i];
+            if (roomObject == null)
+                continue;
 
-        // Get seed from RoomGenerator if possible, otherwise use syncId
-        RoomGenerator generator = FindAnyObjectByType<RoomGenerator>();
-        int seed = CreateSpawnSeed(generator);
-        unchecked { seed = seed * 397 ^ index; }
+            RoomDefinition room = roomObject.GetComponent<RoomDefinition>();
+            if (room != null)
+                TrySpawnGlobalFogInRoom(generator, room, i);
+        }
+    }
+
+    private static void TrySpawnGlobalFogInRoom(
+        RoomGenerator generator,
+        RoomDefinition room,
+        int index)
+    {
+        if (generator == null || room == null || index < 0 || !CanSpawnAuthoritatively())
+            return;
+
+        PrepareGlobalFogMap(generator);
+        if (!ProcessedFogRoomIndices.Add(index))
+            return;
+
+        CursedSwimmingPoolMechanic settings = GetFogSettingsSource();
+        if (settings == null || settings.cursedFogPrefab == null || settings.blessed ||
+            (!settings.onlyInDiscoveredRooms && !fullMapFogPassComplete))
+        {
+            return;
+        }
+
+        if (room.category == RoomCategory.SubmarineSpawn ||
+            (settings.avoidPoolRooms && room.category == RoomCategory.Pool))
+        {
+            return;
+        }
+
+        if (settings.avoidCurrentPoolRoom &&
+            room.GetComponentInChildren<CursedSwimmingPoolMechanic>(true) != null)
+        {
+            return;
+        }
+
+        int seed;
+        unchecked
+        {
+            seed = generator.CurrentSeed * 397 ^ index * 7919 ^ 0x5F3759DF;
+        }
         System.Random random = new System.Random(seed);
-
-        // Chance to spawn
-        if (random.NextDouble() > fogSpawnChance)
+        if (random.NextDouble() > Mathf.Clamp01(settings.fogSpawnChance))
             return;
 
-        Vector3 localSpawnPos = room.boundsCenter + fogRoomOffset;
+        Vector3 localSpawnPos = room.boundsCenter + settings.fogRoomOffset;
         Vector3 spawnPosition = room.transform.TransformPoint(localSpawnPos);
         
-        if (snapFogToFloor)
+        if (settings.snapFogToFloor)
         {
             // Try to snap it to floor so it's not floating in the middle
             Vector3 rayStart = room.transform.TransformPoint(localSpawnPos + Vector3.up * (room.size.y * 0.5f));
@@ -556,7 +592,7 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
                 rayStart,
                 -room.transform.up,
                 room.size.y + 2f,
-                groundLayers,
+                settings.groundLayers,
                 QueryTriggerInteraction.Ignore);
                 
             float lowestHeight = float.PositiveInfinity;
@@ -575,66 +611,135 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             }
             
             if (foundFloor)
-                spawnPosition = floorHit.point + room.transform.up * floorOffset;
+                spawnPosition = floorHit.point + room.transform.up * settings.floorOffset;
         }
 
-        GameObject fog = Instantiate(cursedFogPrefab, spawnPosition, Quaternion.identity);
-        activeFogs.Add(fog);
+        GameObject fog = Instantiate(
+            settings.cursedFogPrefab,
+            spawnPosition,
+            Quaternion.identity);
+        ActiveGlobalFogs.Add(fog);
 
-        if (isNetworked && CanSpawnAuthoritatively())
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null && networkManager.IsListening)
         {
             NetworkObject netObj = fog.GetComponent<NetworkObject>();
-            if (netObj != null)
+            if (netObj != null && networkManager.IsServer)
                 netObj.Spawn(true);
         }
     }
 
-    private void ClearCursedFogs()
+    private static void PrepareGlobalFogMap(RoomGenerator generator)
     {
-        for (int i = 0; i < activeFogs.Count; i++)
-        {
-            GameObject fog = activeFogs[i];
-            if (fog != null)
-            {
-                ParticleSystem[] particles = fog.GetComponentsInChildren<ParticleSystem>();
-                bool hasParticles = particles.Length > 0;
-                float maxLifetime = 2f; // Fallback
+        if (fogDistributionGenerator == generator)
+            return;
 
-                if (hasParticles)
-                {
-                    for (int p = 0; p < particles.Length; p++)
-                    {
-                        particles[p].Stop(true, ParticleSystemStopBehavior.StopEmitting);
-                        float life = particles[p].main.startLifetime.constantMax;
-                        if (life > maxLifetime) maxLifetime = life;
-                    }
-                }
-
-                NetworkObject netObj = fog.GetComponent<NetworkObject>();
-                if (netObj != null && netObj.IsSpawned && CanSpawnAuthoritatively())
-                {
-                    if (hasParticles)
-                        StartCoroutine(DelayedDespawn(netObj, maxLifetime));
-                    else
-                        netObj.Despawn(true);
-                }
-                else if (netObj == null || !netObj.IsSpawned)
-                {
-                    if (hasParticles)
-                        Destroy(fog, maxLifetime);
-                    else
-                        Destroy(fog);
-                }
-            }
-        }
-        activeFogs.Clear();
+        fogDistributionGenerator = generator;
+        ProcessedFogRoomIndices.Clear();
+        fullMapFogPassComplete = false;
+        globalFogCleanupStarted = false;
+        fogSettingsSource = null;
     }
 
-    private IEnumerator DelayedDespawn(NetworkObject netObj, float delay)
+    private static CursedSwimmingPoolMechanic GetFogSettingsSource()
+    {
+        if (fogSettingsSource != null && !fogSettingsSource.blessed &&
+            fogSettingsSource.cursedFogPrefab != null)
+        {
+            return fogSettingsSource;
+        }
+
+        foreach (CursedSwimmingPoolMechanic mechanic in ActiveMechanics)
+        {
+            if (mechanic != null && !mechanic.blessed && mechanic.cursedFogPrefab != null)
+            {
+                fogSettingsSource = mechanic;
+                return mechanic;
+            }
+        }
+
+        return null;
+    }
+
+    private void ClearGlobalFogsWhenAllPoolsAreBlessed()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null && networkManager.IsListening && !networkManager.IsServer)
+            return;
+
+        if (globalFogCleanupStarted || !AreAllCursedPoolsBlessed())
+            return;
+
+        globalFogCleanupStarted = true;
+        float maxLifetime = CursedFogVolume.BeginFadeForAll();
+
+        if (networkManager != null && networkManager.IsListening)
+            StartCoroutine(DespawnGlobalFogsAfterFade(maxLifetime));
+        else
+            DespawnGlobalFogsAfterDelay(maxLifetime);
+    }
+
+    private static bool AreAllCursedPoolsBlessed()
+    {
+        bool foundPool = false;
+        foreach (CursedSwimmingPoolMechanic mechanic in ActiveMechanics)
+        {
+            if (mechanic == null)
+                continue;
+
+            foundPool = true;
+            if (!mechanic.blessed)
+                return false;
+        }
+
+        return foundPool;
+    }
+
+    private IEnumerator DespawnGlobalFogsAfterFade(float delay)
     {
         yield return new WaitForSeconds(delay);
-        if (netObj != null && netObj.IsSpawned && CanSpawnAuthoritatively())
-            netObj.Despawn(true);
+        DespawnGlobalFogsImmediately();
+    }
+
+    private static void DespawnGlobalFogsAfterDelay(float delay)
+    {
+        foreach (GameObject fog in ActiveGlobalFogs)
+        {
+            if (fog != null)
+                Destroy(fog, delay);
+        }
+    }
+
+    private static void DespawnGlobalFogsImmediately()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        foreach (GameObject fog in ActiveGlobalFogs)
+        {
+            if (fog == null)
+                continue;
+
+            NetworkObject netObj = fog.GetComponent<NetworkObject>();
+            if (netObj != null && netObj.IsSpawned &&
+                networkManager != null && networkManager.IsServer)
+            {
+                netObj.Despawn(true);
+            }
+            else if (netObj == null || !netObj.IsSpawned)
+            {
+                Destroy(fog);
+            }
+        }
+
+        ActiveGlobalFogs.Clear();
+    }
+
+    private static void ResetGlobalFogState()
+    {
+        ProcessedFogRoomIndices.Clear();
+        fogDistributionGenerator = null;
+        fogSettingsSource = null;
+        fullMapFogPassComplete = false;
+        globalFogCleanupStarted = false;
     }
 
     private void AutoBindReferences()
@@ -648,7 +753,7 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
             cleanBox = GetComponentInChildren<PoolCleanBoxItemConsumer>(true);
     }
 
-    private bool CanSpawnAuthoritatively()
+    private static bool CanSpawnAuthoritatively()
     {
         NetworkManager networkManager = NetworkManager.Singleton;
         if (networkManager == null || !networkManager.IsListening)

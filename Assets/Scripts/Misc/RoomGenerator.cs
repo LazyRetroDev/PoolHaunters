@@ -392,6 +392,8 @@ public class RoomGenerator : MonoBehaviour
     private bool generatedMapReadyEventRaised;
     private bool clientPlayerTeleportedAfterInitialMapSync;
     private GameObject spawnedWaterValve;
+    private Random.State generationRandomState;
+    private bool generationRandomStateInitialized;
 
     public int CurrentSeed => seed;
     public bool IsGeneratedMapReady => generatedMapSnapshotReady;
@@ -420,6 +422,9 @@ public class RoomGenerator : MonoBehaviour
 
     void Awake()
     {
+        if (GetComponent<MapGenerationLoadingScreen>() == null)
+            gameObject.AddComponent<MapGenerationLoadingScreen>();
+
         if (resourceSpawner == null)
             resourceSpawner = GetComponent<RoomResourceSpawner>();
 
@@ -570,18 +575,30 @@ public class RoomGenerator : MonoBehaviour
             return;
         }
 
-        GenerateInitialRooms();
+        initialGenerationCoroutine = StartCoroutine(
+            GenerateInitialRoomsAfterLoadingFrame());
+    }
+
+    IEnumerator GenerateInitialRoomsAfterLoadingFrame()
+    {
+        yield return new WaitForEndOfFrame();
+        yield return null;
+        yield return GenerateInitialRoomsRoutine();
+        initialGenerationCoroutine = null;
     }
 
     IEnumerator GenerateInitialRoomsWhenNetworkReady()
     {
+        yield return new WaitForEndOfFrame();
+        yield return null;
+
         while (isActiveAndEnabled)
         {
             NetworkManager networkManager = NetworkManager.Singleton;
             if (networkManager != null && networkManager.IsListening)
             {
+                yield return GenerateInitialRoomsRoutine();
                 initialGenerationCoroutine = null;
-                GenerateInitialRooms();
                 yield break;
             }
 
@@ -591,26 +608,29 @@ public class RoomGenerator : MonoBehaviour
         initialGenerationCoroutine = null;
     }
 
-    void GenerateInitialRooms()
+    IEnumerator GenerateInitialRoomsRoutine()
     {
         if (!CanGenerateRooms())
         {
             Debug.Log("RoomGenerator skipped procedural generation because this instance is a multiplayer client.");
-            return;
+            yield break;
         }
 
         ResolveRunSeed();
-        Random.InitState(seed);
+        ResetGenerationRandom(seed);
 
         if (generateFullMapOnStart)
         {
-            GenerateFullMap();
-            return;
+            yield return GenerateFullMapRoutine();
+            yield break;
         }
 
         int roomsToGenerate = Mathf.Max(1, startingRoomCount);
         for (int i = 0; i < roomsToGenerate; i++)
+        {
             GenerateNextRoom();
+            yield return null;
+        }
 
         TrySpawnWaterValve();
         NotifyGeneratedMapSnapshotReady();
@@ -623,6 +643,7 @@ public class RoomGenerator : MonoBehaviour
 
         StopCoroutine(initialGenerationCoroutine);
         initialGenerationCoroutine = null;
+        isGeneratingFullMap = false;
     }
 
     void ResolveRunSeed()
@@ -636,6 +657,54 @@ public class RoomGenerator : MonoBehaviour
 
         if (randomizeSeedWhenNoRunSelected)
             seed = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
+    }
+
+    void ResetGenerationRandom(int randomSeed)
+    {
+        Random.State ambientState = Random.state;
+        Random.InitState(randomSeed);
+        generationRandomState = Random.state;
+        generationRandomStateInitialized = true;
+        Random.state = ambientState;
+    }
+
+    int GenerationRandomRange(int minimumInclusive, int maximumExclusive)
+    {
+        EnsureGenerationRandomInitialized();
+        Random.State ambientState = Random.state;
+        Random.state = generationRandomState;
+        int value = Random.Range(minimumInclusive, maximumExclusive);
+        generationRandomState = Random.state;
+        Random.state = ambientState;
+        return value;
+    }
+
+    float GenerationRandomRange(float minimumInclusive, float maximumInclusive)
+    {
+        EnsureGenerationRandomInitialized();
+        Random.State ambientState = Random.state;
+        Random.state = generationRandomState;
+        float value = Random.Range(minimumInclusive, maximumInclusive);
+        generationRandomState = Random.state;
+        Random.state = ambientState;
+        return value;
+    }
+
+    float GenerationRandomValue()
+    {
+        EnsureGenerationRandomInitialized();
+        Random.State ambientState = Random.state;
+        Random.state = generationRandomState;
+        float value = Random.value;
+        generationRandomState = Random.state;
+        Random.state = ambientState;
+        return value;
+    }
+
+    void EnsureGenerationRandomInitialized()
+    {
+        if (!generationRandomStateInitialized)
+            ResetGenerationRandom(seed);
     }
 
     public void GenerateNextRoomFromDoor(DoorTrigger trigger)
@@ -830,12 +899,12 @@ public class RoomGenerator : MonoBehaviour
             TrySpawnInitialTimeCamper();
     }
 
-    void GenerateFullMap()
+    IEnumerator GenerateFullMapRoutine()
     {
         if (roomPrefabs == null || roomPrefabs.Length == 0)
         {
             Debug.LogWarning("RoomGenerator has no room prefabs assigned.");
-            return;
+            yield break;
         }
 
         lastGenerationReport = string.Empty;
@@ -852,24 +921,23 @@ public class RoomGenerator : MonoBehaviour
         {
             var attemptTimer = System.Diagnostics.Stopwatch.StartNew();
             if (attempt > 0)
+            {
                 ClearGeneratedMapForRetry();
+                yield return null;
+            }
 
             seed = GetFullMapAttemptSeed(baseSeed, attempt);
-            Random.InitState(seed);
+            ResetGenerationRandom(seed);
             BeginFullMapGenerationReport(attempt + 1, attempts, seed);
 
-            FullMapGenerationStats stats;
+            FullMapGenerationStats stats = new FullMapGenerationStats();
             isGeneratingFullMap = true;
-            try
-            {
-                stats = GenerateFullMapAttempt();
-            }
-            finally
-            {
-                isGeneratingFullMap = false;
-            }
+            yield return GenerateFullMapAttemptRoutine(stats);
+            isGeneratingFullMap = false;
 
             ConsolidateGeneratedMap();
+            yield return null;
+
             lastValidation = ValidateGeneratedMap(stats);
             bool accepted = !validateFullMapAfterGeneration || lastValidation.IsValid;
             FinishFullMapGenerationReport(stats, lastValidation, accepted);
@@ -890,7 +958,7 @@ public class RoomGenerator : MonoBehaviour
                 TrySpawnWaterValve();
                 TrySpawnInitialTimeCamper();
                 Debug.Log($"[Map loading] Ready in {generationTimer.Elapsed.TotalSeconds:F2}s after {attempt + 1} attempt(s), including room content.");
-                return;
+                yield break;
             }
 
             if (logRejectedFullMapAttempts)
@@ -898,6 +966,8 @@ public class RoomGenerator : MonoBehaviour
                 Debug.LogWarning(
                     $"RoomGenerator rejected full map attempt {attempt + 1}/{attempts} with seed {seed}: {lastValidation.GetSummary()}");
             }
+
+            yield return null;
         }
 
         Debug.LogError(
@@ -909,16 +979,15 @@ public class RoomGenerator : MonoBehaviour
         NotifyGeneratedMapSnapshotReady();
     }
 
-    FullMapGenerationStats GenerateFullMapAttempt()
+    IEnumerator GenerateFullMapAttemptRoutine(FullMapGenerationStats stats)
     {
-        FullMapGenerationStats stats = new FullMapGenerationStats
-        {
-            requiredBranchCount = Mathf.Max(1, minimumBranchCount)
-        };
+        stats.requiredBranchCount = Mathf.Max(1, minimumBranchCount);
 
         GameObject startRoom = GenerateNextRoom();
+        yield return null;
+
         if (startRoom == null)
-            return stats;
+            yield break;
 
         RecordStartRoom(startRoom);
 
@@ -962,10 +1031,12 @@ public class RoomGenerator : MonoBehaviour
                 branchRoomCount,
                 futureBranchStartsNeeded);
 
-            bool branchCompleted = GenerateBranch(
+            bool branchCompleted = false;
+            yield return GenerateBranchRoutine(
                 branchStart,
                 branchRoomCount,
-                futureBranchStartsNeeded);
+                futureBranchStartsNeeded,
+                completed => branchCompleted = completed);
             FinishBranchGenerationReport(
                 branchCompleted,
                 branchCompleted ? null : "Branch could not reach a final room.");
@@ -974,12 +1045,12 @@ public class RoomGenerator : MonoBehaviour
             {
                 stats.completedBranchCount++;
             }
+
+            yield return null;
         }
 
         Debug.Log(
             $"RoomGenerator generated full map attempt with {generatedRoomCount} rooms and {stats.completedBranchCount}/{stats.requestedBranchCount} completed branches.");
-
-        return stats;
     }
 
     int GetFullMapAttemptSeed(int baseSeed, int attemptIndex)
@@ -1703,7 +1774,7 @@ public class RoomGenerator : MonoBehaviour
 
     void ClearGeneratedMapForRetry()
     {
-        StopAllCoroutines();
+        StopRoomContentFlushCoroutine();
 
         if (EnemySpawner.Instance != null)
         {
@@ -1766,8 +1837,6 @@ public class RoomGenerator : MonoBehaviour
         mapConsolidated = false;
         generatedMapSnapshotReady = false;
         generatedMapReadyEventRaised = false;
-        mapSyncRegistrationCoroutine = null;
-        roomContentFlushCoroutine = null;
 
         Physics.SyncTransforms();
     }
@@ -1790,7 +1859,7 @@ public class RoomGenerator : MonoBehaviour
         int minValue = Mathf.Max(1, Mathf.Min(firstValue, secondValue));
         int maxValue = Mathf.Max(minValue, Mathf.Max(firstValue, secondValue));
 
-        return Random.Range(minValue, maxValue + 1);
+        return GenerationRandomRange(minValue, maxValue + 1);
     }
 
     RoomGenerationSnapshot CaptureGenerationSnapshot()
@@ -1937,10 +2006,11 @@ public class RoomGenerator : MonoBehaviour
             target.Add(value);
     }
 
-    bool GenerateBranch(
+    IEnumerator GenerateBranchRoutine(
         RoomConnector branchStart,
         int roomCount,
-        int futureBranchStartsNeeded)
+        int futureBranchStartsNeeded,
+        System.Action<bool> setCompleted)
     {
         RoomGenerationSnapshot snapshot = CaptureGenerationSnapshot();
         RoomConnector currentConnector = branchStart;
@@ -1982,13 +2052,16 @@ public class RoomGenerator : MonoBehaviour
                 else
                     CloseBlockedConnector(currentConnector);
 
-                return false;
+                yield return null;
+                setCompleted?.Invoke(false);
+                yield break;
             }
 
             currentConnector = nextConnector;
+            yield return null;
         }
 
-        return true;
+        setCompleted?.Invoke(true);
     }
 
     GameObject GenerateRoomFromConnector(
@@ -2167,7 +2240,7 @@ public class RoomGenerator : MonoBehaviour
         if (totalWeight <= 0f)
             return null;
 
-        float roll = Random.Range(0f, totalWeight);
+        float roll = GenerationRandomRange(0f, totalWeight);
         for (int i = 0; i < roomPrefabs.Length; i++)
         {
             GameObject prefab = roomPrefabs[i];
@@ -2203,7 +2276,7 @@ public class RoomGenerator : MonoBehaviour
         if (totalWeight <= 0f)
             return null;
 
-        float roll = Random.Range(0f, totalWeight);
+        float roll = GenerationRandomRange(0f, totalWeight);
         for (int i = 0; i < roomPrefabs.Length; i++)
         {
             GameObject prefab = roomPrefabs[i];
@@ -2384,7 +2457,7 @@ public class RoomGenerator : MonoBehaviour
         if (openConnectors.Count == 0)
             return null;
 
-        return openConnectors[Random.Range(0, openConnectors.Count)];
+        return openConnectors[GenerationRandomRange(0, openConnectors.Count)];
     }
 
     RoomConnector ChooseBestOpenConnector()
@@ -2409,7 +2482,7 @@ public class RoomGenerator : MonoBehaviour
 
             int score = CountFreeNeighborCells(targetCell);
             bool beatsCurrent = bestConnector == null || score > bestScore;
-            bool breaksTie = score == bestScore && Random.value < 0.5f;
+            bool breaksTie = score == bestScore && GenerationRandomValue() < 0.5f;
 
             if (beatsCurrent || breaksTie)
             {
@@ -2489,7 +2562,7 @@ public class RoomGenerator : MonoBehaviour
             bool beatsCurrent =
                 continuationConnector == null ||
                 score > bestScore;
-            bool breaksTie = score == bestScore && Random.value < 0.5f;
+            bool breaksTie = score == bestScore && GenerationRandomValue() < 0.5f;
 
             if (beatsCurrent || breaksTie)
             {
@@ -2995,7 +3068,7 @@ public class RoomGenerator : MonoBehaviour
             RoomConnector source = connectorsToCheck[i];
             if (source == null || !source.IsAvailable)
                 continue;
-            if (Random.value > adjacentBranchConnectionChance)
+            if (GenerationRandomValue() > adjacentBranchConnectionChance)
                 continue;
 
             RoomConnector exitConnector;
@@ -3120,7 +3193,7 @@ public class RoomGenerator : MonoBehaviour
             float score = GetPoolReplacementScore(room, placement);
             if (bestCandidate == null ||
                 score > bestCandidate.score ||
-                Mathf.Approximately(score, bestCandidate.score) && Random.value > 0.5f)
+                Mathf.Approximately(score, bestCandidate.score) && GenerationRandomValue() > 0.5f)
             {
                 bestCandidate = new PoolReplacementCandidate
                 {
@@ -3230,7 +3303,7 @@ public class RoomGenerator : MonoBehaviour
         if (totalWeight <= 0f)
             return false;
 
-        float roll = Random.Range(0f, totalWeight);
+        float roll = GenerationRandomRange(0f, totalWeight);
         // Compatibility creates a preview room; reuse the result for the weighted draw.
         for (int i = 0; i < candidates.Count; i++)
         {
@@ -3829,7 +3902,7 @@ public class RoomGenerator : MonoBehaviour
 
         return (foundPool ? nearestPoolDistance * 100f : 1000f) +
             progressionScore +
-            Random.value * 0.1f;
+            GenerationRandomValue() * 0.1f;
     }
 
     void RecordDebugBranchConnection(

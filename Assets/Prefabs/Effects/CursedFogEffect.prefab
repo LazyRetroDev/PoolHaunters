@@ -4897,3 +4897,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8756fe564c492134aa2540873b97364e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CursedFogVolume
+  ShowTopMostFoldoutHeaderGroup: 1
+  visualEnableDistance: 55
+  visualDisableDistance: 70

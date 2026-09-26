@@ -127,6 +127,8 @@ public static class GameLocalization
 
     private static readonly Dictionary<string, string> English = new Dictionary<string, string>
     {
+        { "loading.generateMap", "Generating map" },
+        { "loading.syncMap", "Synchronizing map" },
         { "objective.findValve", "Find the water valve" },
         { "objective.turnValve", "Turn the water valve to start cleaning" },
         { "objective.cleanPools", "Clean any pools to reach the target" },
@@ -151,6 +153,8 @@ public static class GameLocalization
 
     private static readonly Dictionary<string, string> Portuguese = new Dictionary<string, string>
     {
+        { "loading.generateMap", "Gerando mapa" },
+        { "loading.syncMap", "Sincronizando mapa" },
         { "objective.findValve", "Encontre a valvula de agua" },
         { "objective.turnValve", "Acione a valvula para iniciar a limpeza" },
         { "objective.cleanPools", "Limpe quaisquer piscinas para atingir a meta" },

@@ -569,6 +569,7 @@ GameObject:
   - component: {fileID: 2623331536732762390}
   - component: {fileID: 8086522254354228033}
   - component: {fileID: 3083283840702827504}
+  - component: {fileID: 2341359577455968433}
   m_Layer: 0
   m_Name: Hall
   m_TagString: Untagged
@@ -608,7 +609,7 @@ MonoBehaviour:
   roomName: Hall
   category: 2
   spawnWeight: 1
-  maxInstancesPerRun: 1
+  maxInstancesPerRun: 0
   canRepeat: 0
   minimumRoomIndex: 0
   minimumRoomsBetweenRepeats: 0
@@ -644,6 +645,38 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!114 &2341359577455968433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5644189831895943960}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a5ac11cc976e418e8d13136b07e1f52, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.AI.Navigation::Unity.AI.Navigation.NavMeshSurface
+  m_SerializedVersion: 0
+  m_AgentTypeID: 0
+  m_CollectObjects: 0
+  m_Size: {x: 10, y: 10, z: 10}
+  m_Center: {x: 0, y: 2, z: 0}
+  m_LayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_UseGeometry: 1
+  m_DefaultArea: 0
+  m_GenerateLinks: 0
+  m_IgnoreNavMeshAgent: 1
+  m_IgnoreNavMeshObstacle: 1
+  m_OverrideTileSize: 0
+  m_TileSize: 256
+  m_OverrideVoxelSize: 0
+  m_VoxelSize: 0.16666667
+  m_MinRegionArea: 2
+  m_NavMeshData: {fileID: 23800000, guid: 58c2d39b06d0553409b072e29a9b0224, type: 2}
+  m_BuildHeightMesh: 0
 --- !u!1 &8953740494954282509
 GameObject:
   m_ObjectHideFlags: 0

@@ -3964,7 +3964,7 @@ MonoBehaviour:
   - {fileID: 3378611166528902296, guid: 8748f9de8c073064bad472429157f4b2, type: 3}
   - {fileID: 2395395961881278218, guid: f44babece57505d4aba560befb937d4d, type: 3}
   startingRoomCount: 2
-  maxGeneratedRooms: 25
+  maxGeneratedRooms: 200
   generateFullMapOnStart: 1
   requirePoolRoomsInFullMap: 1
   minimumRequiredPoolRooms: 3
