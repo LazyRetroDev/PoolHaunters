@@ -38,6 +38,7 @@ public class WaterCannon : MonoBehaviour
     [Min(0f)] public float waterGravityMultiplier = 0.6f;
     [Range(4, 32)] public int waterTrajectorySteps = 12;
     public LayerMask waterCollisionMask = ~0;
+    public string waterPassThroughTag = "WaterCannonPassThrough";
 
     [Header("Network Visuals")]
     public bool syncSprayVisuals = true;
@@ -719,6 +720,7 @@ public class WaterCannon : MonoBehaviour
             {
                 var hit = hits[i];
                 if (ShouldIgnoreHit(hit)) continue;
+                if (ShouldPassThroughPoolCollider(hit.collider)) continue;
                 int layer = 1 << hit.collider.gameObject.layer;
                 if ((cleanMask.value & layer) != 0) trajectoryHits.Add(hit);
                 if (!hit.collider.isTrigger && (waterCollisionMask.value & layer) != 0)
@@ -728,6 +730,30 @@ public class WaterCannon : MonoBehaviour
             previous = next;
         }
         return trajectoryHits;
+    }
+
+    bool ShouldPassThroughPoolCollider(Collider hitCollider)
+    {
+        if (hitCollider == null || string.IsNullOrWhiteSpace(waterPassThroughTag))
+            return false;
+
+        // Dirt and dedicated cleaning zones must remain valid water targets.
+        if (hitCollider.GetComponentInParent<DirtSpot>() != null ||
+            hitCollider.GetComponentInParent<PoolCleaningZone>() != null)
+        {
+            return false;
+        }
+
+        Transform current = hitCollider.transform;
+        while (current != null)
+        {
+            if (current.tag == waterPassThroughTag)
+                return true;
+
+            current = current.parent;
+        }
+
+        return false;
     }
 
     bool IsValidContaminationSurface(RaycastHit hit)

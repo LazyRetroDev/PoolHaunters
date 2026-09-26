@@ -1007,7 +1007,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomDefinition
   roomName: DefaultRoom
   category: 2
-  spawnWeight: 2
+  spawnWeight: 1
   maxInstancesPerRun: -1
   canRepeat: 1
   minimumRoomIndex: 0

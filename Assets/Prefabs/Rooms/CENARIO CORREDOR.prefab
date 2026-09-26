@@ -4174,7 +4174,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomDefinition
   roomName: CENARIO CORREDOR
   category: 1
-  spawnWeight: 5
+  spawnWeight: 1
   maxInstancesPerRun: -1
   canRepeat: 1
   minimumRoomIndex: 0

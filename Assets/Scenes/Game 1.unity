@@ -373,7 +373,7 @@ Camera:
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 31
+    m_Bits: 159
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 8400000, guid: 619221501ea5b3b4b9caedd109736311, type: 2}
   m_TargetDisplay: 0
@@ -3809,6 +3809,8 @@ MonoBehaviour:
   fallbackAllowedCategories: -1
   fallbackEdgePadding: 1.25
   fallbackFloorOffset: 1
+  fallbackInteriorRayHeight: 3
+  fallbackPlacementRetries: 8
   fallbackGroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -3916,6 +3918,7 @@ MonoBehaviour:
     requireCompleteNavMeshPathToPlayer: 1
     playerNavMeshSampleRadius: 3
     logDirectorEvents: 1
+  forceDynamicEncountersForDelayedStartEnemies: 1
   encounterDirector: {fileID: 0}
   requireNavMeshPosition: 1
   navMeshSampleRadius: 2
@@ -3959,6 +3962,7 @@ MonoBehaviour:
   - {fileID: 3378611166528902296, guid: 5f9b88c71e5343941a1a5069769acf00, type: 3}
   - {fileID: 3378611166528902296, guid: 20f7c2250cdda38468ef0662bca58c1f, type: 3}
   - {fileID: 3378611166528902296, guid: 8748f9de8c073064bad472429157f4b2, type: 3}
+  - {fileID: 2395395961881278218, guid: f44babece57505d4aba560befb937d4d, type: 3}
   startingRoomCount: 2
   maxGeneratedRooms: 25
   generateFullMapOnStart: 1
@@ -4339,6 +4343,9 @@ MonoBehaviour:
   poolCounterFormat: Pools {0}/{1}
   levelInfoFormat: Level {0}
   regionLevelInfoFormat: Level {0} - {1}
+  fungalPoolObjectiveFormat: 'Remove pool fungi: {0} left'
+  electricPoolObjectivePowered: Disable the electric pool device
+  electricPoolObjectiveSafeFormat: 'Electric pool safe: {0}s until power returns'
   levelNumber: 1
   discoveredRoomCount: 0
   finalRoomDiscovered: 0
@@ -5188,6 +5195,11 @@ MonoBehaviour:
   contaminatedWaterColor: {r: 0.35, g: 0.9, b: 0.25, a: 1}
   chemicallyEnhancedWaterColor: {r: 0.6839622, g: 1, b: 0.9805565, a: 1}
   hideWhenPlayerDies: 1
+  interactionPromptText: {fileID: 0}
+  createInteractionPromptIfMissing: 1
+  interactionPromptAnchoredPosition: {x: 0, y: -150}
+  interactionPromptFontSize: 28
+  interactionPromptColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &1617389856
 MonoBehaviour:
   m_ObjectHideFlags: 0

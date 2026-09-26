@@ -380,7 +380,6 @@ public class RoomGenerator : MonoBehaviour
     private bool pendingInitialTimeCamperSpawn;
     private bool mapConsolidated;
     private bool isGeneratingFullMap;
-    private int plannedPoolTarget;
     private FullMapGenerationReport currentGenerationReport;
     private FullMapGenerationReport lastCompletedGenerationReport;
     private BranchGenerationReport currentBranchReport;
@@ -962,14 +961,6 @@ public class RoomGenerator : MonoBehaviour
                 branchStart,
                 branchRoomCount,
                 futureBranchStartsNeeded);
-
-            // Reserve a share of the outstanding pool quota before filling this branch.
-            int existingPools = CountRoomsInCategory(RoomCategory.Pool);
-            int remainingBranches = Mathf.Max(1, stats.requestedBranchCount - stats.completedBranchCount);
-            int missingPools = requirePoolRoomsInFullMap
-                ? Mathf.Max(0, minimumRequiredPoolRooms - existingPools)
-                : 0;
-            plannedPoolTarget = existingPools + Mathf.CeilToInt((float)missingPools / remainingBranches);
 
             bool branchCompleted = GenerateBranch(
                 branchStart,
@@ -2197,28 +2188,6 @@ public class RoomGenerator : MonoBehaviour
         List<GameObject> rejectedPrefabs,
         RoomGenerationRole role)
     {
-        if (isGeneratingFullMap && role == RoomGenerationRole.BranchMiddle &&
-            CountRoomsInCategory(RoomCategory.Pool) < plannedPoolTarget)
-        {
-            GameObject pool = ChooseRoomPrefabForRole(
-                expansionConnector, rejectedPrefabs, role, true, true);
-            if (pool == null)
-                pool = ChooseRoomPrefabForRole(
-                    expansionConnector, rejectedPrefabs, role, true, false);
-            if (pool != null)
-                return pool;
-        }
-
-        return ChooseRoomPrefabForRole(expansionConnector, rejectedPrefabs, role, false, true);
-    }
-
-    GameObject ChooseRoomPrefabForRole(
-        RoomConnector expansionConnector,
-        List<GameObject> rejectedPrefabs,
-        RoomGenerationRole role,
-        bool poolsOnly,
-        bool respectPoolSpacing)
-    {
         float totalWeight = 0f;
 
         for (int i = 0; i < roomPrefabs.Length; i++)
@@ -2226,8 +2195,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
-            if (poolsOnly && !IsRoomPrefabCategory(prefab, RoomCategory.Pool)) continue;
-            if (respectPoolSpacing && ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
             totalWeight += GetRoomPrefabWeight(prefab);
         }
@@ -2241,8 +2209,7 @@ public class RoomGenerator : MonoBehaviour
             GameObject prefab = roomPrefabs[i];
             if (IsPrefabRejected(prefab, rejectedPrefabs)) continue;
             if (!CanSpawnRoomPrefabForRole(prefab, role)) continue;
-            if (poolsOnly && !IsRoomPrefabCategory(prefab, RoomCategory.Pool)) continue;
-            if (respectPoolSpacing && ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
+            if (ShouldAvoidPoolRoomForSpread(prefab, expansionConnector, role)) continue;
             if (!CanRoomPrefabConnectTo(prefab, expansionConnector)) continue;
 
             roll -= GetRoomPrefabWeight(prefab);
