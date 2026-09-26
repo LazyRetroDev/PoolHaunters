@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 public enum RoomCategory
@@ -64,6 +66,11 @@ public class RoomDefinition : MonoBehaviour
     public Vector3 size = new Vector3(10f, 5f, 10f);
     public Vector3 boundsCenter = Vector3.zero;
 
+    [Header("Visual Culling")]
+    [SerializeField] private bool enableVisualCulling = true;
+    [SerializeField, Min(0f)] private float visualEnableDistance = 100f;
+    [SerializeField, Min(0f)] private float visualDisableDistance = 120f;
+
     [Header("Connectors")]
     public RoomConnector[] connectors = new RoomConnector[0];
 
@@ -78,6 +85,66 @@ public class RoomDefinition : MonoBehaviour
     public float EffectiveSpawnWeight
     {
         get { return Mathf.Max(0f, spawnWeight); }
+    }
+
+    private Renderer[] visualRenderers;
+    private bool[] visualRendererInitialStates;
+    private bool roomVisualsActive = true;
+
+    private void Awake()
+    {
+        CacheVisualRenderers();
+    }
+
+    private void OnEnable()
+    {
+        CacheVisualRenderers();
+        RoomVisualCullingRunner.Register(this);
+    }
+
+    private void OnDisable()
+    {
+        RoomVisualCullingRunner.Unregister(this);
+        SetRoomVisualsActive(true);
+    }
+
+    internal void UpdateVisualCulling(Transform localPlayer)
+    {
+        if (!enableVisualCulling || localPlayer == null)
+        {
+            SetRoomVisualsActive(true);
+            return;
+        }
+
+        float threshold = roomVisualsActive ? visualDisableDistance : visualEnableDistance;
+        Vector3 closestPoint = GetWorldBounds().ClosestPoint(localPlayer.position);
+        float distanceSquared = (closestPoint - localPlayer.position).sqrMagnitude;
+        SetRoomVisualsActive(distanceSquared <= threshold * threshold);
+    }
+
+    private void CacheVisualRenderers()
+    {
+        if (visualRenderers != null)
+            return;
+
+        visualRenderers = GetComponentsInChildren<Renderer>(true);
+        visualRendererInitialStates = new bool[visualRenderers.Length];
+        for (int i = 0; i < visualRenderers.Length; i++)
+            visualRendererInitialStates[i] = visualRenderers[i] != null && visualRenderers[i].enabled;
+    }
+
+    private void SetRoomVisualsActive(bool active)
+    {
+        if (roomVisualsActive == active)
+            return;
+
+        roomVisualsActive = active;
+        CacheVisualRenderers();
+        for (int i = 0; i < visualRenderers.Length; i++)
+        {
+            if (visualRenderers[i] != null)
+                visualRenderers[i].enabled = active && visualRendererInitialStates[i];
+        }
     }
 
     public bool HasConnectorDefinitions
@@ -298,6 +365,8 @@ public class RoomDefinition : MonoBehaviour
             Mathf.Max(0f, size.x),
             Mathf.Max(0f, size.y),
             Mathf.Max(0f, size.z));
+        visualEnableDistance = Mathf.Max(0f, visualEnableDistance);
+        visualDisableDistance = Mathf.Max(visualEnableDistance, visualDisableDistance);
     }
 
     void OnDrawGizmosSelected()
@@ -334,5 +403,78 @@ public class RoomDefinition : MonoBehaviour
             Gizmos.DrawRay(door.point.position, door.point.forward * 1.25f);
             Gizmos.DrawWireSphere(door.point.position, 0.25f);
         }
+    }
+}
+
+internal sealed class RoomVisualCullingRunner : MonoBehaviour
+{
+    private const float CheckInterval = 0.25f;
+    private static readonly HashSet<RoomDefinition> Rooms = new HashSet<RoomDefinition>();
+    private static RoomVisualCullingRunner instance;
+
+    private float nextCheckTime;
+    private float nextPlayerLookupTime;
+    private Transform localPlayer;
+
+    internal static void Register(RoomDefinition room)
+    {
+        if (room == null)
+            return;
+
+        Rooms.Add(room);
+        EnsureRunner();
+    }
+
+    internal static void Unregister(RoomDefinition room)
+    {
+        Rooms.Remove(room);
+        if (Rooms.Count == 0 && instance != null)
+        {
+            Destroy(instance.gameObject);
+            instance = null;
+        }
+    }
+
+    private static void EnsureRunner()
+    {
+        if (instance != null)
+            return;
+
+        GameObject runnerObject = new GameObject("Room Visual Culling");
+        DontDestroyOnLoad(runnerObject);
+        instance = runnerObject.AddComponent<RoomVisualCullingRunner>();
+    }
+
+    private void Update()
+    {
+        if (Time.unscaledTime < nextCheckTime)
+            return;
+
+        nextCheckTime = Time.unscaledTime + CheckInterval;
+        if (Time.unscaledTime >= nextPlayerLookupTime)
+        {
+            nextPlayerLookupTime = Time.unscaledTime + 1f;
+            localPlayer = FindLocalPlayer();
+        }
+
+        foreach (RoomDefinition room in Rooms)
+        {
+            if (room != null)
+                room.UpdateVisualCulling(localPlayer);
+        }
+    }
+
+    private static Transform FindLocalPlayer()
+    {
+        NetworkManager networkManager = NetworkManager.Singleton;
+        if (networkManager != null && networkManager.IsListening &&
+            networkManager.SpawnManager != null)
+        {
+            NetworkObject playerObject = networkManager.SpawnManager.GetLocalPlayerObject();
+            return playerObject != null ? playerObject.transform : null;
+        }
+
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        return player != null ? player.transform : null;
     }
 }
