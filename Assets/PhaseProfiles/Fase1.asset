@@ -11,11 +11,12 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a9d3f4b8c2e14a7f9b6c0d2e3f4a5b6c, type: 3}
   m_Name: Fase1
+  requiredRoomPrefab: {fileID: 5644189831895943960, guid: e50b526e6e18f7f4f8a40c196acb1915, type: 3}
   m_EditorClassIdentifier: Assembly-CSharp::RunPhaseProfile
-  minimumBranchCount: 16
-  maximumBranchCount: 16
-  minimumRoomsPerBranch: 10
-  maximumRoomsPerBranch: 10
+  minimumBranchCount: 2
+  maximumBranchCount: 2
+  minimumRoomsPerBranch: 4
+  maximumRoomsPerBranch: 4
   requirePoolRoomsInFullMap: 1
   minimumPoolRoomsInMap: 1
   randomizeMandatoryPools: 1

@@ -315,16 +315,34 @@ public class PlayerStatus : NetworkBehaviour
         {
             if (hit.transform.IsChildOf(transform)) continue;
             var zone = hit.collider.GetComponentInParent<WaterZone>();
-            if (zone != null) { zone.TryFillPlayer(this, 3f, true); return; }
+            if (zone != null)
+            {
+                WaterQuality sourceQuality = zone.waterSource != null ? zone.waterSource.waterQuality : zone.fallbackWaterQuality;
+                if (zone.TryFillPlayer(this, 3f, true)) ShowCannonSuction(hit.point, sourceQuality);
+                return;
+            }
             var source = hit.collider.GetComponentInParent<WaterSourceDryable>();
             if (source != null)
             {
                 float amount = source.DrainWater(Mathf.Min(3f, GetWaterSpace()), out WaterQuality quality);
-                if (amount > 0f) AddWater(amount, quality, source.replacePlayerWaterQuality);
+                if (amount > 0f && AddWater(amount, quality, source.replacePlayerWaterQuality))
+                    ShowCannonSuction(hit.point, quality);
                 return;
             }
             if (!hit.collider.isTrigger) return;
         }
+    }
+
+    void ShowCannonSuction(Vector3 point, WaterQuality quality)
+    {
+        if (IsSpawned) CannonSuctionVisualClientRpc(point, (int)quality);
+        else GetComponentInChildren<WaterCannon>(true)?.ShowSuctionTransfer(point, quality);
+    }
+
+    [ClientRpc]
+    void CannonSuctionVisualClientRpc(Vector3 point, int quality)
+    {
+        GetComponentInChildren<WaterCannon>(true)?.ShowSuctionTransfer(point, (WaterQuality)quality);
     }
 
     void FillFromCurrentWaterSource(float amount)

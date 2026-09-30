@@ -6,6 +6,8 @@ using UnityEngine;
 public class RunPhaseProfile : ScriptableObject
 {
     [Header("Map Layout")]
+    [Tooltip("Optional required room for this phase. Must also be in the generator's room prefab list.")]
+    public GameObject requiredRoomPrefab;
     [Min(1)] public int minimumBranchCount = 4;
     [Min(1)] public int maximumBranchCount = 6;
     [Min(1)] public int minimumRoomsPerBranch = 6;

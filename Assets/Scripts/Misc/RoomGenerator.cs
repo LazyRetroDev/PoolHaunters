@@ -392,6 +392,7 @@ public class RoomGenerator : MonoBehaviour
     private bool generatedMapReadyEventRaised;
     private bool clientPlayerTeleportedAfterInitialMapSync;
     private GameObject spawnedWaterValve;
+    private GameObject requiredPhaseRoom;
     private Random.State generationRandomState;
     private bool generationRandomStateInitialized;
 
@@ -532,6 +533,7 @@ public class RoomGenerator : MonoBehaviour
 
     public void ApplyPhaseProfile(RunPhaseProfile profile)
     {
+        requiredPhaseRoom = profile != null ? profile.requiredRoomPrefab : null;
         if (profile == null)
             return;
 
@@ -1455,6 +1457,8 @@ public class RoomGenerator : MonoBehaviour
 
     void ValidateRequiredRooms(MapValidationResult result)
     {
+        if (requiredPhaseRoom != null && GetGeneratedPrefabCount(requiredPhaseRoom) == 0)
+            result.Fail($"required phase room {requiredPhaseRoom.name} was not placed");
         if (!requirePoolRoomsInFullMap)
             return;
 
@@ -2261,6 +2265,13 @@ public class RoomGenerator : MonoBehaviour
         List<GameObject> rejectedPrefabs,
         RoomGenerationRole role)
     {
+        if (requiredPhaseRoom != null && role == RoomGenerationRole.BranchMiddle &&
+            GetRoomPrefabIndex(requiredPhaseRoom) >= 0 && GetGeneratedPrefabCount(requiredPhaseRoom) == 0 &&
+            !IsPrefabRejected(requiredPhaseRoom, rejectedPrefabs) &&
+            CanSpawnRoomPrefabForRole(requiredPhaseRoom, role) &&
+            CanRoomPrefabConnectTo(requiredPhaseRoom, expansionConnector))
+            return requiredPhaseRoom;
+
         float totalWeight = 0f;
 
         for (int i = 0; i < roomPrefabs.Length; i++)
@@ -3220,6 +3231,14 @@ public class RoomGenerator : MonoBehaviour
     {
         placement = null;
         rejectionReason = string.Empty;
+
+        if (room != null && requiredPhaseRoom != null &&
+            generatedPrefabIndicesByRoom.TryGetValue(room, out int requiredIndex) &&
+            requiredIndex == GetRoomPrefabIndex(requiredPhaseRoom))
+        {
+            rejectionReason = "room is required by the phase profile";
+            return false;
+        }
 
         if (room == null)
         {

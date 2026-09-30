@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.AI;
 
 [DisallowMultipleComponent]
 public class FungalSwimmingPoolMechanic : MonoBehaviour
@@ -38,11 +39,14 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
     [SerializeField, Min(1)] private int spawnAttemptsPerMushroom = 12;
     [SerializeField] private LayerMask groundLayers = ~0;
     [SerializeField] private bool lockCleaningUntilMushroomsRemoved = true;
+    [SerializeField, Min(0.1f)] private float minimumMushroomSpacing = 1.5f;
+    private NavMeshPath mushroomPath;
 
     private readonly HashSet<FungalMushroomHazard> activeMushrooms =
         new HashSet<FungalMushroomHazard>();
 
     private bool spawnedMapContent;
+    public int PoolSyncId => poolObjective != null ? poolObjective.SyncId : 0;
     private Coroutine waitForMapRoutine;
 
     public int ActiveMushroomCount
@@ -71,6 +75,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
     private void Awake()
     {
+        mushroomPath = new NavMeshPath();
         AutoBindReferences();
         RefreshPoolLock();
     }
@@ -142,6 +147,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         }
 
         int amountToRemove = Mathf.CeilToInt(removableCount * portion);
+        int removedCount = 0;
         for (int i = 0; i < mushrooms.Length && amountToRemove > 0; i++)
         {
             if (mushrooms[i] == null ||
@@ -153,8 +159,10 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
             mushrooms[i].RemoveByHelpfulFungus();
             amountToRemove--;
+            removedCount++;
         }
 
+        if (source != null) source.ShowHelpfulResult(removedCount);
         RemoveAllGoodMushrooms();
 
         RefreshPoolLock();
@@ -191,9 +199,17 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
         spawnedMapContent = true;
         int harmfulBudget = GetRemainingLevelHarmfulMushroomBudget();
-        harmfulBudget -= SpawnPoolMushrooms(ownRoom, harmfulBudget);
+        int poolCount = SpawnPoolMushrooms(ownRoom, harmfulBudget);
+        if (poolCount == 0 && harmfulBudget > 0 && mushroomsAroundPool > 0)
+            Debug.LogWarning($"Fungal pool {name}: no reachable pool-room mushroom positions found.", this);
+        harmfulBudget -= poolCount;
         SpawnMapMushrooms(generator, ownRoom, harmfulBudget);
         SpawnGoodMushrooms(generator, ownRoom);
+        if (ActiveHarmfulMushroomCount == 0 && harmfulBudget > 0 &&
+            mushroomsAroundPool + mushroomsAroundMap > 0)
+        {
+            Debug.LogWarning($"Fungal pool in {(ownRoom != null ? ownRoom.name : name)} could not place any harmful mushrooms. Check room floor colliders, connected entrances and NavMesh coverage.", this);
+        }
         if (poolObjective != null && poolObjective.IsFilled)
             FloatPoolMushroomsToWaterSurface();
         RefreshPoolLock();
@@ -208,7 +224,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         Vector3 up = ownRoom != null ? ownRoom.transform.up : Vector3.up;
         int spawned = 0;
 
-        if (mushroomPrefab != null && mushroomsAroundPool > 0)
+        int roomTarget = mushroomsAroundPool;
+        if (mushroomPrefab != null && roomTarget > 0)
         {
             int spawnedHarmfulFromPoints = SpawnFromPoints(
                 harmfulMushroomSpawnPoints,
@@ -220,32 +237,19 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             spawned += spawnedHarmfulFromPoints;
             int harmfulToRandomlySpawn =
                 Mathf.Min(
-                    Mathf.Max(0, mushroomsAroundPool - spawnedHarmfulFromPoints),
+                    Mathf.Max(0, roomTarget - spawnedHarmfulFromPoints),
                     Mathf.Max(0, harmfulBudget - spawned));
 
             for (int i = 0; i < harmfulToRandomlySpawn; i++)
             {
-                float angle = (float)random.NextDouble() * Mathf.PI * 2f;
-                float minimumDistance = avoidPoolInteriorForPoolMushrooms
-                    ? Mathf.Max(poolMushroomRadius * 0.35f, poolInteriorAvoidRadius)
-                    : poolMushroomRadius * 0.35f;
-                float distance = Mathf.Lerp(
-                    Mathf.Min(minimumDistance, poolMushroomRadius),
-                    poolMushroomRadius,
-                    (float)random.NextDouble());
-                Vector3 offset = new Vector3(
-                    Mathf.Cos(angle) * distance,
-                    0f,
-                    Mathf.Sin(angle) * distance);
-                Vector3 origin = transform.position + offset + up * 3f;
-
-                Vector3 point;
-                Vector3 surfaceUp;
-                if (TryFindFloorInRoom(ownRoom, origin, -up, 8f, up, out point, out surfaceUp) &&
-                    !IsInsideAvoidedPoolInterior(point))
+                for (int attempt = 0; attempt < spawnAttemptsPerMushroom; attempt++)
                 {
-                    if (SpawnMushroom(point, surfaceUp, false))
+                    if (TryGetRandomRoomFloor(ownRoom, random, out Vector3 point, out Vector3 surfaceUp) &&
+                        SpawnMushroom(point, surfaceUp, false))
+                    {
                         spawned++;
+                        break;
+                    }
                 }
             }
         }
@@ -382,6 +386,9 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             : mushroomPrefab;
         if (prefab == null)
             return false;
+        foreach (var other in FindObjectsByType<FungalMushroomHazard>(FindObjectsSortMode.None))
+            if ((other.transform.position - surfacePoint).sqrMagnitude < minimumMushroomSpacing * minimumMushroomSpacing)
+                return false;
 
         FungalMushroomHazard mushroom = Instantiate(
             prefab,
@@ -421,8 +428,8 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
         up = definition.transform.up;
         Vector3 size = definition.size;
-        float localX = Mathf.Lerp(-size.x * 0.35f, size.x * 0.35f, (float)random.NextDouble());
-        float localZ = Mathf.Lerp(-size.z * 0.35f, size.z * 0.35f, (float)random.NextDouble());
+        float localX = Mathf.Lerp(-size.x * 0.45f, size.x * 0.45f, (float)random.NextDouble());
+        float localZ = Mathf.Lerp(-size.z * 0.45f, size.z * 0.45f, (float)random.NextDouble());
         Vector3 origin = definition.transform.TransformPoint(
             definition.boundsCenter + new Vector3(localX, size.y * 0.5f + 1f, localZ));
 
@@ -477,6 +484,10 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
                 continue;
             if (!IsFloorNormal(hits[i].normal, floorUp))
                 continue;
+            if (!hits[i].transform.IsChildOf(definition.transform) ||
+                hits[i].collider.GetComponentInParent<SwimmingPoolObjective>() != null ||
+                !IsReachableRoomFloor(definition, hits[i].point))
+                continue;
 
             Vector3 localPoint = definition.transform.InverseTransformPoint(hits[i].point);
             if (!IsInsideRoomFootprint(localPoint, definition.boundsCenter, halfSize))
@@ -492,6 +503,43 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         }
 
         return lowestLocalY < float.PositiveInfinity;
+    }
+
+    private bool IsReachableRoomFloor(RoomDefinition room, Vector3 point)
+    {
+        if (!NavMesh.SamplePosition(point, out NavMeshHit destination, 0.35f, NavMesh.AllAreas) ||
+            Mathf.Abs(destination.position.y - point.y) > 0.25f) return false;
+        if (room.connectors == null) return false;
+        foreach (var connector in room.connectors)
+        {
+            if (connector == null || !connector.canBeEntrance || connector.Point == null ||
+                connector.State != RoomConnectorState.Connected) continue;
+            // Door markers sit at the wall edge; sample inside the room's walkable area.
+            Vector3 up = room.transform.up;
+            Vector3 inward = Vector3.ProjectOnPlane(
+                room.transform.TransformPoint(room.boundsCenter) - connector.Point.position, up).normalized;
+            for (int step = 0; step < 3; step++)
+            {
+            RaycastHit[] entranceHits = Physics.RaycastAll(
+                connector.Point.position + inward * (1f + step) + up * 0.5f, -up,
+                Mathf.Max(4f, room.size.y + 1f), groundLayers,
+                QueryTriggerInteraction.Ignore);
+            foreach (RaycastHit floor in entranceHits)
+            {
+                if (!floor.transform.IsChildOf(room.transform) ||
+                    !IsFloorNormal(floor.normal, up) ||
+                    floor.collider.GetComponentInParent<SwimmingPoolObjective>() != null)
+                    continue;
+                if (!NavMesh.SamplePosition(floor.point, out NavMeshHit entrance, 0.5f, NavMesh.AllAreas))
+                    continue;
+                if (Mathf.Abs(Vector3.Dot(entrance.position - floor.point, up)) > 0.25f)
+                    continue;
+                if (NavMesh.CalculatePath(entrance.position, destination.position, NavMesh.AllAreas, mushroomPath) &&
+                    mushroomPath.status == NavMeshPathStatus.PathComplete) return true;
+            }
+            }
+        }
+        return false;
     }
 
     private bool TryFindFloor(
@@ -600,7 +648,9 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         for (int i = 0; i < mushrooms.Length; i++)
         {
             FungalMushroomHazard mushroom = mushrooms[i];
-            if (mushroom == null || !IsInsideMushroomFloatArea(mushroom.transform.position))
+            // Generated room-floor mushrooms must never be lifted by the pool filling.
+            if (mushroom == null || !mushroom.transform.IsChildOf(transform) ||
+                !IsInsideMushroomFloatArea(mushroom.transform.position))
                 continue;
 
             Vector3 position = mushroom.transform.position;

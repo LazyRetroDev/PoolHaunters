@@ -39,17 +39,82 @@ public class FungalMushroomHazard : PoolWaterReactive
     private bool sporeCloudActive;
     private float sporeCloudTimer;
     private bool waitingForInfectionsToFinish;
+    private FungalFeedback cloudVisual;
+    private readonly NetworkVariable<bool> networkGoodFungus = new NetworkVariable<bool>();
+    private readonly NetworkVariable<int> networkPoolId = new NetworkVariable<int>();
+    private float nextPoolBindTime;
+    private readonly NetworkVariable<int> networkColorIndex = new NetworkVariable<int>();
+    private int harmfulColorIndex;
+    private static readonly Color[] HarmfulColors =
+    {
+        new Color(0.65f, 0.12f, 0.18f),
+        new Color(0.15f, 0.4f, 0.85f),
+        new Color(0.45f, 0.1f, 0.65f),
+        new Color(0.1f, 0.65f, 0.4f),
+        new Color(0.85f, 0.2f, 0.55f)
+    };
 
     public bool IsGoodFungus => goodFungus;
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        if (IsServer && owningPool != null) networkPoolId.Value = owningPool.PoolSyncId;
+        if (IsServer) networkGoodFungus.Value = goodFungus;
+        if (IsServer) networkColorIndex.Value = harmfulColorIndex;
+        networkColorIndex.OnValueChanged += OnColorChanged;
+        OnColorChanged(harmfulColorIndex, networkColorIndex.Value);
+        networkGoodFungus.OnValueChanged += OnGoodFungusChanged;
+        OnGoodFungusChanged(goodFungus, networkGoodFungus.Value);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (owningPool != null) owningPool.NotifyMushroomRemoved(this);
+        networkGoodFungus.OnValueChanged -= OnGoodFungusChanged;
+        networkColorIndex.OnValueChanged -= OnColorChanged;
+        base.OnNetworkDespawn();
+    }
+
+    private void OnGoodFungusChanged(bool previous, bool current)
+    {
+        goodFungus = current;
+        ApplyTint();
+    }
 
     private void Awake()
     {
         currentHealth = Mathf.Max(1f, health);
+        Vector3 position = transform.position;
+        int hash = unchecked(Mathf.RoundToInt(position.x * 100f) * 397 ^ Mathf.RoundToInt(position.z * 100f));
+        OnColorChanged(0, (hash & int.MaxValue) % HarmfulColors.Length);
+        ApplyTint();
+    }
+
+    private void OnColorChanged(int previous, int current)
+    {
+        harmfulColorIndex = Mathf.Clamp(current, 0, HarmfulColors.Length - 1);
+        harmfulColor = HarmfulColors[harmfulColorIndex];
         ApplyTint();
     }
 
     private void Update()
     {
+        if (IsNetworkSessionRunning() && !IsServer)
+        {
+            // Map snapshots may arrive after the network mushroom spawn.
+            if (IsSpawned && !removed && owningPool == null && Time.unscaledTime >= nextPoolBindTime)
+            {
+                nextPoolBindTime = Time.unscaledTime + 0.5f;
+                foreach (var pool in FindObjectsByType<FungalSwimmingPoolMechanic>(FindObjectsSortMode.None))
+                {
+                    if (pool.PoolSyncId != networkPoolId.Value) continue;
+                    pool.RegisterMushroom(this);
+                    break;
+                }
+            }
+            return;
+        }
         UpdateSporeCloud();
         TickInfections();
 
@@ -63,6 +128,7 @@ public class FungalMushroomHazard : PoolWaterReactive
 
     private void OnTriggerEnter(Collider other)
     {
+        if (IsNetworkSessionRunning() && !IsServer) return;
         if (!releaseSporesWhenSteppedOn || removed || goodFungus)
             return;
 
@@ -83,6 +149,7 @@ public class FungalMushroomHazard : PoolWaterReactive
     public void SetGoodFungus(bool value)
     {
         goodFungus = value;
+        if (IsSpawned && IsServer) networkGoodFungus.Value = value;
         ApplyTint();
     }
 
@@ -93,7 +160,22 @@ public class FungalMushroomHazard : PoolWaterReactive
 
     public void RemoveByHelpfulFungus()
     {
-        RemoveMushroom();
+        RemoveMushroom(helpful: true);
+    }
+
+    public void ShowHelpfulResult(int count)
+    {
+        if (IsSpawned && IsServer) HelpfulResultClientRpc(count);
+        else if (!IsNetworkSessionRunning()) ShowHelpfulResultLocal(count);
+    }
+
+    [ClientRpc]
+    void HelpfulResultClientRpc(int count) { ShowHelpfulResultLocal(count); }
+
+    void ShowHelpfulResultLocal(int count)
+    {
+        FungalFeedback.Show(transform.position, Color.yellow, 1f, 2f,
+            string.Format(GameLocalization.Translate("fungus.removed", "Fungi removed: {0}"), count));
     }
 
     public override void ApplyPoolWaterHit(
@@ -109,8 +191,6 @@ public class FungalMushroomHazard : PoolWaterReactive
 
         ApplyPoolWaterHitLocal(waterQuality, waterPower, sourcePosition);
 
-        if (IsSpawned && IsServer && IsNetworkSessionRunning())
-            ApplyPoolWaterHitClientRpc((int)waterQuality, waterPower, sourcePosition);
     }
 
     void ApplyPoolWaterHitLocal(
@@ -152,19 +232,6 @@ public class FungalMushroomHazard : PoolWaterReactive
         Vector3 sourcePosition)
     {
         ApplyPoolWaterHitLocal((WaterQuality)waterQuality, waterPower, sourcePosition);
-        ApplyPoolWaterHitClientRpc(waterQuality, waterPower, sourcePosition);
-    }
-
-    [ClientRpc]
-    void ApplyPoolWaterHitClientRpc(
-        int waterQuality,
-        float waterPower,
-        Vector3 sourcePosition)
-    {
-        if (IsServer)
-            return;
-
-        ApplyPoolWaterHitLocal((WaterQuality)waterQuality, waterPower, sourcePosition);
     }
 
     static bool IsNetworkSessionRunning()
@@ -181,10 +248,20 @@ public class FungalMushroomHazard : PoolWaterReactive
         sporeCloudActive = true;
         sporeCloudTimer = Mathf.Max(0.1f, sporeCloudDuration);
 
-        if (sporeCloudParticles != null)
-            sporeCloudParticles.Play();
+        if (IsSpawned && IsServer) SporeVisualClientRpc();
+        else PlaySporeVisual();
 
         ApplyCloudInfection();
+    }
+
+    [ClientRpc]
+    void SporeVisualClientRpc() { PlaySporeVisual(); }
+
+    void PlaySporeVisual()
+    {
+        if (sporeCloudParticles != null) sporeCloudParticles.Play();
+        else cloudVisual = FungalFeedback.Show(transform.position, new Color(0.55f, 0.25f, 0.7f, 0.32f),
+            sporeCloudRadius, Mathf.Max(0.1f, sporeCloudDuration));
     }
 
     private void UpdateSporeCloud()
@@ -258,12 +335,14 @@ public class FungalMushroomHazard : PoolWaterReactive
         infectedPlayers.Clear();
     }
 
-    private void RemoveMushroom(bool waitForInfection = false)
+    private void RemoveMushroom(bool waitForInfection = false, bool helpful = false)
     {
         if (removed)
             return;
 
         removed = true;
+        if (IsSpawned && IsServer) RemovalVisualClientRpc(helpful);
+        else if (!IsNetworkSessionRunning()) PlayRemovalVisual(helpful);
         owningPool?.NotifyMushroomRemoved(this);
 
         if (removedVisualRoot != null)
@@ -280,6 +359,20 @@ public class FungalMushroomHazard : PoolWaterReactive
         }
 
         DestroyRemovedObject();
+    }
+
+    [ClientRpc]
+    void RemovalVisualClientRpc(bool helpful) { PlayRemovalVisual(helpful); }
+
+    void PlayRemovalVisual(bool helpful)
+    {
+        removed = true;
+        if (owningPool != null) owningPool.NotifyMushroomRemoved(this);
+        if (cloudVisual != null) Destroy(cloudVisual.gameObject);
+        foreach (var renderer in GetComponentsInChildren<Renderer>()) renderer.enabled = false;
+        foreach (var collider in GetComponentsInChildren<Collider>()) collider.enabled = false;
+        FungalFeedback.Show(transform.position, helpful ? Color.yellow : harmfulColor, 0.5f, 0.65f);
+        if (sporeCloudParticles != null) sporeCloudParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
     }
 
     private void DestroyRemovedObject()

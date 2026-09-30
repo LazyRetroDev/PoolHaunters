@@ -23,6 +23,21 @@ public class WaterCannon : MonoBehaviour
     public float pressureReach = 12f;
     public float pressureSpeed = 35f;
     public float pressureBrushRadius = 0.45f;
+    [Header("Suction Visuals")]
+    [Min(1f)] public float suctionVisualSpeed = 12f;
+    [Range(1, 16)] public int suctionParticlesPerTransfer = 6;
+    [Min(0.02f)] public float suctionParticleSize = 0.12f;
+    private ParticleSystem suctionParticles;
+    private float suctionConfirmedUntil;
+    private Vector3 suctionSourcePoint;
+    private bool loggedSuctionVisual;
+    [ContextMenu("Preview Suction Effect (Play Mode)")]
+    void PreviewSuctionEffect()
+    {
+        if (!Application.isPlaying || sprayOrigin == null) return;
+        ShowSuctionTransfer(sprayOrigin.position + sprayOrigin.forward * 3f, WaterQuality.Clean);
+    }
+    private readonly ParticleSystem.Particle[] suctionBuffer = new ParticleSystem.Particle[96];
     private bool appliedPressureProfile;
     private float nextSuctionTime;
     private InputAction suctionAction;
@@ -202,6 +217,7 @@ public class WaterCannon : MonoBehaviour
 
     void LateUpdate()
     {
+        UpdateSuctionParticles();
         if (IsRemoteReplica) return;
         if (followTarget != null)
             transform.position = followTarget.TransformPoint(positionOffset);
@@ -217,8 +233,118 @@ public class WaterCannon : MonoBehaviour
 
     void OnDisable()
     {
+        if (suctionParticles != null) suctionParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         StopSpray();
         StopSprayImmediate();
+    }
+
+    public void ShowSuctionTransfer(Vector3 sourcePoint, WaterQuality quality)
+    {
+        if (!isActiveAndEnabled || sprayOrigin == null || sprayParticles == null)
+        {
+            if (!loggedSuctionVisual)
+            {
+                Debug.LogWarning($"[Suction visual] Cannot display: active={isActiveAndEnabled}, nozzle={sprayOrigin != null}, spray={sprayParticles != null}.", this);
+                loggedSuctionVisual = true;
+            }
+            return;
+        }
+        if (suctionParticles == null)
+        {
+            // Clone the authored effect, including texture-sheet animation, curves,
+            // meshes and shader vertex streams, rather than approximating its renderer.
+            var root = new GameObject("Water Suction");
+            root.transform.SetParent(transform, false);
+            root.SetActive(false);
+            suctionParticles = Instantiate(sprayParticles, root.transform);
+            suctionParticles.name = "Reverse Water Spray";
+            suctionParticles.gameObject.SetActive(true);
+            foreach (var behaviour in suctionParticles.GetComponentsInChildren<MonoBehaviour>(true))
+                behaviour.enabled = false;
+            suctionParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = suctionParticles.main;
+            main.playOnAwake = false;
+            main.loop = true;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = suctionBuffer.Length;
+            main.gravityModifier = 0f;
+            main.stopAction = ParticleSystemStopAction.None;
+            main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
+            main.scalingMode = ParticleSystemScalingMode.Shape;
+            var emission = suctionParticles.emission;
+            emission.enabled = false;
+            var shape = suctionParticles.shape;
+            shape.enabled = false;
+            var collision = suctionParticles.collision;
+            collision.enabled = false;
+            collision.sendCollisionMessages = false;
+            var triggers = suctionParticles.trigger;
+            triggers.enabled = false;
+            var subEmitters = suctionParticles.subEmitters;
+            subEmitters.enabled = false;
+            var velocity = suctionParticles.velocityOverLifetime;
+            velocity.enabled = false;
+            var force = suctionParticles.forceOverLifetime;
+            force.enabled = false;
+            var noise = suctionParticles.noise;
+            noise.enabled = false;
+            var targetRenderer = suctionParticles.GetComponent<ParticleSystemRenderer>();
+            targetRenderer.enabled = true;
+            targetRenderer.forceRenderingOff = false;
+            foreach (var child in suctionParticles.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (child != suctionParticles) child.gameObject.SetActive(false);
+            }
+            targetRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            targetRenderer.receiveShadows = false;
+            root.SetActive(true);
+        }
+        suctionSourcePoint = sourcePoint;
+        suctionConfirmedUntil = Time.time + 0.25f;
+        var suctionMain = suctionParticles.main;
+        suctionMain.startColor = GetWaterColor(quality);
+        UpdateSuctionEmitter();
+        if (!loggedSuctionVisual)
+        {
+            var renderer = suctionParticles.GetComponent<ParticleSystemRenderer>();
+            Debug.Log($"[Suction visual] Transfer received; particles={suctionParticles.particleCount}, mode={renderer.renderMode}, material={renderer.sharedMaterial}, layer={suctionParticles.gameObject.layer}, source={sourcePoint}, nozzle={sprayOrigin.position}.", this);
+            loggedSuctionVisual = true;
+        }
+    }
+
+    void UpdateSuctionParticles()
+    {
+        if (suctionParticles == null || sprayOrigin == null) return;
+        UpdateSuctionEmitter();
+        int count = suctionParticles.GetParticles(suctionBuffer);
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 delta = sprayOrigin.position - suctionBuffer[i].position;
+            float speed = Mathf.Max(1f, suctionVisualSpeed);
+            if (delta.magnitude <= Mathf.Max(0.06f, speed * Time.deltaTime))
+                suctionBuffer[i].remainingLifetime = 0f;
+            else suctionBuffer[i].velocity = delta.normalized * speed;
+        }
+        suctionParticles.SetParticles(suctionBuffer, count);
+    }
+
+    void UpdateSuctionEmitter()
+    {
+        Vector3 delta = sprayOrigin.position - suctionSourcePoint;
+        bool emitting = Time.time < suctionConfirmedUntil && delta.sqrMagnitude > 0.01f;
+        if (!IsRemoteReplica)
+            emitting &= CanOwnerUseWaterCannon() && (suctionAction != null ? suctionAction.IsPressed() :
+                Mouse.current != null && Mouse.current.rightButton.isPressed);
+        var emission = suctionParticles.emission;
+        emission.enabled = emitting;
+        emission.rateOverTime = sprayParticleRate;
+        if (!emitting) return;
+        suctionParticles.transform.SetPositionAndRotation(suctionSourcePoint + delta.normalized * 0.08f,
+            Quaternion.LookRotation(delta.normalized));
+        var main = suctionParticles.main;
+        main.startSpeed = Mathf.Max(1f, suctionVisualSpeed);
+        main.startLifetime = delta.magnitude / Mathf.Max(1f, suctionVisualSpeed) + 0.1f;
+        if (!suctionParticles.isPlaying) suctionParticles.Play();
     }
 
     bool CanOwnerUseWaterCannon()

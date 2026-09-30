@@ -28,6 +28,8 @@ public class PoolRoomPoolSelector : MonoBehaviour
     [SerializeField] private bool selectOnStartWhenNotConfigured = true;
 
     [Header("Debug")]
+    [Tooltip("Testing only: choose the fungal variant on phase 1 instead of rolling a random pool.")]
+    [SerializeField] private bool forceFungalPoolOnFirstLevel;
     [SerializeField] private GameObject selectedPoolInstance;
     [SerializeField] private string selectedPoolName;
     [SerializeField] private int selectedVariantIndex = -1;
@@ -90,6 +92,21 @@ public class PoolRoomPoolSelector : MonoBehaviour
         float totalWeight = 0f;
         if (poolPrefabs == null)
             return null;
+
+        if (forceFungalPoolOnFirstLevel && RegionRunState.PhaseNumber == 1)
+        {
+            for (int i = 0; i < poolPrefabs.Length; i++)
+            {
+                GameObject prefab = poolPrefabs[i]?.prefab;
+                if (prefab == null || prefab.GetComponentInChildren<FungalSwimmingPoolMechanic>(true) == null)
+                    continue;
+
+                selectedIndex = i;
+                selectionSeed = CreateSelectionSeed();
+                return prefab;
+            }
+            Debug.LogWarning("First-level fungal test enabled, but no fungal pool variant is assigned.", this);
+        }
 
         for (int i = 0; i < poolPrefabs.Length; i++)
         {
