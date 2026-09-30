@@ -44,8 +44,8 @@ public class LevelRewardTracker : MonoBehaviour
     [SerializeField] private int rewardedOptionalPoolCount;
     [SerializeField] private int lastOptionalPoolBonusGerms;
 
-    private readonly Dictionary<int, PlayerRunStats> statsByPlayerKey =
-        new Dictionary<int, PlayerRunStats>();
+    private readonly Dictionary<(bool networked, ulong id), PlayerRunStats> statsByPlayerKey =
+        new Dictionary<(bool networked, ulong id), PlayerRunStats>();
     private readonly HashSet<PlayerStatus> subscribedPlayers =
         new HashSet<PlayerStatus>();
     private float startTime;
@@ -137,7 +137,7 @@ public class LevelRewardTracker : MonoBehaviour
             return;
         }
 
-        int key = unchecked((int)ownerClientId);
+        var key = (networked: true, id: ownerClientId);
         if (!statsByPlayerKey.TryGetValue(key, out PlayerRunStats stats))
         {
             stats = new PlayerRunStats();
@@ -306,7 +306,7 @@ public class LevelRewardTracker : MonoBehaviour
 
     PlayerRunStats GetStats(PlayerStatus player)
     {
-        int key = GetPlayerKey(player);
+        var key = GetPlayerKey(player);
         if (!statsByPlayerKey.TryGetValue(key, out PlayerRunStats stats))
         {
             stats = new PlayerRunStats { player = player };
@@ -316,14 +316,14 @@ public class LevelRewardTracker : MonoBehaviour
         return stats;
     }
 
-    int GetPlayerKey(PlayerStatus player)
+    (bool networked, ulong id) GetPlayerKey(PlayerStatus player)
     {
         if (player == null)
-            return 0;
+            return (false, 0);
 
         if (player.NetworkObject != null && player.NetworkObject.IsSpawned)
-            return unchecked((int)player.NetworkObject.OwnerClientId);
+            return (true, player.NetworkObject.OwnerClientId);
 
-        return player.GetInstanceID();
+        return (false, EntityId.ToULong(player.GetEntityId()));
     }
 }

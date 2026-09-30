@@ -106,7 +106,7 @@ public class FungalMushroomHazard : PoolWaterReactive
             if (IsSpawned && !removed && owningPool == null && Time.unscaledTime >= nextPoolBindTime)
             {
                 nextPoolBindTime = Time.unscaledTime + 0.5f;
-                foreach (var pool in FindObjectsByType<FungalSwimmingPoolMechanic>(FindObjectsSortMode.None))
+                foreach (var pool in FindObjectsByType<FungalSwimmingPoolMechanic>())
                 {
                     if (pool.PoolSyncId != networkPoolId.Value) continue;
                     pool.RegisterMushroom(this);
@@ -225,7 +225,7 @@ public class FungalMushroomHazard : PoolWaterReactive
         }
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void ApplyPoolWaterHitServerRpc(
         int waterQuality,
         float waterPower,

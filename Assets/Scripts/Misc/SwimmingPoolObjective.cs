@@ -83,6 +83,48 @@ public class SwimmingPoolObjective : MonoBehaviour
         OnPoolActivelyCleaned?.Invoke(this);
     }
 
+    public float[] CompleteFishingStage(PlayerStatus cleaner, float cleanFraction)
+    {
+        if (!filled || cleaned || cleaningLocked) return null;
+        cleanFraction = Mathf.Clamp(cleanFraction, 0f, LouiseFishingCleaner.MaximumStageCleaning);
+        RefreshDirtSpots();
+        var targets = new float[trackedDirtSpots.Count];
+        if (targets.Length == 0)
+            LevelRewardTracker.RecordCleaning(cleaner, Mathf.Min(cleanFraction, 1f - CleanProgress));
+        float budget = trackedDirtSpots.Count * cleanFraction;
+        for (int i = 0; i < targets.Length; i++)
+        {
+            var dirt = trackedDirtSpots[i];
+            float previous = dirt == null || dirt.IsCleaned ? 1f : 1f - dirt.GetDirtPercent();
+            float removed = Mathf.Min(1f - previous, budget);
+            targets[i] = previous + removed;
+            budget -= removed;
+            if (removed > 0f) LevelRewardTracker.RecordCleaning(cleaner, removed);
+        }
+        ApplyFishingStage(targets, cleanFraction);
+        return targets;
+    }
+
+    public void ApplyFishingStage(float[] targets, float cleanFraction)
+    {
+        if (!filled || cleaned || cleaningLocked || targets == null) return;
+        RefreshDirtSpots();
+        if (targets.Length != trackedDirtSpots.Count) return;
+        float removed = 0f;
+        for (int i = 0; i < targets.Length; i++)
+        {
+            var dirt = trackedDirtSpots[i];
+            if (dirt == null || dirt.IsCleaned) continue;
+            removed += Mathf.Max(0f, targets[i] - (1f - dirt.GetDirtPercent()));
+            dirt.ApplyFishingCleanTarget(targets[i]);
+        }
+        GetComponent<PoolDirtSharedMask>()?.ApplyFishingCleanFraction(
+            targets.Length > 0 ? removed / targets.Length : cleanFraction);
+        if (poolCleaningZone != null) poolCleaningZone.Clean(poolCleaningZone.maxContamination * cleanFraction);
+        NotifyActivelyCleaned();
+        RefreshAndEvaluateCleanState(true);
+    }
+
     void Awake()
     {
         AutoBindReferences();

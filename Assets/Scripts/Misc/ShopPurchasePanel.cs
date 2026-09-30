@@ -399,7 +399,7 @@ public class ShopPurchasePanel : MonoBehaviour
 
     void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
+        if (FindAnyObjectByType<EventSystem>() != null)
             return;
 
         GameObject eventSystemObject = new GameObject("EventSystem");

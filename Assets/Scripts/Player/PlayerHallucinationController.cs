@@ -28,7 +28,7 @@ public class PlayerHallucinationController : NetworkBehaviour
     private int fogVolumesOverlapping = 0;
     private float nextHallucinationTime;
 
-    private bool IsLocalPlayer()
+    private bool ShouldRunLocalEffects()
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             return IsOwner;
@@ -37,7 +37,7 @@ public class PlayerHallucinationController : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (!IsLocalPlayer())
+        if (!ShouldRunLocalEffects())
         {
             enabled = false;
             return;
@@ -48,13 +48,13 @@ public class PlayerHallucinationController : NetworkBehaviour
 
     private void Start()
     {
-        if (!IsLocalPlayer())
+        if (!ShouldRunLocalEffects())
             enabled = false;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!IsLocalPlayer()) return;
+        if (!ShouldRunLocalEffects()) return;
         
         if (other.GetComponentInParent<CursedFogVolume>() != null)
         {
@@ -65,7 +65,7 @@ public class PlayerHallucinationController : NetworkBehaviour
 
     private void OnTriggerExit(Collider other)
     {
-        if (!IsLocalPlayer()) return;
+        if (!ShouldRunLocalEffects()) return;
 
         if (other.GetComponentInParent<CursedFogVolume>() != null)
         {
@@ -77,7 +77,7 @@ public class PlayerHallucinationController : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsLocalPlayer()) return;
+        if (!ShouldRunLocalEffects()) return;
 
         // Update the meter based on whether we are inside the fog
         if (fogVolumesOverlapping > 0)

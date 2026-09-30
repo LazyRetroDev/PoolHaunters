@@ -125,7 +125,7 @@ public class RuntimeDebugOptions : MonoBehaviour
         if (visible)
         {
             windowRect = GUILayout.Window(
-                GetInstanceID(),
+                GetEntityId().GetHashCode(),
                 windowRect,
                 DrawWindow,
                 "Debug Options");

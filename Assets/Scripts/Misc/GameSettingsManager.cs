@@ -43,7 +43,7 @@ public class GameSettingsManager : MonoBehaviour
         nextRetroRefresh = Time.unscaledTime + 2f;
         if (!PhotosensitiveMode) { RestoreRetroEffects(); return; }
         retroReductionApplied = true;
-        foreach (var renderer in FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var renderer in FindObjectsByType<Renderer>(FindObjectsInactive.Include))
         {
             if (retroMaterials.ContainsKey(renderer)) continue;
             var materials = renderer.sharedMaterials;
@@ -185,7 +185,7 @@ public class GameSettingsManager : MonoBehaviour
 
     private void ApplyInputOverrides()
     {
-        PlayerInput[] allInputs = FindObjectsByType<PlayerInput>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        PlayerInput[] allInputs = FindObjectsByType<PlayerInput>(FindObjectsInactive.Include);
         
         foreach (var pi in allInputs)
         {
@@ -316,7 +316,7 @@ public class GameSettingsManager : MonoBehaviour
 
     public static void ApplyBindingsNow()
     {
-        foreach (var pi in FindObjectsByType<PlayerInput>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var pi in FindObjectsByType<PlayerInput>(FindObjectsInactive.Include))
             ApplyInputOverridesToPlayer(pi);
     }
 }

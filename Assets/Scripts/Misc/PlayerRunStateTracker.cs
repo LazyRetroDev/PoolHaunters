@@ -19,7 +19,7 @@ public static class PlayerRunStateTracker
     public static void SaveAllPlayersState()
     {
         savedStates.Clear();
-        PlayerStatus[] allPlayers = Object.FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        PlayerStatus[] allPlayers = Object.FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
         
         foreach (var playerStatus in allPlayers)
         {

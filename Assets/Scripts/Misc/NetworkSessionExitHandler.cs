@@ -80,7 +80,7 @@ public class NetworkSessionExitHandler : MonoBehaviour
     {
         if (!showNotice) return;
         var box = new Rect((Screen.width-440)*0.5f, (Screen.height-180)*0.5f, 440,180);
-        GUI.ModalWindow(GetInstanceID(), box, id =>
+        GUI.ModalWindow(GetEntityId().GetHashCode(), box, id =>
         {
             GUI.Label(new Rect(20,40,400,60), "The host left or the connection was lost.\nThe multiplayer session has ended.");
             if (GUI.Button(new Rect(150,115,140,40), "OK")) showNotice = false;

@@ -1061,7 +1061,7 @@ public class WaterCannon : MonoBehaviour
             return true;
         }
 
-        dirtTemplate = FindObjectOfType<DirtSpot>();
+        dirtTemplate = FindAnyObjectByType<DirtSpot>();
         template = dirtTemplate;
         return template != null;
     }

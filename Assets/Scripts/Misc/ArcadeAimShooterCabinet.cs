@@ -371,7 +371,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         text.color = textColor;
         text.fontSize = 32f;
         text.alignment = alignment;
-        text.enableWordWrapping = false;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
 
         return text;
     }
@@ -407,7 +407,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
         label.color = textColor;
         label.fontSize = 24f;
         label.alignment = TextAlignmentOptions.Center;
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.raycastTarget = false;
 
         return button;
@@ -437,7 +437,7 @@ public class ArcadeAimShooterCabinet : MonoBehaviour, IPlayerInteractable
 
     void EnsureEventSystem()
     {
-        if (FindObjectOfType<EventSystem>() != null)
+        if (FindAnyObjectByType<EventSystem>() != null)
             return;
 
         GameObject eventSystemObject = new GameObject("EventSystem");

@@ -173,8 +173,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
         yield return null;
 
         RoomGenerator[] generators = FindObjectsByType<RoomGenerator>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude);
 
         for (int i = 0; i < generators.Length; i++)
         {
@@ -386,7 +385,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
             : mushroomPrefab;
         if (prefab == null)
             return false;
-        foreach (var other in FindObjectsByType<FungalMushroomHazard>(FindObjectsSortMode.None))
+        foreach (var other in FindObjectsByType<FungalMushroomHazard>())
             if ((other.transform.position - surfacePoint).sqrMagnitude < minimumMushroomSpacing * minimumMushroomSpacing)
                 return false;
 
@@ -873,8 +872,7 @@ public class FungalSwimmingPoolMechanic : MonoBehaviour
 
         FungalSwimmingPoolMechanic[] pools =
             FindObjectsByType<FungalSwimmingPoolMechanic>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
 
         int activeHarmfulMushrooms = 0;
         for (int i = 0; i < pools.Length; i++)

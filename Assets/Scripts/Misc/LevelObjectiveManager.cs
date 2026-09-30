@@ -1562,8 +1562,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
         FungalSwimmingPoolMechanic[] fungalPools =
             FindObjectsByType<FungalSwimmingPoolMechanic>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
         int discoveredFungalMushrooms = 0;
         for (int i = 0; i < fungalPools.Length; i++)
         {
@@ -1582,8 +1581,7 @@ public class LevelObjectiveManager : MonoBehaviour
 
         ElectricSwimmingPoolMechanic[] electricPools =
             FindObjectsByType<ElectricSwimmingPoolMechanic>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
         for (int i = 0; i < electricPools.Length; i++)
         {
             ElectricSwimmingPoolMechanic electricPool = electricPools[i];

@@ -16,7 +16,7 @@ public class PhysicalLobbyReadyStation : MonoBehaviour, IPlayerInteractable
             : null;
 
         if (lobbyManager == null)
-            lobbyManager = FindFirstObjectByType<PhysicalLobbyManager>();
+            lobbyManager = FindAnyObjectByType<PhysicalLobbyManager>();
 
         if (lobbyManager == null)
         {

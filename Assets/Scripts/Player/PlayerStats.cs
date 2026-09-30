@@ -1048,7 +1048,7 @@ public class PlayerStatus : NetworkBehaviour
         if (!ShouldApplyOwnerLocalState())
             return;
 
-        PlayerSpectatorMode spectator = FindFirstObjectByType<PlayerSpectatorMode>();
+        PlayerSpectatorMode spectator = FindAnyObjectByType<PlayerSpectatorMode>();
         if (spectator != null)
             spectator.EndSpectating();
     }
@@ -1573,7 +1573,7 @@ public class PlayerStatus : NetworkBehaviour
 
     bool CanProcessReviveRequest(
         PlayerStatus reviver,
-        ServerRpcParams serverRpcParams)
+        RpcParams serverRpcParams)
     {
         if (!IsNetworked())
             return true;
@@ -1597,16 +1597,16 @@ public class PlayerStatus : NetworkBehaviour
         ApplyDeath(false);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void DebugResurrectServerRpc()
     {
         ApplyDebugResurrection();
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void RequestReviveServerRpc(
         NetworkObjectReference reviverReference,
-        ServerRpcParams serverRpcParams = default)
+        RpcParams serverRpcParams = default)
     {
         if (!reviverReference.TryGet(out NetworkObject reviverObject) ||
             reviverObject == null)

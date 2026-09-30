@@ -103,6 +103,52 @@ public class PlayerMovement : NetworkBehaviour
             NetworkVariableWritePermission.Server);
     public bool AcceptsInput => acceptsInput;
 
+    private SwimmingPoolObjective fishingPool;
+    private float fishingStageStarted;
+
+    public void RequestFishingStage(int poolId, bool complete, float cleanFraction = 0f)
+    {
+        if (IsSpawned) FishingStageRpc(poolId, complete, cleanFraction);
+        else ProcessFishingStage(poolId, complete, cleanFraction);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Owner)]
+    private void FishingStageRpc(int poolId, bool complete, float cleanFraction) => ProcessFishingStage(poolId, complete, cleanFraction);
+
+    private void ProcessFishingStage(int poolId, bool complete, float cleanFraction)
+    {
+        var loadout = GetComponent<PlayerAgentLoadout>();
+        var player = GetComponent<PlayerStatus>();
+        if (loadout == null || loadout.currentAgent != PlayerAgentType.Louise || player == null || !player.CanAct()) return;
+        if (!complete)
+        {
+            fishingPool = null;
+            foreach (var pool in FindObjectsByType<SwimmingPoolObjective>())
+                if (pool.SyncId == poolId) { fishingPool = pool; break; }
+            fishingStageStarted = Time.time;
+            return;
+        }
+        var target = fishingPool;
+        fishingPool = null;
+        if (target == null || target.SyncId != poolId || !target.IsFilled || target.IsCleaned || target.IsCleaningLocked ||
+            Time.time - fishingStageStarted < LouiseFishingCleaner.FishingDuration - 0.1f ||
+            float.IsNaN(cleanFraction) || float.IsInfinity(cleanFraction) || cleanFraction <= 0f ||
+            cleanFraction > LouiseFishingCleaner.MaximumStageCleaning || player.GetWaterQuality() == WaterQuality.Contaminated) return;
+        var zone = target.GetComponentInChildren<PoolCleaningZone>();
+        var collider = zone != null ? zone.cleaningCollider : target.GetComponentInChildren<Collider>();
+        if (collider == null || Vector3.Distance(transform.position, collider.ClosestPoint(transform.position)) > 22f) return;
+        if (!player.ConsumeWater(12f)) return;
+        float[] targets = target.CompleteFishingStage(player, cleanFraction);
+        if (IsSpawned && targets != null) FishingStageResultRpc(poolId, targets, cleanFraction);
+    }
+
+    [Rpc(SendTo.NotServer)]
+    private void FishingStageResultRpc(int poolId, float[] targets, float cleanFraction)
+    {
+        foreach (var pool in FindObjectsByType<SwimmingPoolObjective>())
+            if (pool.SyncId == poolId) { pool.ApplyFishingStage(targets, cleanFraction); break; }
+    }
+
     public void SetAcceptsInput(bool value)
     {
         acceptsInput = value;

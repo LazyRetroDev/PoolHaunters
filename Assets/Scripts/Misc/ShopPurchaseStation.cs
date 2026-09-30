@@ -62,7 +62,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
 
     private static readonly HashSet<string> boughtUpgradesThisVisit =
         new HashSet<string>();
-    private static int activeShopVisitSceneHandle = -1;
+    private static ulong activeShopVisitSceneHandle = ulong.MaxValue;
 
     private float feedbackTimer;
 
@@ -365,7 +365,7 @@ public class ShopPurchaseStation : MonoBehaviour, IPlayerInteractable
     static void RefreshShopVisitState()
     {
         Scene activeScene = SceneManager.GetActiveScene();
-        int sceneHandle = activeScene.handle;
+        ulong sceneHandle = activeScene.handle.GetRawData();
         if (sceneHandle == activeShopVisitSceneHandle)
             return;
 

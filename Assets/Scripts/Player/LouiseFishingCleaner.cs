@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
+using TMPro;
+using Unity.Cinemachine;
 
 [DisallowMultipleComponent]
 public class LouiseFishingCleaner : MonoBehaviour
@@ -51,6 +54,118 @@ public class LouiseFishingCleaner : MonoBehaviour
     readonly HashSet<PoolWaterReactive> reactiveHits = new HashSet<PoolWaterReactive>();
     readonly HashSet<PoolCleaningZone> poolHits = new HashSet<PoolCleaningZone>();
     readonly RaycastHit[] traceHits = new RaycastHit[32];
+    SwimmingPoolObjective fishingPool;
+    public const float FishingDuration = 15f;
+    public const float MaximumStageCleaning = 0.4f;
+    float fishingProgress, catchPosition, fishingTime;
+    float trackingSeconds, fishingDifficulty;
+    GameObject fishingCanvas;
+    RectTransform catchZone, trashIcon, stageFill;
+    TMP_Text stageLabel;
+    readonly List<CinemachineInputAxisController> suspendedLook = new List<CinemachineInputAxisController>();
+
+    void BeginPoolFishing(SwimmingPoolObjective pool)
+    {
+        if (pool == null) return;
+        if (!pool.IsFilled || pool.IsCleaningLocked || pool.IsCleaned || status.HasContaminatedWater() || status.GetCurrentWater() < 12f)
+        { state = State.Returning; return; }
+        fishingPool = pool;
+        fishingProgress = 0f;
+        catchPosition = 0.5f;
+        fishingTime = 0f;
+        trackingSeconds = 0f;
+        fishingDifficulty = Mathf.Clamp01(pool.CleanProgress / 0.8f);
+        foreach (var controller in GetComponentsInChildren<CinemachineInputAxisController>())
+            if (controller.enabled) { suspendedLook.Add(controller); controller.enabled = false; }
+        EnsureFishingUI();
+        fishingCanvas.SetActive(true);
+        movement?.RequestFishingStage(pool.SyncId, false);
+    }
+
+    void EndPoolFishing()
+    {
+        fishingPool = null;
+        if (fishingCanvas != null) fishingCanvas.SetActive(false);
+        foreach (var controller in suspendedLook) if (controller != null) controller.enabled = true;
+        suspendedLook.Clear();
+    }
+
+    void UpdatePoolFishing()
+    {
+        if (!fishingPool.IsFilled || fishingPool.IsCleaningLocked || fishingPool.IsCleaned ||
+            status.HasContaminatedWater() || status.GetCurrentWater() < 12f)
+        { EndPoolFishing(); state = State.Returning; return; }
+        fishingCanvas.SetActive(true);
+        float step = Mathf.Min(Time.deltaTime, Mathf.Max(0f, FishingDuration - fishingTime));
+        fishingTime += step;
+        float halfHeight = Mathf.Lerp(0.14f, 0.09f, fishingDifficulty);
+        float delta = Mouse.current != null ? Mouse.current.delta.ReadValue().y : 0f;
+        catchPosition = Mathf.Clamp(catchPosition + delta / 600f, halfHeight, 1f - halfHeight);
+        float motionTime = fishingTime * Mathf.Lerp(1f, 1.6f, fishingDifficulty);
+        float trash = Mathf.Clamp01(0.5f + Mathf.Sin(motionTime * 1.3f) * 0.3f + Mathf.Sin(motionTime * 2.7f) * 0.12f);
+        bool tracking = Mathf.Abs(trash - catchPosition) <= halfHeight - 0.02f;
+        if (tracking) trackingSeconds += step;
+        fishingProgress = Mathf.Clamp01(trackingSeconds / FishingDuration);
+        catchZone.sizeDelta = new Vector2(54f, halfHeight * 600f);
+        catchZone.anchoredPosition = new Vector2(0f, catchPosition * 300f);
+        trashIcon.anchoredPosition = new Vector2(0f, trash * 300f);
+        stageFill.anchorMax = new Vector2(fishingProgress, 1f);
+        float earned = Mathf.Min(MaximumStageCleaning * fishingProgress, 1f - fishingPool.CleanProgress);
+        stageLabel.text = Mathf.CeilToInt(FishingDuration - fishingTime) + "s\n+" + Mathf.RoundToInt(earned * 100f) + "%";
+        if (fishingTime < FishingDuration) return;
+        movement?.RequestFishingStage(fishingPool.SyncId, true, MaximumStageCleaning * fishingProgress);
+        EndPoolFishing();
+        state = State.Returning;
+    }
+
+    static RectTransform FishingRect(string name, Transform parent, Vector2 size, Color color)
+    {
+        var obj = new GameObject(name, typeof(RectTransform), typeof(Image));
+        obj.transform.SetParent(parent, false);
+        var rect = (RectTransform)obj.transform;
+        rect.sizeDelta = size;
+        var image = obj.GetComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return rect;
+    }
+
+    void EnsureFishingUI()
+    {
+        if (fishingCanvas != null) return;
+        fishingCanvas = new GameObject("Louise Pool Fishing", typeof(Canvas), typeof(CanvasScaler));
+        var canvas = fishingCanvas.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 30;
+        var scaler = fishingCanvas.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1280, 720);
+        scaler.matchWidthOrHeight = 0.5f;
+        var track = FishingRect("Track", fishingCanvas.transform, new Vector2(64, 300), new Color(0.06f, 0.08f, 0.08f, 0.94f));
+        track.anchorMin = track.anchorMax = new Vector2(0.76f, 0.5f);
+        catchZone = FishingRect("Catch Zone", track, new Vector2(54, 84), new Color(0.16f, 0.75f, 0.32f));
+        catchZone.anchorMin = catchZone.anchorMax = new Vector2(0.5f, 0f);
+        trashIcon = FishingRect("Trash", track, new Vector2(20, 24), new Color(0.88f, 0.9f, 0.94f));
+        trashIcon.anchorMin = trashIcon.anchorMax = new Vector2(0.5f, 0f);
+        var lid = FishingRect("Lid", trashIcon, new Vector2(26, 4), Color.white);
+        lid.anchoredPosition = new Vector2(0, 14);
+        for (int i = -1; i <= 1; i++)
+            FishingRect("Slot", trashIcon, new Vector2(2, 15), Color.gray).anchoredPosition = new Vector2(i * 5, 0);
+        var progress = FishingRect("Stage Progress", track, new Vector2(96, 10), Color.black);
+        progress.anchoredPosition = new Vector2(0, -172);
+        stageFill = FishingRect("Fill", progress, Vector2.zero, new Color(0.2f, 0.8f, 0.95f));
+        stageFill.anchorMin = Vector2.zero;
+        stageFill.anchorMax = Vector2.one;
+        stageFill.offsetMin = stageFill.offsetMax = Vector2.zero;
+        var label = new GameObject("Stage Percent", typeof(RectTransform), typeof(TextMeshProUGUI));
+        label.transform.SetParent(track, false);
+        stageLabel = label.GetComponent<TextMeshProUGUI>();
+        stageLabel.fontSize = 20;
+        stageLabel.alignment = TextAlignmentOptions.Center;
+        stageLabel.raycastTarget = false;
+        stageLabel.rectTransform.sizeDelta = new Vector2(120, 60);
+        stageLabel.rectTransform.anchoredPosition = new Vector2(0, -214);
+    }
 
     void Awake()
     {
@@ -72,6 +187,7 @@ public class LouiseFishingCleaner : MonoBehaviour
     {
         if (!CanUse())
         {
+            if (fishingCanvas != null) fishingCanvas.SetActive(false);
             // Menus suspend tool use, not the held model or its attachment.
             bool keepVisible = status != null && !status.IsDead() && !status.IsKnockedOut() &&
                 !status.IsTransformed() && (petrify == null || !petrify.IsPetrified()) &&
@@ -98,7 +214,7 @@ public class LouiseFishingCleaner : MonoBehaviour
         lureVisual.position = state == State.Idle ? rodTip.position : lureWorldPosition;
         bool pressed = attack != null ? attack.IsPressed() : Mouse.current != null && Mouse.current.leftButton.isPressed;
         bool recallPressed = recall != null ? recall.WasPressedThisFrame() : Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame;
-        if (recallPressed && state != State.Idle) state = State.Returning;
+        if (recallPressed && state != State.Idle) { EndPoolFishing(); state = State.Returning; }
         if (state == State.Idle && pressed) { state = State.Charging; charge = 0f; }
         if (state == State.Charging)
         {
@@ -129,6 +245,7 @@ public class LouiseFishingCleaner : MonoBehaviour
                 state = State.Attached;
                 attachedCleaningSeconds = 0f;
                 nextTick = Time.time;
+                BeginPoolFishing(hit.collider.GetComponentInParent<SwimmingPoolObjective>());
             }
             else
             {
@@ -157,7 +274,8 @@ public class LouiseFishingCleaner : MonoBehaviour
                 attachmentPoint = point;
                 attachmentNormal = normal;
                 lureVisual.position = point + normal * 0.06f;
-                if (Time.time >= nextTick)
+                if (fishingPool != null) UpdatePoolFishing();
+                else if (Time.time >= nextTick)
                 {
                     float step = Mathf.Max(0.25f, tickInterval);
                     nextTick = Time.time + step;
@@ -168,6 +286,7 @@ public class LouiseFishingCleaner : MonoBehaviour
         if (Vector3.Distance(rodTip.position, lureVisual.position) > Mathf.Max(maximumRange, tetherRange)) state = State.Returning;
         if (state == State.Returning)
         {
+            EndPoolFishing();
             lureVisual.position = Vector3.MoveTowards(lureVisual.position, rodTip.position, Mathf.Max(1f, recallSpeed) * Time.deltaTime);
             if (Vector3.Distance(lureVisual.position, rodTip.position) < 0.1f) ResetTool();
         }
@@ -305,6 +424,7 @@ public class LouiseFishingCleaner : MonoBehaviour
 
     void ResetTool()
     {
+        EndPoolFishing();
         state = State.Idle;
         attachedCleaningSeconds = 0f;
         attachedTo = null;
@@ -317,5 +437,10 @@ public class LouiseFishingCleaner : MonoBehaviour
         if (generatedRod != null) generatedRod.gameObject.SetActive(false);
         if (movement != null) movement.PublishLouiseRod(false, transform.position, transform.rotation, transform.position, transform.position);
     }
-    void OnDestroy() { if (visualMaterial != null) Destroy(visualMaterial); }
+    void OnDestroy()
+    {
+        EndPoolFishing();
+        if (fishingCanvas != null) Destroy(fishingCanvas);
+        if (visualMaterial != null) Destroy(visualMaterial);
+    }
 }

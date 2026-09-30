@@ -80,7 +80,7 @@ public class BathroomBlondeMirror : MonoBehaviour
 
     PlayerStatus FindLookingPlayer()
     {
-        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
+        PlayerStatus[] players = FindObjectsByType<PlayerStatus>();
         for (int i = 0; i < players.Length; i++)
         {
             PlayerStatus status = players[i];

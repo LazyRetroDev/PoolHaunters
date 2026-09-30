@@ -619,6 +619,40 @@ public class DirtSpot : NetworkBehaviour
             CleanClientRpc(amount);
     }
 
+    // Called by the authoritative pool-stage result, once per completed fishing stage.
+    public void ApplyFishingCleanTarget(float target)
+    {
+        if (IsCleaned || IsPoolCleaningLocked()) return;
+        target = Mathf.Clamp01(Mathf.Max(target, 1f - GetDirtPercent()));
+        EnsureSurfaceMask();
+        if (surfacePixels != null)
+        {
+            int desired = Mathf.CeilToInt(target * surfacePixels.Length);
+            for (int i = 0; i < surfacePixels.Length && surfaceCleanCount < desired; i++)
+            {
+                if (surfacePixels[i].r == 255) continue;
+                surfacePixels[i] = new Color32(255, 255, 255, 255);
+                surfaceCleanCount++;
+            }
+            surfaceUploadPending = true;
+        }
+        if (nodeIsClean != null)
+        {
+            int desired = Mathf.CeilToInt(target * totalNodes);
+            for (int i = 0; i < totalNodes && cleanedNodes < desired; i++)
+                if (!nodeIsClean[i]) { nodeIsClean[i] = true; cleanedNodes++; }
+        }
+        currentCleanPercentage = Mathf.Max(currentCleanPercentage, target);
+        currentDirt = maxDirt * (1f - target);
+        UpdateVisualState();
+        if (target >= 0.9999f)
+        {
+            MarkCleaned();
+            if (gameObject.activeInHierarchy && !isFadingOut)
+                StartCoroutine(FadeOutAndDestroy());
+        }
+    }
+
     void ApplyCleanLocal(float amount)
     {
         if (amount <= 0f || currentDirt <= 0f || isFadingOut) return;
@@ -847,7 +881,7 @@ public class DirtSpot : NetworkBehaviour
         return IsFiniteFloat(value) && value > 0f;
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void CleanServerRpc(float amount)
     {
         if (!HasValidAmount(amount))
@@ -859,12 +893,12 @@ public class DirtSpot : NetworkBehaviour
         CleanClientRpc(amount);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void CleanAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,
         float amount,
-        ServerRpcParams rpcParams = default)
+        RpcParams rpcParams = default)
     {
         if (!IsFiniteVector3(worldPoint) ||
             !HasValidAmount(worldRadius) ||
@@ -886,7 +920,7 @@ public class DirtSpot : NetworkBehaviour
         CleanAtWorldPointClientRpc(worldPoint, worldRadius, amount);
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     void ApplyContaminatedWaterAtWorldPointServerRpc(
         Vector3 worldPoint,
         float worldRadius,

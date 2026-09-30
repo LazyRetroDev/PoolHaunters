@@ -76,10 +76,11 @@ public class ElectricPoolPowerDevice : PoolWaterReactive, IPlayerInteractable
         if (pool != null) pool.ApplyRemotePowerState(state, remaining);
     }
 
-    void OnDestroy()
+    public override void OnDestroy()
     {
         if (registeredManager != null && registeredManager.CustomMessagingManager != null && messageKey != null)
             registeredManager.CustomMessagingManager.UnregisterNamedMessageHandler(messageKey);
+        base.OnDestroy();
     }
 
     public void BindPool(ElectricSwimmingPoolMechanic owningPool)

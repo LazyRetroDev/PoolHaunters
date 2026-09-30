@@ -146,8 +146,7 @@ public class CursedSwimmingPoolMechanic : MonoBehaviour
         yield return null;
 
         RoomGenerator[] generators = FindObjectsByType<RoomGenerator>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude);
 
         for (int i = 0; i < generators.Length; i++)
         {

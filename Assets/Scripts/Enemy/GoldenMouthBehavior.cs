@@ -530,8 +530,7 @@ public class GoldenMouthBehavior : MonoBehaviour
     {
         observer = null;
         PlayerStatus[] players = FindObjectsByType<PlayerStatus>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude);
 
         float bestDistance = float.PositiveInfinity;
         for (int i = 0; i < players.Length; i++)
@@ -669,8 +668,7 @@ public class GoldenMouthBehavior : MonoBehaviour
             return;
 
         PlayerStatus[] players = FindObjectsByType<PlayerStatus>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude);
         int attempts = Mathf.Max(1, hiddenSpawnAttempts);
         float minDistance = Mathf.Max(0f, hiddenSpawnMinDistance);
         float maxDistance = Mathf.Max(minDistance + 0.1f, hiddenSpawnMaxDistance);

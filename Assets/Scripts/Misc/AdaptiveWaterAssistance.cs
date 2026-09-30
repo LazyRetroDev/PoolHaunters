@@ -33,7 +33,7 @@ public class AdaptiveWaterAssistance : MonoBehaviour
         nextCheck = Time.time + 2f;
         if (objectives == null || !objectives.WaterValveActivated || objectives.LevelCompleted) return;
 
-        var players = FindObjectsByType<PlayerStatus>(FindObjectsSortMode.None);
+        var players = FindObjectsByType<PlayerStatus>();
         foreach (var player in players)
             if (observed.Add(player)) player.OnKnockedOut += OnKnockout;
 
@@ -61,7 +61,7 @@ public class AdaptiveWaterAssistance : MonoBehaviour
             if (usable <= lowest) { lowest = usable; recipient = player; }
         }
         if (recipient == null) return;
-        foreach (var source in FindObjectsByType<WaterSourceDryable>(FindObjectsSortMode.None))
+        foreach (var source in FindObjectsByType<WaterSourceDryable>())
             if (source.HasWater && source.waterQuality != WaterQuality.Contaminated &&
                 source.currentWaterAmount >= recipient.maxWater * recoveryFraction &&
                 (source.transform.position - recipient.transform.position).sqrMagnitude < 144f)

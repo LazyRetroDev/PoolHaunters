@@ -16,7 +16,7 @@ public class PhysicalLobbyZone : MonoBehaviour
     void Awake()
     {
         if (lobbyManager == null)
-            lobbyManager = FindFirstObjectByType<PhysicalLobbyManager>();
+            lobbyManager = FindAnyObjectByType<PhysicalLobbyManager>();
     }
 
     void OnTriggerEnter(Collider other)
@@ -26,7 +26,7 @@ public class PhysicalLobbyZone : MonoBehaviour
             return;
 
         if (lobbyManager == null)
-            lobbyManager = FindFirstObjectByType<PhysicalLobbyManager>();
+            lobbyManager = FindAnyObjectByType<PhysicalLobbyManager>();
 
         if (lobbyManager != null)
             lobbyManager.RegisterPlayerInLobby(player);

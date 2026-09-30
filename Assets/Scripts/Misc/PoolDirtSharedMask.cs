@@ -59,6 +59,20 @@ public sealed class PoolDirtSharedMask : MonoBehaviour
         return coverageMask != null && dirtRenderers.Contains(dirtRenderer);
     }
 
+    public void ApplyFishingCleanFraction(float fraction)
+    {
+        EnsureInitialized();
+        if (pixels == null) return;
+        int remaining = Mathf.CeilToInt(Mathf.Clamp01(fraction) * pixels.Length);
+        for (int i = 0; i < pixels.Length && remaining > 0; i++)
+        {
+            if (pixels[i].r == 255) continue;
+            pixels[i] = new Color32(255, 255, 255, 255);
+            remaining--;
+        }
+        uploadPending = true;
+    }
+
     public void EnsureInitialized()
     {
         if (initialized && coverageMask != null)

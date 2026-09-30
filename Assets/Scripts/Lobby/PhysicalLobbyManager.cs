@@ -382,20 +382,20 @@ public class PhysicalLobbyManager : NetworkBehaviour
         return new FixedString128Bytes(string.IsNullOrWhiteSpace(value) ? string.Empty : value);
     }
 
-    [ServerRpc(RequireOwnership = false)]
-    void SetReadyServerRpc(bool ready, ServerRpcParams serverRpcParams = default)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    void SetReadyServerRpc(bool ready, RpcParams serverRpcParams = default)
     {
         ApplyReady(serverRpcParams.Receive.SenderClientId, ready);
     }
 
-    [ServerRpc(RequireOwnership = false)]
-    void TryStartRunServerRpc(ServerRpcParams serverRpcParams = default)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    void TryStartRunServerRpc(RpcParams serverRpcParams = default)
     {
         TryStartRunServerSide(serverRpcParams.Receive.SenderClientId);
     }
 
-    [ServerRpc(RequireOwnership = false)]
-    void SetPlayerInLobbyServerRpc(bool inLobby, ServerRpcParams serverRpcParams = default)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    void SetPlayerInLobbyServerRpc(bool inLobby, RpcParams serverRpcParams = default)
     {
         ulong clientId = serverRpcParams.Receive.SenderClientId;
         EnsureClientTracked(clientId);

@@ -72,7 +72,7 @@ public class ContaminationStormController : MonoBehaviour
     void Start()
     {
         if (roomGenerator == null)
-            roomGenerator = FindObjectOfType<RoomGenerator>();
+            roomGenerator = FindAnyObjectByType<RoomGenerator>();
 
         CacheRoomGeneratorField();
         ResetSpreadTimerForStormStart();
@@ -183,7 +183,7 @@ public class ContaminationStormController : MonoBehaviour
         if (useRoomGeneratorOrder && TryReadRoomsFromGenerator())
             return;
 
-        RoomDefinition[] definitions = FindObjectsOfType<RoomDefinition>(includeInactiveRooms);
+        RoomDefinition[] definitions = FindObjectsByType<RoomDefinition>(includeInactiveRooms ? FindObjectsInactive.Include : FindObjectsInactive.Exclude);
         List<RoomDefinition> sortedDefinitions = new List<RoomDefinition>(definitions);
         sortedDefinitions.Sort(CompareRoomsForFallbackOrder);
 
@@ -197,7 +197,7 @@ public class ContaminationStormController : MonoBehaviour
     bool TryReadRoomsFromGenerator()
     {
         if (roomGenerator == null)
-            roomGenerator = FindObjectOfType<RoomGenerator>();
+            roomGenerator = FindAnyObjectByType<RoomGenerator>();
 
         if (roomGenerator == null)
             return false;

@@ -238,8 +238,7 @@ public class TimeCamper : NetworkBehaviour
 
         PlayerStatus[] players =
             FindObjectsByType<PlayerStatus>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
 
         float maxSqrDistance = observationDistance * observationDistance;
         for (int i = 0; i < players.Length; i++)
@@ -438,8 +437,7 @@ public class TimeCamper : NetworkBehaviour
     {
         PlayerStatus[] players =
             FindObjectsByType<PlayerStatus>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
 
         for (int i = 0; i < players.Length; i++)
         {

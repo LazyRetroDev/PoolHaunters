@@ -38,7 +38,7 @@ public class ControllerButtonIcon : MaskableGraphic
             caption.alignment = TextAlignmentOptions.Center;
             caption.fontStyle = FontStyles.Bold;
             caption.raycastTarget = false;
-            caption.enableWordWrapping = false;
+            caption.textWrappingMode = TextWrappingModes.NoWrap;
         }
         RefreshIcon();
     }

@@ -308,7 +308,7 @@ public class PauseMenuController : MonoBehaviour
                     return localStatus;
             }
 
-            PlayerStatus[] players = FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            PlayerStatus[] players = FindObjectsByType<PlayerStatus>(FindObjectsInactive.Exclude);
             for (int i = 0; i < players.Length; i++)
             {
                 if (players[i] != null && players[i].IsOwner)
@@ -316,7 +316,7 @@ public class PauseMenuController : MonoBehaviour
             }
         }
 
-        return FindFirstObjectByType<PlayerStatus>();
+        return FindAnyObjectByType<PlayerStatus>();
     }
 
     bool IsMultiplayerSessionRunning()
@@ -1123,7 +1123,7 @@ public class PauseMenuController : MonoBehaviour
         TMP_Text label = CreateText(parent, text);
         label.fontSize = 42f;
         label.alignment = TextAlignmentOptions.Center;
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.overflowMode = TextOverflowModes.Ellipsis;
     }
 
@@ -1136,7 +1136,7 @@ public class PauseMenuController : MonoBehaviour
         label.color = new Color(0.84f, 0.95f, 0.92f, 1f);
         label.fontSize = 24f;
         label.alignment = TextAlignmentOptions.Left;
-        label.enableWordWrapping = true;
+        label.textWrappingMode = TextWrappingModes.Normal;
         label.raycastTarget = false;
         AddLayout(textObject, 48f);
         return label;
@@ -1183,7 +1183,7 @@ public class PauseMenuController : MonoBehaviour
         labelRect.offsetMax = Vector2.zero;
         label.alignment = TextAlignmentOptions.Center;
         label.fontSize = 24f;
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.enableAutoSizing = true;
         label.fontSizeMin = 16f;
         label.fontSizeMax = 24f;
@@ -1213,7 +1213,7 @@ public class PauseMenuController : MonoBehaviour
         labelRect.offsetMax = Vector2.zero;
         label.alignment = TextAlignmentOptions.Center;
         label.fontSize = 22f;
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.enableAutoSizing = true;
         label.fontSizeMin = 14f;
         label.fontSizeMax = 22f;
@@ -1311,7 +1311,7 @@ public class PauseMenuController : MonoBehaviour
         AddLayout(row, 48f);
 
         TMP_Text label = CreateText(row.transform, labelText);
-        label.enableWordWrapping = false;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         label.overflowMode = TextOverflowModes.Ellipsis;
         LayoutElement labelLayout = label.GetComponent<LayoutElement>();
         labelLayout.flexibleWidth = 1f;
@@ -1451,7 +1451,7 @@ public class PauseMenuController : MonoBehaviour
 
     void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
+        if (FindAnyObjectByType<EventSystem>() != null)
             return;
 
         GameObject eventSystemObject = new GameObject("EventSystem");

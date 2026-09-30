@@ -627,8 +627,7 @@ public sealed class MonsterEncounterDirector : MonoBehaviour
     PlayerStatus[] FindValidPlayers()
     {
         PlayerStatus[] found = FindObjectsByType<PlayerStatus>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude);
         List<PlayerStatus> valid = new List<PlayerStatus>();
         for (int i = 0; i < found.Length; i++)
         {

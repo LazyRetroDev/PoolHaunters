@@ -72,7 +72,7 @@ public class DiscoveredRoomMinimap : MonoBehaviour
         if (Time.unscaledTime >= nextPlayerRefresh)
         {
             nextPlayerRefresh = Time.unscaledTime + 0.5f;
-            mapPlayers = FindObjectsByType<PlayerStatus>(FindObjectsSortMode.None);
+            mapPlayers = FindObjectsByType<PlayerStatus>();
         }
         UpdateTeammates();
         if (updatePlayerMarker)

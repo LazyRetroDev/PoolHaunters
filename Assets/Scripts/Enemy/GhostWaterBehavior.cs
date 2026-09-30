@@ -132,7 +132,7 @@ public class GhostWaterBehavior : MonoBehaviour
 
     void UpdateTarget()
     {
-        PlayerStatus[] players = FindObjectsOfType<PlayerStatus>();
+        PlayerStatus[] players = FindObjectsByType<PlayerStatus>();
         float bestDistance = float.PositiveInfinity;
         targetPlayer = null;
         targetStatus = null;
